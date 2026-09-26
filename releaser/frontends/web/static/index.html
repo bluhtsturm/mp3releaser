@@ -1,0 +1,444 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mp3releaser</title>
+<style>
+  :root {
+    --bg: #14181d; --panel: #1c222a; --line: #2b333d;
+    --text: #e6edf3; --dim: #8b98a5; --accent: #7bdcb5; --warn: #f0b429;
+    --error: #f2777a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 system-ui, sans-serif; height: 100vh;
+    display: flex; flex-direction: column;
+  }
+  header {
+    display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    padding: 10px 14px; border-bottom: 1px solid var(--line);
+    background: var(--panel);
+  }
+  header h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 600; }
+  header .spacer { flex: 1; }
+  button, select {
+    background: #263039; color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--accent); }
+  button:disabled { opacity: .38; cursor: not-allowed; }
+  button.primary { background: var(--accent); color: #10161c; font-weight: 600; }
+  main { flex: 1; display: flex; min-height: 0; }
+  #browser {
+    width: 340px; border-right: 1px solid var(--line); display: flex;
+    flex-direction: column; background: var(--panel);
+  }
+  #crumbs { padding: 8px 12px; border-bottom: 1px solid var(--line);
+            color: var(--dim); font-size: 12px; word-break: break-all; }
+  #entries { flex: 1; overflow: auto; }
+  .entry {
+    display: flex; gap: 8px; align-items: center; padding: 7px 12px;
+    cursor: pointer; border-bottom: 1px solid rgba(255,255,255,.03);
+  }
+  .entry:hover { background: #222a33; }
+  .entry.selected { background: #2b3a42; }
+  .entry .count { margin-left: auto; color: var(--dim); font-size: 12px; }
+  .entry .icon { width: 18px; text-align: center; }
+  .entry.release .icon { color: var(--accent); }
+  #scope { padding: 8px 12px; border-top: 1px solid var(--line);
+           color: var(--dim); font-size: 12px; }
+  #right { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+  #tabs { display: flex; gap: 4px; padding: 8px 12px 0;
+          border-bottom: 1px solid var(--line); }
+  .tab { border-radius: 6px 6px 0 0; border-bottom: none; }
+  .tab.active { background: var(--accent); color: #10161c; font-weight: 600; }
+  .panel { flex: 1; overflow: auto; padding: 16px 20px; }
+  .panel.hidden { display: none; }
+  .grid.names { grid-template-columns: 180px 1fr; }
+  .hint { color: var(--dim); font-size: 12px; }
+  #namelist { font-family: ui-monospace, monospace; font-size: 12px;
+              white-space: pre-wrap; background: var(--panel);
+              border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  /* Kein Umbruch: die Vorlage ist spaltengenau */
+  #nfotext { font-family: ui-monospace, monospace; font-size: 12px;
+             white-space: pre; overflow-x: auto; background: var(--panel);
+             border: 1px solid var(--line); border-radius: 8px; padding: 12px;
+             line-height: 1.25; }
+  details { margin-bottom: 14px; border: 1px solid var(--line);
+            border-radius: 8px; background: var(--panel); }
+  summary { padding: 9px 12px; cursor: pointer; font-weight: 600; }
+  .grid { display: grid; grid-template-columns: 160px 1fr 70px 150px;
+          gap: 8px 10px; padding: 10px 12px 14px; align-items: center; }
+  .grid label { color: var(--dim); }
+  .grid input {
+    background: #10151a; color: var(--text); border: 1px solid var(--line);
+    border-radius: 5px; padding: 6px 8px; font: inherit; width: 100%;
+  }
+  .grid input:focus { outline: 1px solid var(--accent); }
+  .grid input.over { border-color: var(--error); }
+  .counter { color: var(--dim); font-size: 12px; text-align: right; }
+  .counter.over { color: var(--error); }
+  .origin { color: var(--dim); font-size: 12px; }
+  footer { border-top: 1px solid var(--line); background: var(--panel);
+           padding: 8px 14px; }
+  #status { color: var(--dim); font-size: 13px; }
+  #messages { max-height: 150px; overflow: auto; margin-top: 6px;
+              font-family: ui-monospace, monospace; font-size: 12px; }
+  .msg.warning { color: var(--warn); }
+  .msg.error { color: var(--error); }
+  dialog {
+    background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 10px; padding: 0; width: min(780px, 92vw);
+  }
+  dialog h2 { margin: 0; padding: 14px 18px; border-bottom: 1px solid var(--line);
+              font-size: 15px; }
+  dialog pre { margin: 0; padding: 14px 18px; max-height: 55vh; overflow: auto;
+               font-size: 12px; white-space: pre-wrap; }
+  dialog .actions { display: flex; gap: 8px; justify-content: flex-end;
+                    padding: 12px 18px; border-top: 1px solid var(--line); }
+  .banner { padding: 8px 14px; background: #2a2118; color: var(--warn);
+            font-size: 12px; border-bottom: 1px solid var(--line); }
+</style>
+</head>
+<body>
+<header>
+  <h1>mp3releaser</h1>
+  <button id="up">↑ eine Ebene</button>
+  <button id="load">Einlesen</button>
+  <select id="template"><option value="">Vorlage …</option></select>
+  <span class="spacer"></span>
+  <button id="undo" title="Letzte Umbenennung zurücknehmen">↶</button>
+  <button id="check">Prüfen</button>
+  <button id="tags">Tags …</button>
+  <button id="rename">Umbenennen …</button>
+  <button id="build" class="primary">Dateien erzeugen</button>
+</header>
+
+<div class="banner" id="banner"></div>
+
+<main>
+  <section id="browser">
+    <div id="crumbs">—</div>
+    <div id="entries"></div>
+    <div id="scope"></div>
+  </section>
+  <section id="right">
+    <nav id="tabs">
+      <button class="tab active" data-tab="fields">Felder</button>
+      <button class="tab" data-tab="names">Namen</button>
+      <button class="tab" data-tab="nfo">NFO</button>
+    </nav>
+    <div id="form" class="panel"></div>
+    <div id="names" class="panel hidden">
+      <div class="grid names">
+        <label>Verzeichnismuster</label><input id="p-dir">
+        <label>Dateimuster</label><input id="p-file">
+        <label>Gruppe</label><input id="p-group">
+        <label>Verzeichnis</label><input id="p-dirname">
+      </div>
+      <p class="hint">Tags: #Artist #Album #Year #Source #Fmt #Grp ·
+         Dateien: #N #Trk #Cd. #Fmt setzt FLAC, AAC oder ATMOS ein —
+         bei MP3 nichts. Ein Verzeichnisname ohne Tags gilt wörtlich.</p>
+      <p class="hint" id="companions"></p>
+      <pre id="namelist"></pre>
+    </div>
+    <div id="nfo" class="panel hidden">
+      <pre id="nfotext"></pre>
+      <p class="hint" id="nfostatus"></p>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div id="status">Kein Release geladen</div>
+  <div id="messages"></div>
+</footer>
+
+<dialog id="plan">
+  <h2 id="planTitle">Plan</h2>
+  <pre id="planText"></pre>
+  <div class="actions">
+    <button id="planCancel">Abbrechen</button>
+    <button id="planApply" class="primary">Ausführen</button>
+  </div>
+</dialog>
+
+<script>
+const ICONS = { release: "♪", directory: "▸", audio: "·", companion: "≡",
+                cover: "▣", cue: "≡", other: "·" };
+let current = null;
+let pendingPlan = null;
+
+async function call(url, body) {
+  const options = { method: body === undefined ? "GET" : "POST",
+                    headers: { "Content-Type": "application/json" } };
+  if (body !== undefined) options.body = JSON.stringify(body);
+  const response = await fetch(url, options);
+  if (!response.ok) {
+    const detail = await response.json().catch(() => ({ detail: response.statusText }));
+    note("error", detail.detail || "Fehler");
+    return null;
+  }
+  return response.json();
+}
+
+function note(level, text) {
+  const box = document.getElementById("messages");
+  const line = document.createElement("div");
+  line.className = "msg " + level;
+  line.textContent = (level === "error" ? "x " : level === "warning" ? "! " : "") + text;
+  box.appendChild(line);
+  box.scrollTop = box.scrollHeight;
+}
+
+function render(state) {
+  if (!state) return;
+  current = state;
+
+  document.getElementById("crumbs").textContent = state.current_path || "(Wurzel)";
+  const list = document.getElementById("entries");
+  list.replaceChildren();
+  for (const entry of state.entries) {
+    const row = document.createElement("div");
+    row.className = "entry " + entry.kind
+      + (entry.path === state.selected_path ? " selected" : "");
+    row.innerHTML = `<span class="icon">${ICONS[entry.kind] || "·"}</span>`;
+    const name = document.createElement("span");
+    name.textContent = entry.name;
+    row.appendChild(name);
+    if (entry.audio_files) {
+      const count = document.createElement("span");
+      count.className = "count";
+      count.textContent = entry.audio_files;
+      row.appendChild(count);
+    }
+    row.onclick = () => call("/api/select", { path: entry.path }).then(render);
+    row.ondblclick = () => {
+      if (entry.is_dir) call("/api/browse", { path: entry.path }).then(render);
+    };
+    list.appendChild(row);
+  }
+
+  const form = document.getElementById("form");
+  form.replaceChildren();
+  if (!state.loaded) {
+    form.innerHTML = '<p style="color:var(--dim)">Links einen Ordner wählen '
+      + 'und auf „Einlesen“ klicken.</p>';
+  }
+  for (const group of state.groups) {
+    const box = document.createElement("details");
+    box.open = group.title !== "nicht verwendet";
+    const head = document.createElement("summary");
+    head.textContent = `${group.title} (${group.fields.length})`;
+    box.appendChild(head);
+
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (const field of group.fields) {
+      const label = document.createElement("label");
+      label.textContent = field.label;
+      const input = document.createElement("input");
+      input.value = field.value;
+      input.placeholder = field.hint || "";
+      if (field.width) input.title = `${field.width} Zeichen Platz in der Vorlage`;
+      const counter = document.createElement("div");
+      counter.className = "counter";
+      const origin = document.createElement("div");
+      origin.className = "origin";
+      origin.textContent = field.origin || "";
+
+      const update = () => {
+        const length = input.value.length;
+        counter.textContent = field.width ? `${length}/${field.width}`
+                                          : (length || "");
+        const over = field.width && length > field.width;
+        counter.classList.toggle("over", !!over);
+        input.classList.toggle("over", !!over);
+      };
+      update();
+      input.oninput = update;
+      input.onchange = () =>
+        call("/api/field", { name: field.name, value: input.value }).then(render);
+
+      grid.append(label, input, counter, origin);
+    }
+    box.appendChild(grid);
+    form.appendChild(box);
+  }
+
+  renderNames(state);
+  refreshNfo();
+
+  document.getElementById("status").textContent = state.status;
+  for (const message of state.messages) note(message.level, message.text);
+
+  const enabled = state.enabled;
+  document.getElementById("load").disabled = !enabled.open;
+  document.getElementById("tags").disabled = !enabled.preview_tags;
+  document.getElementById("rename").disabled = !enabled.preview_rename;
+  document.getElementById("build").disabled = !enabled.build;
+  document.getElementById("up").disabled = !state.current_path;
+}
+
+let nfoPending = false;
+async function refreshNfo() {
+  // Nur laden, wenn der Reiter sichtbar ist - die Datei ist einige Kilobyte
+  if (document.getElementById("nfo").classList.contains("hidden")) return;
+  if (nfoPending) return;
+  nfoPending = true;
+  const data = await call("/api/nfo").finally(() => { nfoPending = false; });
+  if (!data) return;
+  document.getElementById("nfotext").textContent = data.text;
+  const status = document.getElementById("nfostatus");
+  status.textContent = data.template
+    ? `${data.lines} Zeilen, breiteste ${data.width} Zeichen · Vorlage: `
+      + data.template
+      + (data.overflows.length
+         ? `   ·   ${data.overflows.length} Feld(er) werden abgeschnitten` : "")
+      + (data.truncated_tracks.length
+         ? `   ·   ${data.truncated_tracks.length} Tracktitel werden `
+           + "abgeschnitten (Vorlage ohne Fortsetzungszeile)" : "")
+    : "";
+}
+
+function renderNames(state) {
+  const names = state.names || {};
+  const set = (id, value) => {
+    const field = document.getElementById(id);
+    if (field !== document.activeElement) field.value = value ?? "";
+  };
+  set("p-dir", names.dir_pattern);
+  set("p-file", names.file_pattern);
+  set("p-group", names.group);
+  set("p-dirname", names.directory ? names.directory[1] : "");
+
+  const companions = document.getElementById("companions");
+  companions.textContent = names.companions && names.companions.length
+    ? "Erzeugt: " + names.companions.join(", ")
+      + (names.covers && names.covers.length
+         ? "   ·   Bild erkannt: " + names.covers.join(", ") : "")
+    : "";
+
+  const list = document.getElementById("namelist");
+  if (!names.directory) { list.textContent = "Kein Release geladen."; return; }
+  const width = Math.max(0, ...(names.files || []).map(([old]) => old.length));
+  const lines = [`${names.directory[0]}  ->  ${names.directory[1]}`, ""];
+  for (const [old, now] of names.files || [])
+    lines.push(`  ${old.padEnd(width)}  ->  ${now}`);
+  for (const bad of names.collisions || []) lines.push(`  Kollision: ${bad}`);
+  list.textContent = lines.join("\n");
+}
+
+for (const tab of document.querySelectorAll(".tab")) {
+  tab.onclick = () => {
+    for (const other of document.querySelectorAll(".tab"))
+      other.classList.toggle("active", other === tab);
+    document.getElementById("form").classList.toggle("hidden",
+                                                     tab.dataset.tab !== "fields");
+    document.getElementById("names").classList.toggle("hidden",
+                                                      tab.dataset.tab !== "names");
+    document.getElementById("nfo").classList.toggle("hidden",
+                                                    tab.dataset.tab !== "nfo");
+    refreshNfo();
+  };
+}
+
+for (const [id, which] of [["p-dir", "dir"], ["p-file", "file"],
+                           ["p-group", "group"], ["p-dirname", "dirname"]]) {
+  document.getElementById(id).onchange = event =>
+    call("/api/pattern", { which, value: event.target.value }).then(render);
+}
+
+function showPlan(payload, kind) {
+  render(payload);
+  const plan = payload.plan;
+  if (!plan || !plan.changes) return;
+  pendingPlan = kind;
+  document.getElementById("planTitle").textContent =
+    kind === "tags" ? "Tags schreiben" : "Umbenennen";
+  document.getElementById("planText").textContent = plan.text;
+  document.getElementById("planApply").disabled = !plan.safe;
+  document.getElementById("plan").showModal();
+}
+
+document.getElementById("up").onclick = () => {
+  const path = current && current.current_path;
+  const parent = path && path.includes("/")
+    ? path.slice(0, path.lastIndexOf("/")) : null;
+  call("/api/browse", { path: parent }).then(render);
+};
+document.getElementById("load").onclick = () =>
+  call("/api/load", { path: current.selected_path }).then(render);
+document.getElementById("tags").onclick = () =>
+  call("/api/plan/tags", {}).then(p => showPlan(p, "tags"));
+document.getElementById("rename").onclick = () =>
+  call("/api/plan/rename", {}).then(p => showPlan(p, "rename"));
+document.getElementById("build").onclick = () =>
+  call("/api/build", {}).then(payload => {
+    render(payload);
+    for (const name of payload.created || []) note("info", "erzeugt: " + name);
+  });
+document.getElementById("check").onclick = async () => {
+  const what = current && current.loaded ? "release" : "template";
+  const data = await call(`/api/check?what=${what}`);
+  if (!data) return;
+  for (const message of data.messages || []) note(message.level, message.text);
+  if (!data.text) return;
+  pendingPlan = null;
+  document.getElementById("planTitle").textContent =
+    what === "release" ? "Release geprüft" : "Vorlage geprüft";
+  document.getElementById("planText").textContent = data.text;
+  document.getElementById("planApply").style.display = "none";
+  document.getElementById("plan").showModal();
+};
+
+document.getElementById("undo").onclick = async () => {
+  const data = await call("/api/undo");
+  if (!data) return;
+  if (!data.entries.length) { note("warning", "Nichts rückgängig zu machen."); return; }
+  const last = data.entries[data.entries.length - 1];
+  pendingPlan = "undo";
+  document.getElementById("planTitle").textContent = "Umbenennung zurücknehmen";
+  document.getElementById("planText").textContent =
+    `${last.when}  ${last.release}  (${last.count} Umbenennungen)`;
+  document.getElementById("planApply").style.display = "";
+  document.getElementById("plan").showModal();
+};
+
+document.getElementById("template").onchange = event => {
+  if (event.target.value) call("/api/template", { name: event.target.value }).then(render);
+};
+document.getElementById("planCancel").onclick = () =>
+  document.getElementById("plan").close();
+document.getElementById("planApply").onclick = () => {
+  document.getElementById("plan").close();
+  if (!pendingPlan) return;
+  const url = pendingPlan === "undo" ? "/api/undo" : "/api/apply/" + pendingPlan;
+  call(url, {}).then(render);
+};
+
+async function start() {
+  const info = await call("/api/info");
+  if (info) {
+    const mounts = (info.mounts.mounts || [])
+      .map(m => m.name + (m.writable ? "" : " (nur lesen)")).join(", ");
+    document.getElementById("scope").textContent =
+      "Sichtbar: " + info.mounts.scope;
+    document.getElementById("banner").textContent =
+      "Diese Fassung sieht nur die eingehängten Ordner: " + (mounts || "keine")
+      + ". Was hier eingegeben wird, liegt auf dem Server, nicht auf diesem Rechner.";
+    const select = document.getElementById("template");
+    for (const name of info.templates) {
+      const option = document.createElement("option");
+      option.value = option.textContent = name;
+      select.appendChild(option);
+    }
+  }
+  render(await call("/api/state"));
+}
+start();
+</script>
+</body>
+</html>

@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mp3releaser"
+version = "0.21.2"
+description = "Linux-Reimplementierung von MP3 Releaser 3.9"
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = ["mutagen>=1.45"]
+
+[project.optional-dependencies]
+gui = ["PyGObject>=3.42"]
+web = ["fastapi>=0.110", "uvicorn>=0.27"]
+dev = ["pytest>=7", "pyflakes>=3"]
+
+[project.scripts]
+releaser = "releaser.cli:main"
+mp3releaser = "releaser.cli:main"
+
+[project.gui-scripts]
+releaser-gui = "releaser.frontends.gtkui:main"
+
+[tool.setuptools]
+packages = ["releaser", "releaser.audio", "releaser.frontends",
+            "releaser.frontends.web"]
+
+[tool.setuptools.package-data]
+releaser = ["py.typed"]
+"releaser.frontends.web" = ["static/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+filterwarnings = ["ignore::DeprecationWarning"]

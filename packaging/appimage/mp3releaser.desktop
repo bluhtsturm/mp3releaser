@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=mp3releaser
+Comment=Release-Verzeichnisse benennen, taggen und beschreiben
+Exec=mp3releaser
+Icon=mp3releaser
+Categories=AudioVideo;Audio;Utility;
+Terminal=false
+StartupNotify=true
+Keywords=audio;mp3;flac;tags;nfo;sfv;m3u;

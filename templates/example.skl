@@ -1,0 +1,40 @@
++----------------------------------------------------------------------------+
+|                                                                            |
+|  #Release                                                                  |
+|  #CntUrl                                                                   |
+|                                                                            |
++----------------------------------------------------------------------------+
+|                                                                            |
+|   Artist      : #Artist                                                    |
+|   Album       : #Album                                                     |
+|   Genre       : #Genre                                                     |
+|   Year        : #Year                                                      |
+|   Ripper      : #Rip                                                       |
+|   Supplier    : #Sup                                                       |
+|   Encoder     : #Enc                                                       |
+|   Quality     : #Br                                                        |
+|   Samplerate  : #Hz kHz                                                    |
+|   Mode        : #Mode                                                      |
+|   Format      : #Format                                                    |
+|   Source      : #Source                                                    |
+|   Type        : #Typ                                                       |
+|   Tracks      : #Tn                                                        |
+|   Per disc    : #Sn                                                        |
+|   Playtime    : #Tpti                                                      |
+|   Company     : #Company                                                   |
+|   Catalog     : #Catnr                                                     |
+|   Size        : Size# MB                                                   |
+|                                                                            |
++---------------------------------[ notes ]----------------------------------+
+|                                                                            |
+|   #Rnotes                                                                  |
+|   #Rnotes                                                                  |
+|                                                                            |
++-------------------------------[ tracklist ]--------------------------------+
+|                                                                            |
+|   #N.#Trk                                                        [#Ptit]   |
+|      #Trk                                                                  |
+|                                                                  -------   |
+|                                                                 #hhhTpti   |
+|                                                                 Size# MB   |
++----------------------------------------------------------------------------+

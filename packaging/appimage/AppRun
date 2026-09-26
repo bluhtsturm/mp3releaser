@@ -1,0 +1,21 @@
+#!/bin/sh
+# Einstiegspunkt des AppImage.
+#
+# Bewusst ohne externe Programme: readlink, dirname und basename sind keine
+# Shell-Eingebauten, und ein AppImage soll auch mit einer kaputten oder
+# leeren PATH-Variablen starten. cd und pwd reichen.
+#
+# APPDIR setzt die AppImage-Laufzeit selbst; wer das AppDir direkt startet,
+# bekommt es hier. Die Laufzeitmessung erkennt daran die Auslieferungsform.
+set -eu
+
+HERE=${0%/*}
+[ "$HERE" = "$0" ] && HERE=.
+HERE=$(cd "$HERE" && pwd)
+
+export APPDIR="${APPDIR:-$HERE}"
+export PATH="$HERE/usr/bin${PATH:+:$PATH}"
+
+# GTK kommt vom Wirt, nicht aus dem Buendel - deshalb kein eigener
+# Bibliothekspfad, sonst treffen zwei GTK-Fassungen aufeinander.
+exec "$HERE/usr/bin/mp3releaser" "$@"

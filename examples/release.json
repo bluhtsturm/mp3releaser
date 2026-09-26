@@ -1,0 +1,26 @@
+{
+  "artist": "Beispiel Artist",
+  "album": "Ein Album",
+  "year": 2026,
+  "genre": "Electronic",
+  "release_type": "Album",
+  "source": "CDDA",
+  "audio_format": "MP3",
+  "ripper": "nobody",
+  "encoder": "LAME 3.100 -V0",
+  "url": "https://example.invalid",
+  "bitrate": 320,
+  "samplerate": 44100,
+  "channel_mode": "Joint-Stereo",
+  "notes": ["Erste Notizzeile mit etwas mehr Text, damit der Umbruch sichtbar wird.", "Zweite Zeile."],
+  "settings": {"nfo_charcase": "unchanged", "wrap_tracklist": true},
+  "discs": [
+    {"number": 1, "tracks": [
+      {"no": 1, "title": "Kurzer Titel", "seconds": 215, "size_bytes": 8600000},
+      {"no": 2, "title": "Ein deutlich laengerer Tracktitel der umbrochen werden muss", "seconds": 301, "size_bytes": 12000000}
+    ]},
+    {"number": 2, "title": "Bonus Disc", "tracks": [
+      {"no": 1, "title": "Bonustrack", "seconds": 180, "size_bytes": 7200000}
+    ]}
+  ]
+}

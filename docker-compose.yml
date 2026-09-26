@@ -1,0 +1,40 @@
+# Weboberflaeche.
+#
+# Sichtbar ist ausschliesslich, was hier unter volumes steht. Wer die
+# Oberflaeche benutzt, kann das nicht aendern - das entscheidet, wer den
+# Dienst betreibt. Genau darin unterscheidet sich diese Fassung von der
+# lokalen, die das gesamte Dateisystem des Nutzers sieht.
+services:
+  releaser:
+    build: .
+    image: mp3releaser:latest
+    ports:
+      - "127.0.0.1:8000:8000"      # nur lokal erreichbar
+    environment:
+      # name:pfad[:ro] - mehrere durch Komma getrennt
+      RELEASER_MOUNTS: "eingang:/data/eingang,archiv:/data/archiv:ro"
+    volumes:
+      - ./data/eingang:/data/eingang
+      - ./data/archiv:/data/archiv:ro
+      - ./templates:/app/templates:ro
+    restart: unless-stopped
+    # Der Dienst braucht keine besonderen Rechte.
+    read_only: false
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  # Dieselbe Software als Kommandozeile im selben Container - fuer den
+  # Vergleich der Auslieferungsformen:
+  #   docker compose run --rm cli metrics --json > container.json
+  cli:
+    build: .
+    image: mp3releaser:latest
+    profiles: ["tools"]
+    environment:
+      RELEASER_MOUNTS: "eingang:/data/eingang"
+    volumes:
+      - ./data/eingang:/data/eingang
+    entrypoint: ["python", "-m", "releaser"]
+    command: ["--help"]
