@@ -21,8 +21,9 @@ und ein ZIP zurück. Voller Funktionsumfang geht nur über eingehängte Ordner.
 from __future__ import annotations
 
 import secrets
+import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Optional
 
@@ -41,6 +42,7 @@ except ImportError:                    # pragma: no cover - ohne FastAPI
 from ...browse import AccessError, MountedSource, describe, from_environment
 from ...naming import NamingProfile, format_plan as format_rename_plan
 from ...runtime import as_dict as metrics_dict, collect as collect_metrics
+from ...service import BuildOptions
 from ...tagwriter import TagProfile, format_plan as format_tag_plan
 from ...uistate import AppState
 
@@ -68,18 +70,28 @@ class SessionStore:
     def __init__(self, source: MountedSource, naming: NamingProfile,
                  tags: TagProfile, ttl: float = SESSION_TTL,
                  limit: int = MAX_SESSIONS,
-                 default_template: Optional[Path] = None):
+                 default_template: Optional[Path] = None,
+                 build_options: Optional[BuildOptions] = None):
         self.source = source
         #: wird in jeder neuen Sitzung gleich geladen
         self.default_template = default_template
         self.naming = naming
         self.tags = tags
+        #: Vorlage fuer die Erzeugungsoptionen; jede Sitzung bekommt eine
+        #: eigene Kopie, weil das Laden einer Vorlage sie veraendert
+        self.build_options = build_options or BuildOptions()
         self.ttl = ttl
         self.limit = limit
         self._sessions: dict[str, Session] = {}
+        # FastAPI fuehrt synchrone Endpunkte in einem Thread-Pool aus. Ohne
+        # Sperre konnten zwei gleichzeitige Anfragen das Sitzungsverzeichnis
+        # waehrend des Aufraeumens veraendern ("dictionary changed size
+        # during iteration").
+        self._lock = threading.RLock()
 
     def __len__(self) -> int:
-        return len(self._sessions)
+        with self._lock:
+            return len(self._sessions)
 
     def _expire(self) -> None:
         now = time.monotonic()
@@ -91,28 +103,33 @@ class SessionStore:
             del self._sessions[oldest]
 
     def get(self, key: Optional[str]) -> tuple[str, AppState]:
-        self._expire()
-        if key and key in self._sessions:
-            session = self._sessions[key]
-            session.touched = time.monotonic()
-            return key, session.state
+        with self._lock:
+            self._expire()
+            if key and key in self._sessions:
+                session = self._sessions[key]
+                session.touched = time.monotonic()
+                return key, session.state
 
-        key = secrets.token_urlsafe(16)
-        # Das Protokoll liegt einmal auf dem Server und gehoert allen
-        # Sitzungen gemeinsam. Rueckgaengig darf jede aber nur das eigene.
-        state = AppState(source=self.source,
-                         naming=self.naming, tags=self.tags,
-                         undo_scope="session")
-        if self.default_template is not None:
-            state.load_template(self.default_template)
-            state.clear_messages()
-        state.show_roots()
-        self._sessions[key] = Session(state)
-        self._expire()
-        return key, state
+            key = secrets.token_urlsafe(16)
+            # Das Protokoll liegt einmal auf dem Server und gehoert allen
+            # Sitzungen gemeinsam. Rueckgaengig darf jede aber nur das eigene.
+            state = AppState(source=self.source,
+                             naming=self.naming, tags=self.tags,
+                             build_options=replace(self.build_options),
+                             undo_scope="session")
+            if self.default_template is not None:
+                state.load_template(self.default_template)
+                state.clear_messages()
+            state.show_roots()
+            self._sessions[key] = Session(state)
+            self._expire()
+            return key, state
 
     def drop(self, key: Optional[str]) -> bool:
-        return self._sessions.pop(key, None) is not None if key else False
+        if not key:
+            return False
+        with self._lock:
+            return self._sessions.pop(key, None) is not None
 
 
 # ------------------------------------------------------------- Darstellung
@@ -181,7 +198,8 @@ def state_json(state: AppState) -> dict:
 def create_app(source: Optional[MountedSource] = None,
                naming: Optional[NamingProfile] = None,
                tags: Optional[TagProfile] = None,
-               templates_dir: Optional[Path] = None):
+               templates_dir: Optional[Path] = None,
+               build_options: Optional[BuildOptions] = None):
     """Baut die Anwendung. Ohne Quelle werden die eingehängten Ordner gelesen."""
     if not FASTAPI_AVAILABLE:
         raise RuntimeError(requirements_hint())
@@ -200,7 +218,8 @@ def create_app(source: Optional[MountedSource] = None,
     elif templates is None:
         preloaded = bundled_template()
     store = SessionStore(resolved, naming or naming_from_config(),
-                         tags or TagProfile(), default_template=preloaded)
+                         tags or TagProfile(), default_template=preloaded,
+                         build_options=build_options)
 
     app = FastAPI(title="mp3releaser", docs_url="/api/docs")
     app.state.store = store
@@ -271,7 +290,8 @@ def create_app(source: Optional[MountedSource] = None,
         if templates is None:
             raise HTTPException(404, "keine Vorlagen eingehängt")
         # Nur Dateinamen, keine Pfade - sonst waere das ein Weg nach draussen.
-        if "/" in name or "\\" in name or name.startswith("."):
+        if ("/" in name or "\\" in name or "\x00" in name
+                or name.startswith(".")):
             raise HTTPException(400, "unzulässiger Vorlagenname")
         candidate = templates / name
         if not candidate.is_file():
@@ -326,7 +346,9 @@ def create_app(source: Optional[MountedSource] = None,
         state = session(response, releaser_session)
         return JSONResponse(
             {"entries": [{"when": e.when, "release": e.release,
-                          "count": e.count} for e in state.undo_entries()]},
+                          "count": e.count, "kind": e.kind.value,
+                          "label": e.kind.label}
+                         for e in state.undo_entries()]},
             headers=dict(response.headers))
 
     @app.post("/api/undo")
@@ -433,10 +455,11 @@ def run(host: str = "0.0.0.0", port: int = 8000,
         source: Optional[MountedSource] = None,
         naming: Optional[NamingProfile] = None,
         tags: Optional[TagProfile] = None,
-        templates_dir: Optional[Path] = None) -> int:
+        templates_dir: Optional[Path] = None,
+        build_options: Optional[BuildOptions] = None) -> int:
     import uvicorn
 
-    uvicorn.run(create_app(source, naming, tags, templates_dir),
+    uvicorn.run(create_app(source, naming, tags, templates_dir, build_options),
                 host=host, port=port, log_level="info")
     return 0
 

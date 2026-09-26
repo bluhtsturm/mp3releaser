@@ -576,3 +576,42 @@ def test_a_special_character_does_not_eat_the_pattern_separator():
     assert rule_collapse("mix -_- cdda") == "mix-cdda"
     # Ohne Strich bleibt es beim Unterstrich
     assert rule_collapse("wort   wort") == "wort_wort"
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+def test_unknown_tags_checks_each_text_part_on_its_own():
+    """Zusammengefuegte Textteile ergaben Tags, die niemand geschrieben hat."""
+    from releaser.naming import unknown_tags
+
+    assert unknown_tags("x##Albumfoo") == []
+    assert unknown_tags("#Artist-#Quatsch") == ["#Quatsch"]
+
+
+def test_another_name_for_the_same_file_is_no_collision(tmp_path):
+    """Auf FAT oder SMB ist ``track.mp3`` dieselbe Datei wie ``Track.mp3``.
+
+    Nachgestellt mit einem harten Link: zwei Namen, eine Datei.
+    """
+    from releaser.naming import RenamePlan, _check_existing_targets
+
+    src = tmp_path / "Track.mp3"
+    src.write_bytes(b"x")
+    dst = tmp_path / "track.mp3"
+    dst.hardlink_to(src)
+    plan = RenamePlan(ops=[RenameOp(src, dst, "file")])
+    _check_existing_targets(plan)
+    assert plan.collisions == []
+
+
+def test_a_foreign_file_at_the_target_is_still_a_collision(tmp_path):
+    from releaser.naming import RenamePlan, _check_existing_targets
+
+    src = tmp_path / "Track.mp3"
+    src.write_bytes(b"x")
+    dst = tmp_path / "track.mp3"
+    dst.write_bytes(b"fremd")
+    plan = RenamePlan(ops=[RenameOp(src, dst, "file")])
+    _check_existing_targets(plan)
+    assert plan.collisions

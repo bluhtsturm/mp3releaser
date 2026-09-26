@@ -148,6 +148,7 @@ def _apply_cue_sheets(root: Path, release: Release, infos: list[AudioInfo],
     """
     from ..cue import close_durations, read_cue
 
+    origins = origins if origins is not None else OriginMap()
     # AudioInfo.path ist ein Path, Track.path ein String - hier konsequent
     # über Strings vergleichen, sonst schlägt die Gleichheit stillschweigend fehl.
     by_name = {i.path.name.lower(): i for i in infos}

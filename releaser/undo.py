@@ -103,7 +103,18 @@ def load(path: Optional[Path] = None) -> list[Entry]:
         return []
     if not isinstance(data, list):
         return []
-    return [Entry.from_dict(item) for item in data if isinstance(item, dict)]
+    entries: list[Entry] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        # Ein einzelner beschaedigter Eintrag (etwa eine Bewegung ohne Ziel)
+        # darf das Protokoll nicht unlesbar machen - sonst liesse sich auch
+        # alles andere darin nicht mehr zuruecknehmen.
+        try:
+            entries.append(Entry.from_dict(item))
+        except (TypeError, ValueError, AttributeError):
+            continue
+    return entries
 
 
 def save(entries: Iterable[Entry], path: Optional[Path] = None) -> Path:

@@ -22,7 +22,8 @@ from typing import Callable, Optional, Sequence
 
 from ..model import Release
 from ..naming import NamingProfile, format_plan as format_rename_plan
-from ..service import BuildOptions, build, perform_rename, preview_rename, scan
+from ..service import (BuildOptions, build, perform_rename, preview_rename,
+                       refresh_sizes, scan)
 from ..tagwriter import TagProfile, apply_tags
 from ..tagwriter import format_plan as format_tag_plan
 from ..tagwriter import plan_tags
@@ -146,6 +147,8 @@ def _run(directory, template, naming, tags, console, strict) -> int:
         if console.ask(f"\n{len(plan.changes)} Aenderung(en) schreiben?",
                        default=False):
             apply_tags(plan, tags)
+            # Die .nfo aus Schritt 4 soll die Groesse nach dem Taggen zeigen
+            refresh_sizes(release)
             console.say(f"  {len(plan.files)} Datei(en) geschrieben.")
         else:
             console.say("  uebersprungen.")

@@ -20,9 +20,11 @@ from enum import Enum
 from pathlib import Path
 from typing import Iterable, Optional
 
+import re
+
 from .model import Release
-from .naming import NamingProfile, unknown_tags
-from .skl import Template
+from .naming import NamingProfile
+from .skl import ParsedLine, Template
 
 
 class Level(Enum):
@@ -132,7 +134,7 @@ def check_template(template: Template, source: str = "") -> Report:
         pass          # bereits oben gemeldet
 
     for line in template.lines:
-        for tag in unknown_tags(line.raw):
+        for tag in _unknown_skl_tags(line):
             report.add(Level.WARNING,
                        f"{tag} sieht aus wie ein Tag, ist aber keiner - "
                        "er landet wörtlich in der NFO", tag)
@@ -155,6 +157,23 @@ def check_template(template: Template, source: str = "") -> Report:
     if unused:
         report.add(Level.INFO, f"Tags ohne Feldbreite: {', '.join(unused)}")
     return report
+
+
+_TAG_LIKE = re.compile(r"#\w+")
+
+
+def _unknown_skl_tags(line: ParsedLine) -> list[str]:
+    """Tag-artige Reste einer Vorlagenzeile, die der SKL-Renderer nicht kennt.
+
+    Bewusst nicht ueber die Namensmuster geprueft: dort gibt es zusaetzlich
+    ``#Grp``, ``#Cd``, ``#Ext`` und ``#Fmt``. In einer .skl sind das aber
+    keine Tags - sie landeten woertlich in der NFO, ohne dass die Pruefung
+    etwas meldete.
+    """
+    text = list(line.raw)
+    for found in line.fields:
+        text[found.lit_start:found.lit_end] = " " * (found.lit_end - found.lit_start)
+    return _TAG_LIKE.findall("".join(text))
 
 
 def check_template_file(path: str | Path, codepage: str = "cp437") -> Report:

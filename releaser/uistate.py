@@ -152,6 +152,17 @@ class AppState:
         if self.on_change is not None:
             self.on_change()
 
+    def _failed(self, what: str, error: Exception) -> None:
+        """Meldet einen Fehler einer schreibenden Aktion.
+
+        Ohne das landete etwa ein fehlendes Schreibrecht in der
+        Weboberflaeche als nackter Serverfehler 500, und die Oberflaeche
+        zeigte nur "Internal Server Error".
+        """
+        detail = str(error) or type(error).__name__
+        self.say(f"{what} fehlgeschlagen: {detail}", Level.ERROR)
+        self._changed()
+
     # ------------------------------------------------------------ Navigation
 
     def show_roots(self) -> list[Entry]:
@@ -363,6 +374,9 @@ class AppState:
             self.say(str(exc), Level.ERROR)
             self._changed()
             return False
+        except Exception as exc:                # noqa: BLE001 - Anzeige statt Absturz
+            self._failed("Zurücknehmen", exc)
+            return False
 
         if entry.timestamp in self.own_entries:
             self.own_entries.remove(entry.timestamp)
@@ -443,16 +457,25 @@ class AppState:
 
         directory = release_dirname(self.release, self.naming)
         files: list[tuple[str, str]] = []
-        seen: set[str] = set()
+        # Je Verzeichnis, wie beim echten Plan: CD1/01-intro.mp3 und
+        # CD2/01-intro.mp3 kollidieren nicht. Mehrere CUE-Tracks teilen sich
+        # eine Datei und zaehlen nur einmal.
+        seen: set[tuple[str, str]] = set()
+        sources: set[str] = set()
         collisions: list[str] = []
         for disc in self.release.discs:
             for track in disc.tracks:
+                if track.path and track.path in sources:
+                    continue
+                if track.path:
+                    sources.add(track.path)
                 suffix = Path(track.path).suffix.lower() if track.path else ""
                 name = track_stem(self.release, track, disc, self.naming) + suffix
                 old = Path(track.path).name if track.path else ""
-                if name.lower() in seen:
+                folder = str(Path(track.path).parent) if track.path else ""
+                if (folder, name.lower()) in seen:
                     collisions.append(name)
-                seen.add(name.lower())
+                seen.add((folder, name.lower()))
                 files.append((old, name))
         return {
             "directory": (self.root.name if self.root else "", directory),
@@ -590,8 +613,18 @@ class AppState:
         from .tagwriter import apply_tags as write_plan
 
         plan = service.preview_tags(self.release, self.tags)
-        written = write_plan(plan, self.tags)
+        try:
+            written = write_plan(plan, self.tags)
+        except Exception as exc:                # noqa: BLE001 - Anzeige statt Absturz
+            # Ein Teil der Dateien kann schon geschrieben sein - Protokoll
+            # und Groessen muessen trotzdem nachgezogen werden.
+            self._remember(plan.journal)
+            service.refresh_sizes(self.release)
+            self._failed("Tags schreiben", exc)
+            return 0
         self._remember(plan.journal)
+        # Tags aendern die Dateigroesse - sonst stuende in der .nfo die alte
+        service.refresh_sizes(self.release)
         self.say(f"{len(written)} Datei(en) geschrieben")
         self.tag_plan = None
         self.modified.clear()
@@ -621,8 +654,25 @@ class AppState:
             self.say("Kein ausführbarer Umbenennungsplan.", Level.ERROR)
             self._changed()
             return False
-        plan, new_root = service.perform_rename(self.release, self.root,
-                                                self.naming)
+        try:
+            plan, new_root = service.perform_rename(self.release, self.root,
+                                                    self.naming)
+        except Exception as exc:                # noqa: BLE001 - Anzeige statt Absturz
+            # apply_plan hat bereits zurueckgerollt; die Pfade im Modell
+            # zeigen deshalb weiter auf die alten Namen.
+            self._failed("Umbenennen", exc)
+            return False
+        if not plan.is_safe:
+            # Zwischen Vorschau und Ausfuehrung hat sich etwas geaendert -
+            # perform_rename hat dann nichts angefasst. Frueher meldete die
+            # Oberflaeche trotzdem "ausgefuehrt".
+            for collision in plan.collisions:
+                self.say(collision, Level.ERROR)
+            self.say("Nichts umbenannt - der Plan hat inzwischen Kollisionen.",
+                     Level.ERROR)
+            self.rename_plan = plan
+            self._changed()
+            return False
         self._remember(plan.journal)
         self.root = new_root
         try:
@@ -645,7 +695,11 @@ class AppState:
             self.say("Für die .nfo wird eine Vorlage gebraucht.", Level.ERROR)
             self._changed()
             return []
-        outcome = service.build(self.release, self.root, options, self.naming)
+        try:
+            outcome = service.build(self.release, self.root, options, self.naming)
+        except Exception as exc:                # noqa: BLE001 - Anzeige statt Absturz
+            self._failed("Dateien erzeugen", exc)
+            return []
         for warning in outcome.warnings:
             self.say(warning, Level.WARNING)
         for path in outcome.removed:

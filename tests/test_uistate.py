@@ -970,3 +970,70 @@ def test_local_source_is_always_writable(tmp_path):
     state = AppState(source=LocalSource(tmp_path))
     state.current_path = str(tmp_path)
     assert state.writable
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+@needs_ffmpeg
+def test_name_preview_has_no_collisions_across_disc_folders(tmp_path):
+    """CD1/01-intro.mp3 und CD2/01-intro.mp3 stehen in verschiedenen
+    Ordnern - der echte Plan wusste das, die Vorschau nicht."""
+    root = tmp_path / "eingang" / "Rel"
+    for disc in (1, 2):
+        encode(root / f"CD{disc}" / "01.mp3", "-c:a", "libmp3lame",
+               "-metadata", "title=Intro", "-metadata", "artist=A",
+               "-metadata", "album=B", "-metadata", "track=1",
+               "-metadata", f"disc={disc}")
+    state = AppState(source=MountedSource([Mount("eingang", tmp_path / "eingang")]),
+                     naming=NamingProfile(group="GRP"))
+    assert state.load("eingang/Rel")
+    assert state.preview_names()["collisions"] == []
+
+
+@needs_ffmpeg
+def test_rename_that_became_unsafe_is_not_reported_as_done(release_dir):
+    state = state_for(release_dir)
+    assert state.load("eingang/Artist-Album-2026-GRP")
+    plan = state.preview_rename()
+    assert plan.is_safe and plan.changes
+
+    # zwischen Vorschau und Ausfuehrung belegt jemand das Ziel
+    next(op.dst for op in plan.ops if op.kind == "root").mkdir()
+
+    assert state.apply_rename() is False
+    assert release_dir.is_dir()
+    assert any("Nichts umbenannt" in m.text for m in state.messages)
+    assert state.messages[-1].level is Level.ERROR
+
+
+@needs_ffmpeg
+def test_failed_build_is_reported_instead_of_raised(release_dir, template_file,
+                                                    monkeypatch):
+    from releaser import service
+
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.load_template(template_file)
+
+    def refuse(*_args, **_kwargs):
+        raise PermissionError(13, "Keine Berechtigung")
+
+    monkeypatch.setattr(service, "build", refuse)
+    assert state.build() == []
+    assert state.messages[-1].level is Level.ERROR
+    assert "Keine Berechtigung" in state.messages[-1].text
+
+
+@needs_ffmpeg
+def test_tag_writing_updates_the_sizes_in_the_model(release_dir):
+    from releaser.tagwriter import TagProfile
+
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.tags = TagProfile(comment="neu")
+    state.preview_tags()
+    assert state.apply_tags() == 2
+
+    actual = sum(p.stat().st_size for p in release_dir.glob("*.mp3"))
+    assert state.release.size_bytes == actual

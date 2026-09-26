@@ -367,12 +367,24 @@ def write_mp3(path: Path, values: dict[str, str], profile: TagProfile) -> None:
         COMM, ID3, ID3NoHeaderError, TALB, TCON, TDRC, TIT2, TPE1, TPE2, TPOS, TRCK,
     )
 
+    if profile.strip_existing:
+        # Ueber die Datei, nicht ueber ein ID3-Objekt: ein leeres ``ID3()``
+        # (Datei ganz ohne Tag) kennt keinen Dateinamen, und ``delete`` brach
+        # dann mit einem TypeError ab. "Restlos" heisst ausserdem: auch
+        # APEv2 und Lyrics3v2 gehen, nicht nur ID3.
+        from mutagen.apev2 import delete as delete_ape
+        from mutagen.id3 import delete as delete_id3
+
+        from . import lyrics3
+
+        lyrics3.remove(path)
+        delete_ape(path)
+        delete_id3(path, delete_v1=True, delete_v2=True)
+
     try:
         tags = ID3(path)
     except ID3NoHeaderError:
         tags = ID3()
-    if profile.strip_existing:
-        tags.delete(delete_v1=True, delete_v2=True)
 
     frames = {
         "title": TIT2, "artist": TPE1, "albumartist": TPE2, "album": TALB,

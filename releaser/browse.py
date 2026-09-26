@@ -140,6 +140,10 @@ class Source:
                               key=lambda p: (p.is_file(), p.name.lower()))
         except PermissionError as exc:
             raise AccessError(f"kein Zugriff auf {virtual}") from exc
+        except OSError as exc:
+            # Etwa ein Ein-/Ausgabefehler auf einem Netzlaufwerk - als Meldung
+            # statt als unbehandelter Systemfehler
+            raise AccessError(f"{virtual} ist nicht lesbar: {exc.strerror}") from exc
 
         for child in children:
             if not show_hidden and child.name.startswith("."):

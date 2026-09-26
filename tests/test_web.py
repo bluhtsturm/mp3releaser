@@ -526,3 +526,51 @@ def test_readonly_mount_is_respected_over_http(tree):
     client.post("/api/apply/rename", json={})
     assert (tree / "eingang" / "Artist-Album-2026-GRP").is_dir()
     assert "nur lesend" in client.get("/api/state").json()["status"]
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+@needs_ffmpeg
+def test_sessions_get_their_own_build_options(tree):
+    """Das Laden einer Vorlage aendert die Optionen - geteilt haette eine
+    Sitzung der anderen die Vorlage untergeschoben."""
+    from releaser.service import BuildOptions
+
+    store = SessionStore(MountedSource([Mount("eingang", tree / "eingang")]),
+                         NamingProfile(), TagProfile(),
+                         build_options=BuildOptions(audio_crc=True))
+    _, first = store.get(None)
+    _, second = store.get(None)
+    assert first.build_options.audio_crc and second.build_options.audio_crc
+
+    first.load_template(tree / "vorlagen" / "vorlage.skl")
+    assert second.build_options.template is None
+    assert store.build_options.template is None
+
+
+@needs_ffmpeg
+def test_template_name_with_nul_is_rejected(client):
+    response = client.post("/api/template", json={"name": "a\x00b.skl"})
+    assert response.status_code == 400
+
+
+@needs_ffmpeg
+def test_undo_list_names_the_kind_of_entry(client):
+    load_release(client)
+    client.post("/api/plan/tags", json={})
+    client.post("/api/apply/tags", json={})
+    entries = client.get("/api/undo").json()["entries"]
+    assert entries[-1]["kind"] == "tags"
+    assert entries[-1]["label"] == "getaggte Dateien"
+
+
+def test_plan_dialog_shows_the_apply_button_again():
+    """Nach "Pruefen" blieb der Ausfuehren-Knopf versteckt - kein Plan liess
+    sich mehr ausfuehren, bis die Seite neu geladen wurde."""
+    from releaser.frontends.web.app import STATIC
+
+    page = (STATIC / "index.html").read_text(encoding="utf-8")
+    show_plan = page.split("function showPlan", 1)[1].split("\n}\n", 1)[0]
+    assert 'style.display = ""' in show_plan
+    assert "if (!payload) return;" in show_plan

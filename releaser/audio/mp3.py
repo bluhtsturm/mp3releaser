@@ -40,8 +40,7 @@ def read_mp3(path: Path) -> AudioInfo:
         samplerate=mi.sample_rate or None,
         channels=1 if mi.mode == 3 else 2,
         channel_mode=MPEG_MODES.get(mi.mode, ""),
-        vbr=getattr(mi, "bitrate_mode", None) is not None
-        and str(getattr(mi, "bitrate_mode")).endswith("VBR"),
+        vbr=_is_variable(getattr(mi, "bitrate_mode", None)),
         encoder=(getattr(mi, "encoder_info", "") or "").strip(),
     )
 
@@ -51,6 +50,19 @@ def read_mp3(path: Path) -> AudioInfo:
         info.warnings.append("keine ID3-Tags vorhanden")
         info.title = path.stem
     return info
+
+
+def _is_variable(mode) -> bool:
+    """VBR und ABR gelten beide als variabel.
+
+    Bei ABR schwankt die Bitrate von Frame zu Frame genauso, nur um einen
+    Zielwert herum - jede Datei hat dadurch eine etwas andere mittlere
+    Bitrate. Als "konstant" behandelt, meldete der Scanner bei jedem
+    ABR-Release faelschlich "unterschiedliche Bitraten".
+    """
+    if mode is None:
+        return False
+    return str(mode).rsplit(".", 1)[-1] in ("VBR", "ABR")
 
 
 def _apply_id3(tags, info: AudioInfo) -> None:

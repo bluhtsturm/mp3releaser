@@ -8,7 +8,6 @@ benutzen:
 * ``wizard`` - gefuehrter Modus, aufgerufen ueber ``releaser wizard``
 * ``gtkui`` - Desktop-Anwendung (GTK 4); laesst sich auch ohne GTK importieren
 * ``web`` - Weboberflaeche (FastAPI), nur mit eingehaengten Verzeichnissen
-* geplant: eine Desktop-Anwendung und eine Weboberfläche
 
 Wer eine weitere Oberfläche baut, ruft die Dienstschicht auf und schreibt
 keine eigene Ablauflogik. Sonst driften die Formen auseinander, und genau das

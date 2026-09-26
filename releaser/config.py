@@ -135,13 +135,23 @@ def parse(text: str, source: Optional[Path] = None) -> Config:
     return config
 
 
+def _read(path: Path) -> Config:
+    try:
+        text = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise ConfigError(f"{path} ist kein gültiges UTF-8: {exc}") from exc
+    except OSError as exc:
+        raise ConfigError(f"{path} nicht lesbar: {exc}") from exc
+    return parse(text, source=path)
+
+
 def load(path: Optional[str | Path] = None, required: bool = False) -> Config:
     """Lädt die Konfiguration. Ohne Pfad wird an den üblichen Orten gesucht."""
     if path is not None:
         p = Path(path)
         if not p.is_file():
             raise ConfigError(f"Konfiguration nicht gefunden: {p}")
-        return parse(p.read_text(encoding="utf-8"), source=p)
+        return _read(p)
 
     found = find_config()
     if found is None:
@@ -150,7 +160,7 @@ def load(path: Optional[str | Path] = None, required: bool = False) -> Config:
                 "keine Konfiguration gefunden, gesucht in: "
                 + ", ".join(str(p) for p in candidate_paths()))
         return Config()
-    return parse(found.read_text(encoding="utf-8"), source=found)
+    return _read(found)
 
 
 def resolve(config: Config, section: str, key: str,
@@ -176,7 +186,7 @@ group = "GRP"
 case_dir = "capitalize"        # unchanged | lower | upper | capitalize
 case_file = "lower"
 space = "_"
-pipeline = ["inch", "transliterate", "forbidden", "spaces", "collapse", "trim"]
+pipeline = ["inch", "transliterate", "alnum", "forbidden", "spaces", "collapse", "trim"]
 companion_prefix = "00-"       # Standard; "" schaltet es ab
 prefix_all = true              # auch .sfv und .m3u
 
@@ -218,8 +228,7 @@ def dump(config: "Config") -> str:
             return str(item)
         if isinstance(item, (list, tuple)):
             return "[" + ", ".join(value(entry) for entry in item) + "]"
-        text = str(item).replace("\\", "\\\\").replace('"', '\\"')
-        return f'"{text}"'
+        return '"' + _escape(str(item)) + '"'
 
     lines = ["# mp3releaser - gespeicherte Einstellungen"]
     for section in SECTIONS:
@@ -232,12 +241,45 @@ def dump(config: "Config") -> str:
     return "\n".join(lines) + "\n"
 
 
+#: TOML-Escapes fuer Zeichen, die in einer einfachen Zeichenkette nicht
+#: woertlich stehen duerfen.
+_ESCAPES = {"\\": "\\\\", '"': '\\"', "\b": "\\b", "\t": "\\t",
+            "\n": "\\n", "\f": "\\f", "\r": "\\r"}
+
+
+def _escape(text: str) -> str:
+    """Macht eine Zeichenkette TOML-tauglich.
+
+    Ein Zeilenumbruch oder Tabulator in einem Wert (etwa einem Kommentar)
+    ergab frueher eine Datei, die ``tomllib`` beim naechsten Start nicht
+    mehr lesen konnte.
+    """
+    out: list[str] = []
+    for char in text:
+        if char in _ESCAPES:
+            out.append(_ESCAPES[char])
+        elif ord(char) < 0x20 or ord(char) == 0x7F:
+            out.append(f"\\u{ord(char):04X}")
+        else:
+            out.append(char)
+    return "".join(out)
+
+
+def user_config_path() -> Path:
+    """Wohin ``save`` ohne Pfad schreibt: die Benutzerkonfiguration.
+
+    Ein gesetztes, aber leeres ``$XDG_CONFIG_HOME`` zaehlt wie ein fehlendes
+    (so will es die XDG-Spezifikation). Frueher entstand dann ein relativer
+    Pfad ``mp3releaser/config.toml`` im aktuellen Verzeichnis - dort, wo die
+    Suche beim naechsten Start nicht nachsieht.
+    """
+    base = os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")
+    return Path(base) / "mp3releaser" / "config.toml"
+
+
 def save(config: "Config", path: Optional[str | Path] = None) -> Path:
     """Speichert die Konfiguration. Ohne Pfad ins Benutzerverzeichnis."""
-    target = Path(path) if path else (
-        Path(os.environ.get("XDG_CONFIG_HOME",
-                            Path.home() / ".config")) / "mp3releaser"
-        / "config.toml")
+    target = Path(path) if path else user_config_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(dump(config), encoding="utf-8")
     return target

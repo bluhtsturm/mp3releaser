@@ -141,7 +141,7 @@ def _parse_bsi_tail(br: BitReader, sub: Substream, fscod: int) -> None:
     if br.flag():                                # mixmdate
         if acmod > 2:
             br.skip(2)                           # dmixmod
-        if (acmod & 1) and acmod > 5:
+        if (acmod & 1) and acmod > 2:            # drei Frontkanaele: 3/0, 3/1, 3/2
             br.skip(6)                           # ltrtcmixlev / lorocmixlev
         if acmod & 4:
             br.skip(6)                           # ltrtsurmixlev / lorosurmixlev
@@ -235,11 +235,32 @@ class StreamSummary:
         return [s for s in self.substreams if s.strmtyp == STRMTYP_DEPENDENT]
 
 
+def _frame_header(data: bytes, offset: int) -> tuple[int, int, int, int]:
+    """(strmtyp, substreamid, Framelaenge in Bytes, Audioblocks) - nur die
+    ersten Bytes des Headers, ohne BSI-Traversierung.
+
+    Genug, um Frames zu zaehlen und weiterzuspringen. Wird fuer alle Frames
+    jenseits der Strukturanalyse gebraucht.
+    """
+    if data[offset:offset + 2] != SYNCWORD or offset + 5 > len(data):
+        raise AudioError(f"kein Syncword an Position {offset}")
+    b2, b3, b4 = data[offset + 2], data[offset + 3], data[offset + 4]
+    strmtyp = b2 >> 6
+    substreamid = (b2 >> 3) & 0x07
+    frmsiz = ((b2 & 0x07) << 8) | b3
+    fscod = b4 >> 6
+    numblks = 6 if fscod == 3 else NUMBLKS[(b4 >> 4) & 0x03]
+    return strmtyp, substreamid, (frmsiz + 1) * 2, numblks
+
+
 def analyse_stream(data: bytes, max_frames: int = 2000) -> StreamSummary:
     """Laeuft ueber die Syncframes und fasst die Substream-Struktur zusammen.
 
-    ``max_frames`` begrenzt nur die Strukturanalyse; Dauer und Bitrate werden
-    aus allen Frames hochgerechnet.
+    ``max_frames`` begrenzt nur die aufwendige Strukturanalyse (BSI bis
+    ``addbsi``). Gezaehlt werden trotzdem alle Frames - Dauer und Bitrate
+    stimmen damit auch bei langen Dateien. Frueher brach die Schleife nach
+    der Analyse ab, und ein zehnminuetiger Stream wurde auf gut neun Minuten
+    geschaetzt.
     """
     summary = StreamSummary()
     seen: dict[tuple[int, int], Substream] = {}
@@ -259,28 +280,36 @@ def analyse_stream(data: bytes, max_frames: int = 2000) -> StreamSummary:
             summary.warnings.append(f"Resync bei Byte {resync}")
             offset = resync
             continue
-        try:
-            sub = parse_syncframe(data, offset)
-        except (AudioError, BitReaderError, KeyError, IndexError):
-            break
-        if sub.frame_bytes <= 0:
-            break
 
-        key = (sub.strmtyp, sub.substreamid)
-        if key not in seen:
-            seen[key] = sub
-            summary.substreams.append(sub)
-        elif sub.chanmap is not None and seen[key].chanmap is None:
-            seen[key] = sub
+        if frames < max_frames * 8:
+            try:
+                sub = parse_syncframe(data, offset)
+            except (AudioError, BitReaderError, KeyError, IndexError):
+                break
+            strmtyp, substreamid = sub.strmtyp, sub.substreamid
+            frame_bytes, numblks = sub.frame_bytes, sub.numblks
 
-        if sub.strmtyp != STRMTYP_DEPENDENT and sub.substreamid == 0:
+            key = (strmtyp, substreamid)
+            if key not in seen:
+                seen[key] = sub
+                summary.substreams.append(sub)
+            elif sub.chanmap is not None and seen[key].chanmap is None:
+                seen[key] = sub
+        else:
+            try:
+                strmtyp, substreamid, frame_bytes, numblks = _frame_header(
+                    data, offset)
+            except (AudioError, KeyError, IndexError):
+                break
+
+        if frame_bytes <= 0:
+            break
+        if strmtyp != STRMTYP_DEPENDENT and substreamid == 0:
             summary.frame_count += 1
-            summary.samples += sub.numblks * 256
+            summary.samples += numblks * 256
 
-        offset += sub.frame_bytes
+        offset += frame_bytes
         frames += 1
-        if frames > max_frames * 8:
-            break
 
     summary.total_bytes = len(data)
     return summary

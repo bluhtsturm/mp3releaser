@@ -558,3 +558,108 @@ def test_windows_paths_can_be_requested(tmp_path):
     created = service.build(release, root, options).created
     super_m3u = next(p for p in created if p.parent == root)
     assert chr(92) in super_m3u.read_bytes().decode("cp437")
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+def test_naming_config_is_read_completely():
+    """case, pipeline und companion_pattern galten nur auf der Kommandozeile."""
+    from releaser.config import parse
+    from releaser.naming import Scope
+
+    config = parse('[naming]\ncase = "upper"\npipeline = ["spaces", "trim"]\n'
+                   'companion_pattern = "#Catnr"\n')
+    profile = service.naming_from_config(config)
+    assert profile.charcase[Scope.DIRECTORY].value == "upper"
+    assert profile.charcase[Scope.FILENAME].value == "upper"
+    assert profile.pipeline == ("spaces", "trim")
+    assert profile.companion_pattern == "#Catnr"
+
+
+def test_case_dir_beats_the_general_case():
+    from releaser.config import parse
+    from releaser.naming import Scope
+
+    config = parse('[naming]\ncase = "upper"\ncase_dir = "lower"\n')
+    profile = service.naming_from_config(config)
+    assert profile.charcase[Scope.DIRECTORY].value == "lower"
+    assert profile.charcase[Scope.FILENAME].value == "upper"
+
+
+def test_tags_config_reaches_the_profile():
+    from releaser.config import parse
+
+    config = parse('[tags]\ncase = "capitalize"\nwrite_id3v1 = false\n'
+                   'id3v2 = 3\nwrite_disc_for_single = true\n'
+                   'comment = "hallo"\n')
+    profile = service.tags_from_config(config)
+    assert profile.charcase.value == "capitalize"
+    assert profile.write_id3v1 is False
+    assert profile.id3v2_version == 3
+    assert profile.write_disc_for_single is True
+    assert profile.comment == "hallo"
+    assert service.tags_from_config() == TagProfile()
+
+
+def test_invalid_tag_settings_are_config_errors():
+    from releaser.config import ConfigError, parse
+
+    with pytest.raises(ConfigError, match="id3v2"):
+        service.tags_from_config(parse("[tags]\nid3v2 = 2\n"))
+    with pytest.raises(ConfigError, match="Schreibweise"):
+        service.tags_from_config(parse('[tags]\ncase = "gross"\n'))
+
+
+def test_build_config_reaches_the_options():
+    from releaser.config import parse
+
+    config = parse('[build]\naudio_crc = true\nsfv_include = "log"\n'
+                   'sfv_comment = "gruss"\nclean = true\ncatalog_no = true\n'
+                   'm3u_windows_paths = true\n')
+    options = service.build_options_from_config(config)
+    assert options.audio_crc and options.clean and options.use_catalog_no
+    assert options.m3u_windows_paths
+    # ein einzelner Wert ist ein Eintrag, nicht eine Folge von Buchstaben
+    assert options.sfv_include == ("log",)
+    assert options.sfv_comment == "gruss"
+    assert options.template is None
+
+
+def test_refresh_sizes_reads_the_current_file_sizes(tmp_path):
+    from releaser.model import Disc, Track
+
+    single = tmp_path / "a.mp3"
+    single.write_bytes(b"x" * 100)
+    shared = tmp_path / "mix.flac"
+    shared.write_bytes(b"y" * 600)
+    release = Release(discs=[Disc(1, tracks=[
+        Track(1, "a", 10.0, path=str(single), size_bytes=50),
+        Track(2, "b", 10.0, path=str(shared), size_bytes=100),
+        Track(3, "c", 20.0, path=str(shared), size_bytes=200),
+    ])])
+    service.refresh_sizes(release)
+    assert [t.size_bytes for t in release.tracks] == [100, 200, 400]
+
+
+@needs_ffmpeg
+def test_sizes_in_the_model_follow_the_tag_writing(tmp_path):
+    """Die .nfo nach einem Tag-Lauf zeigte die Groesse von vorher."""
+    root = make_release(tmp_path)
+    scanned = service.scan(root)
+    before = scanned.release.size_bytes
+
+    service.write_tags(scanned.release, TagProfile(comment="ein kommentar"))
+    actual = sum(Path(t.path).stat().st_size for t in scanned.release.tracks)
+    assert actual != before
+    assert scanned.release.size_bytes == actual
+
+
+def test_overrides_beat_the_config_for_every_key():
+    from releaser.config import parse
+
+    config = parse('[naming]\npipeline = ["spaces"]\n')
+    profile = service.naming_from_config(config, pipeline=("trim",),
+                                         companion_pattern="#Artist")
+    assert profile.pipeline == ("trim",)
+    assert profile.companion_pattern == "#Artist"

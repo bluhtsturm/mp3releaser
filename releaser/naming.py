@@ -271,9 +271,10 @@ class NamingProfile:
     max_dir_length: int = 100
     max_file_length: int = 120
 
-    #: Präfix für Dateien, die vorn einsortieren sollen. Szene-Konvention ist
-    #: "00-" für .nfo und Bilder; .sfv und .m3u bekommen es ausdrücklich nicht,
-    #: weil Prüfprogramme sie sonst schlechter finden.
+    #: Präfix für Dateien, die vorn einsortieren sollen. Voreingestellt gilt
+    #: es für alle Begleitdateien einschließlich .sfv und .m3u; wer es wie
+    #: das Original nur für .nfo und Bilder will, nimmt die beiden aus
+    #: ``prefixed_suffixes`` heraus (Konfiguration: ``prefix_all = false``).
     companion_prefix: str = "00-"
     prefixed_suffixes: frozenset[str] = frozenset({
         ".nfo", ".sfv", ".m3u", ".m3u8", ".jpg", ".jpeg", ".png", ".pdf"})
@@ -365,9 +366,11 @@ def unknown_tags(pattern: str) -> list[str]:
     Ein Tippfehler wie ``#Quatsch`` waere sonst unsichtbar: er ueberlebt die
     Regelkette und landet woertlich im Dateinamen.
     """
-    remainder = "".join(text for is_tag, text in compile_pattern(pattern)._parts
-                        if not is_tag)
-    return _UNKNOWN_TAG.findall(remainder)
+    # Jeden Textteil fuer sich pruefen. Zusammengefuegt entstanden Tags, die
+    # es nicht gibt: bei "x##Albumfoo" wurden "x#" und "foo" zu "#foo".
+    return [tag
+            for is_tag, text in compile_pattern(pattern)._parts if not is_tag
+            for tag in _UNKNOWN_TAG.findall(text)]
 
 
 def companion_stem(release: Release, profile: NamingProfile) -> str:
@@ -511,8 +514,23 @@ def _check_existing_targets(plan: RenamePlan) -> None:
     for op in plan.ops:
         if not op.changed or op.dst in sources:
             continue
-        if op.dst.exists():
+        if op.dst.exists() and not _same_entry(op.src, op.dst):
             plan.collisions.append(f"Ziel existiert bereits: {op.dst}")
+
+
+def _same_entry(src: Path, dst: Path) -> bool:
+    """Ist ``dst`` nur ein anderer Name fuer ``src``?
+
+    Auf Dateisystemen ohne Unterscheidung von Gross- und Kleinschreibung
+    (FAT/exFAT-Sticks, SMB-Freigaben) "existiert" ``track.mp3`` bereits,
+    wenn ``Track.mp3`` umbenannt werden soll - es ist aber dieselbe Datei.
+    Das ist keine Kollision; ``apply_plan`` benennt ueber einen
+    Zwischennamen um und kommt damit zurecht.
+    """
+    try:
+        return src.exists() and src.samefile(dst)
+    except OSError:
+        return False
 
 
 # =============================================================== Ausführung

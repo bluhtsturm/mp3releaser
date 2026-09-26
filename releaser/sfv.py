@@ -209,6 +209,9 @@ def write_release_sfvs(
     """
     root = Path(root)
     written: list[Path] = []
+    # Einmal festhalten: ein Generator waere nach dem ersten Verzeichnis
+    # erschoepft, und die SFVs der uebrigen CDs bekaemen keinen Kommentar.
+    comments = list(comments)
     extras = {e.lower() if e.startswith(".") else f".{e.lower()}"
               for e in extra_extensions}
 

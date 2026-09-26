@@ -331,3 +331,73 @@ def test_tests_do_not_touch_the_real_user_directories():
         assert value, variable
         assert not Path(value).is_relative_to(home / ".local"), variable
         assert not Path(value).is_relative_to(home / ".config"), variable
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+def _naming_args(tmp_path: Path, config_text: str, *argv: str):
+    import argparse
+
+    from releaser.config import load
+    from releaser.frontends import cli as frontend
+
+    path = tmp_path / "c.toml"
+    path.write_text(config_text, encoding="utf-8")
+    parser = argparse.ArgumentParser()
+    frontend._add_naming_args(parser)
+    args = parser.parse_args(list(argv))
+    args._config = load(path)
+    return frontend._profile_from_args(args)
+
+
+def test_no_prefix_beats_the_config(tmp_path):
+    """Ein ausdruecklicher Schalter schlaegt die Datei - auch bei --no-prefix."""
+    profile = _naming_args(tmp_path, '[naming]\ncompanion_prefix = "00-"\n',
+                           "--no-prefix")
+    assert profile.companion_prefix == ""
+
+
+def test_companion_pattern_from_the_config_is_used(tmp_path):
+    profile = _naming_args(tmp_path, '[naming]\ncompanion_pattern = "#Catnr"\n')
+    assert profile.companion_pattern == "#Catnr"
+
+
+def test_pipeline_help_names_the_real_default(capsys):
+    from releaser.naming import DEFAULT_PIPELINE
+
+    with pytest.raises(SystemExit):
+        cli.main(["rename", "--help"])
+    help_text = " ".join(capsys.readouterr().out.split())
+    assert " ".join(DEFAULT_PIPELINE) in help_text
+
+
+@needs_ffmpeg
+def test_build_takes_the_sfv_comment_from_the_config(tmp_path):
+    root = tmp_path / "Artist-Album-2026-GRP"
+    encode(root / "01-x.mp3", "-c:a", "libmp3lame",
+           "-metadata", "title=Eins", "-metadata", "artist=A",
+           "-metadata", "album=B", "-metadata", "track=1")
+    template = tmp_path / "t.skl"
+    template.write_bytes(b"#Release        \n")
+    config = tmp_path / "c.toml"
+    config.write_text('[build]\nsfv_comment = "aus der datei"\n',
+                      encoding="utf-8")
+
+    assert cli.main(["--config", str(config), "build", str(root),
+                     str(template), "--no-nfo", "--no-m3u"]) == 0
+    sfv = next(root.glob("*.sfv"))
+    assert "; aus der datei" in sfv.read_text(encoding="cp437")
+
+
+def test_render_reports_an_unknown_track_field(tmp_path):
+    import json
+
+    template = tmp_path / "t.skl"
+    template.write_bytes(b"#Release        \n")
+    release = tmp_path / "r.json"
+    release.write_text(json.dumps(
+        {"artist": "A", "tracks": [{"no": 1, "title": "x", "titel": "y"}]}),
+        encoding="utf-8")
+    with pytest.raises(SystemExit, match="titel"):
+        cli.main(["render", str(template), str(release)])

@@ -87,11 +87,25 @@ def _first_quoted(text: str) -> str:
     return text.split()[0].strip('"') if text.strip() else ""
 
 
+def _file_type(rest: str) -> str:
+    """Dateityp hinter dem Namen: ``FILE "a b.wav" WAVE`` oder ``FILE a.wav WAVE``."""
+    if '"' in rest:
+        tail = rest.rsplit('"', 1)[-1].strip()
+    else:
+        parts = rest.split()
+        tail = parts[-1] if len(parts) > 1 else ""
+    return tail or "WAVE"
+
+
 def parse_cue(text: str) -> CueSheet:
     sheet = CueSheet()
     current_file: Optional[CueFile] = None
     current_track: Optional[CueTrack] = None
 
+    # Ein UTF-8-BOM ueberlebt das Dekodieren als "utf-8" als Zeichen U+FEFF.
+    # Er gilt weder als Leerraum noch als Buchstabe - die erste Zeile (oft
+    # PERFORMER oder REM GENRE) ging deshalb stillschweigend verloren.
+    text = text.lstrip("﻿")
     for raw in text.replace("\r\n", "\n").split("\n"):
         match = _LINE.match(raw)
         if not match:
@@ -125,8 +139,7 @@ def parse_cue(text: str) -> CueSheet:
             current_track.isrc = rest.strip().strip('"')
         elif command == "FILE":
             name = _first_quoted(rest)
-            file_type = rest.rsplit('"', 1)[-1].strip() or "WAVE"
-            current_file = CueFile(name=name, file_type=file_type)
+            current_file = CueFile(name=name, file_type=_file_type(rest))
             sheet.files.append(current_file)
             current_track = None
         elif command == "TRACK":

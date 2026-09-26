@@ -512,3 +512,97 @@ def test_mixed_bitrates_are_still_reported_for_lossy(tmp_path):
              str(root / f"0{no}-x.mp3"), "-y"], check=True)
     result = scan_directory(root)
     assert any("Bitraten" in w for w in result.warnings)
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+def test_all_frames_count_beyond_the_structure_analysis():
+    """Die Zaehlung endete frueher mit der Strukturanalyse - ein Stream von
+    zehn Minuten wurde auf gut neun geschaetzt, die Bitrate zu hoch."""
+    stream = build_frame() * 40
+    limited = analyse_stream(stream, max_frames=1)          # Analyse: 8 Frames
+    full = analyse_stream(stream)
+    assert limited.frame_count == full.frame_count == 40
+    assert limited.samples == full.samples == 40 * 6 * 256
+
+
+def test_dependent_frames_after_the_analysis_are_not_audio_frames():
+    pair = build_frame() + build_frame(strmtyp=1)
+    summary = analyse_stream(pair * 20, max_frames=1)
+    assert summary.frame_count == 20
+
+
+def test_center_mix_levels_are_skipped_for_three_front_channels():
+    """acmod 3/1 hat einen Center - dessen Mischpegel stehen im Strom.
+
+    Die alte Bedingung (acmod > 5) liess sie ungelesen; alles danach bis
+    zum JOC-Kennzeichen wurde verschoben gelesen.
+    """
+    w = BitWriter()
+    w.write(0x0B77, 16)
+    w.write(1, 2)                 # strmtyp: abhaengig
+    w.write(0, 3)                 # substreamid
+    w.write(64 // 2 - 1, 11)      # frmsiz
+    w.write(0, 2)                 # fscod: 48 kHz
+    w.write(3, 2)                 # numblkscod: 6 Bloecke
+    w.write(5, 3)                 # acmod 3/1
+    w.write(0, 1)                 # lfeon
+    w.write(16, 5)                # bsid
+    w.write(0, 5)                 # dialnorm
+    w.write(0, 1)                 # compre
+    w.write(0, 1)                 # chanmape
+    w.write(1, 1)                 # mixmdate
+    w.write(0b11, 2)              # dmixmod
+    w.write(0b111111, 6)          # ltrtcmixlev, lorocmixlev
+    w.write(0, 6)                 # ltrtsurmixlev, lorosurmixlev
+    w.write(0, 1)                 # infomdate
+    w.write(1, 1)                 # addbsie
+    w.write(1, 6)                 # addbsil: 2 Bytes
+    w.write(0x01, 8)              # flag_ec3_extension_type_a
+    w.write(16, 8)                # complexity_index_type_a
+    sub = parse_syncframe(w.bytes(pad_to=64), 0)
+    assert sub.fully_parsed
+    assert sub.ext_type_a is True
+    assert sub.complexity_index == 16
+
+
+def test_abr_counts_as_variable():
+    from mutagen.mp3 import BitrateMode
+
+    from releaser.audio.mp3 import _is_variable
+
+    assert _is_variable(BitrateMode.VBR)
+    assert _is_variable(BitrateMode.ABR)
+    assert not _is_variable(BitrateMode.CBR)
+    assert not _is_variable(BitrateMode.UNKNOWN)
+    assert not _is_variable(None)
+
+
+def test_truncated_file_raises_audio_error(tmp_path):
+    """mutagen meldet eine abgeschnittene FLAC-Datei nicht als "kein Header",
+    sondern mit einem allgemeinen Fehler - der brach den ganzen Scan ab."""
+    from releaser.audio import AudioError, read_file, scan_directory
+
+    broken = tmp_path / "rel" / "01-kaputt.flac"
+    broken.parent.mkdir()
+    broken.write_bytes(b"fLaC\x00\x00")
+    with pytest.raises(AudioError, match="01-kaputt.flac"):
+        read_file(broken)
+    with pytest.raises(AudioError, match="keine lesbare Audiodatei"):
+        scan_directory(broken.parent)
+
+
+@needs_ffmpeg
+def test_scan_skips_a_broken_file_and_reports_it(tmp_path):
+    from releaser.audio import scan_directory
+
+    root = tmp_path / "rel"
+    root.mkdir()
+    encode(root, "01-gut.mp3", "-f", "lavfi", "-i", "sine=duration=1",
+           "-c:a", "libmp3lame")
+    (root / "02-kaputt.flac").write_bytes(b"fLaC\x00\x00")
+
+    result = scan_directory(root)
+    assert result.release.total_tracks == 1
+    assert any("02-kaputt.flac" in w for w in result.warnings)

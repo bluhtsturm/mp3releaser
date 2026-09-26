@@ -81,14 +81,18 @@ def _time(ctx: Context, seconds: float) -> str:
 
 
 def _bitrate(ctx: Context) -> str:
+    """``320kbps`` oder - mit ``space_before_kbps`` - ``320 kbps``.
+
+    Das Leerzeichen gehoert zwischen Zahl und Einheit. Frueher stand es vor
+    dem ganzen Wert (`` 320kbps``) und verschob das Feld um eine Spalte.
+    """
     r = ctx.release
     if r.vbr:
-        value = r.vbr_string or ctx.settings.vbr_string
-    elif r.bitrate:
-        value = f"{r.bitrate}kbps"
-    else:
-        return ""
-    return f" {value}" if ctx.settings.space_before_kbps else value
+        return r.vbr_string or ctx.settings.vbr_string
+    if r.bitrate:
+        unit = " kbps" if ctx.settings.space_before_kbps else "kbps"
+        return f"{r.bitrate}{unit}"
+    return ""
 
 
 def _per_disc(ctx: Context, fn: Callable[[Disc], str]) -> str:

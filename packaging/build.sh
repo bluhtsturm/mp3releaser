@@ -26,13 +26,11 @@ if sys.version_info < (3, 11):
     sys.exit(f"Python 3.11 oder neuer noetig, gefunden: "
              f"{sys.version_info.major}.{sys.version_info.minor}")
 
-try:
-    import PyInstaller  # noqa: F401
-except ImportError:
-    sys.exit("PyInstaller fehlt:\n    pip install pyinstaller")
-
 # Das PyPI-Paket "pathlib" ist eine Rueckportierung aus Python-2-Zeiten und
 # ueberschreibt das gleichnamige Standardmodul. PyInstaller bricht deshalb ab.
+# Diese Pruefung steht vor dem Import von PyInstaller: der scheitert mit dem
+# Altpaket selbst, und fehlt PyInstaller ganz, kaeme der eigentliche Hinweis
+# sonst nie zum Zug.
 try:
     from importlib.metadata import distribution
 
@@ -47,6 +45,11 @@ else:
         "anderes und bleibt unberuehrt):\n"
         f"    {sys.executable} -m pip uninstall pathlib"
     )
+
+try:
+    import PyInstaller  # noqa: F401
+except ImportError:
+    sys.exit("PyInstaller fehlt:\n    pip install pyinstaller")
 CHECK
 }
 

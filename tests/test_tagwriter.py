@@ -358,3 +358,35 @@ def test_raw_ec3_is_still_skipped(tmp_path):
     plan = plan_tags(sample_release([path]))
     assert plan.skipped == [path]
     assert any("keine Tags" in w for w in plan.warnings)
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+@needs_ffmpeg
+def test_strip_existing_works_on_a_file_without_any_tag(tmp_path):
+    """Ohne vorhandenen Tag kannte das leere ID3-Objekt keinen Dateinamen -
+    ``delete`` brach mit einem TypeError ab."""
+    from mutagen.id3 import ID3
+
+    path = encode(tmp_path / "ohne.mp3", "-c:a", "libmp3lame",
+                  "-map_metadata", "-1", "-id3v2_version", "0")
+    release = sample_release([path])
+    profile = TagProfile(strip_existing=True)
+    apply_tags(plan_tags(release, profile), profile)
+    assert str(ID3(path)["TIT2"]) == "Titel 1"
+
+
+@needs_ffmpeg
+def test_strip_existing_also_removes_apev2(tmp_path):
+    from mutagen.apev2 import APENoHeaderError, APEv2
+
+    path = encode(tmp_path / "a.mp3", "-c:a", "libmp3lame")
+    release = sample_release([path])
+    apply_tags(plan_tags(release), TagProfile(write_apev2=True))
+    assert APEv2(path)["Title"] == "Titel 1"
+
+    profile = TagProfile(strip_existing=True)
+    apply_tags(plan_tags(release, profile), profile)
+    with pytest.raises(APENoHeaderError):
+        APEv2(path)

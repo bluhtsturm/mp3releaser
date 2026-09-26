@@ -143,11 +143,25 @@ def format_size_mb(size_bytes: int, decimal_comma: bool = False) -> str:
     return out.replace(".", ",") if decimal_comma else out
 
 
-def wrap_value(value: str, width: int, max_lines: int | None = None) -> list[str]:
-    """Weicher Umbruch an Wortgrenzen, harter Schnitt bei Ueberlaenge."""
+def wrap_value(value: str, width: int, max_lines: int | None = None,
+               first_width: int | None = None) -> list[str]:
+    """Weicher Umbruch an Wortgrenzen, harter Schnitt bei Ueberlaenge.
+
+    ``first_width`` gibt der ersten Zeile eine eigene Breite. Gebraucht wird
+    das, wenn die erste Zeile in einem anderen Feld landet als die folgenden
+    (Haupt- und Fortsetzungszeile einer Vorlage): Wird alles mit der Breite
+    der ersten Zeile umbrochen, schneidet ein schmaleres Fortsetzungsfeld
+    den Rest stillschweigend ab.
+    """
     if width <= 0:
         return [""]
     lines: list[str] = []
+
+    def room() -> int:
+        if first_width is not None and not lines:
+            return max(first_width, 1)
+        return width
+
     for paragraph in value.split("\n"):
         words = paragraph.split()
         if not words:
@@ -155,18 +169,20 @@ def wrap_value(value: str, width: int, max_lines: int | None = None) -> list[str
             continue
         current = ""
         for word in words:
-            while len(word) > width:
+            while word:
+                limit = room()
+                candidate = f"{current} {word}" if current else word
+                if len(candidate) <= limit:
+                    current = candidate
+                    break
                 if current:
+                    # Zeile abschliessen; die naechste kann breiter oder
+                    # schmaler sein, deshalb neu pruefen.
                     lines.append(current)
                     current = ""
-                lines.append(word[:width])
-                word = word[width:]
-            candidate = f"{current} {word}".strip()
-            if len(candidate) <= width:
-                current = candidate
-            else:
-                lines.append(current)
-                current = word
+                    continue
+                lines.append(word[:limit])
+                word = word[limit:]
         if current:
             lines.append(current)
     if max_lines is not None:

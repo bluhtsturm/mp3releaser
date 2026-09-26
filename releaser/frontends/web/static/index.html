@@ -109,7 +109,7 @@
   <button id="load">Einlesen</button>
   <select id="template"><option value="">Vorlage …</option></select>
   <span class="spacer"></span>
-  <button id="undo" title="Letzte Umbenennung zurücknehmen">↶</button>
+  <button id="undo" title="Letzte Umbenennung oder letzten Tag-Lauf zurücknehmen">↶</button>
   <button id="check">Prüfen</button>
   <button id="tags">Tags …</button>
   <button id="rename">Umbenennen …</button>
@@ -354,6 +354,8 @@ for (const [id, which] of [["p-dir", "dir"], ["p-file", "file"],
 }
 
 function showPlan(payload, kind) {
+  // Bei einem Fehler liefert call() null - die Meldung steht dann schon da.
+  if (!payload) return;
   render(payload);
   const plan = payload.plan;
   if (!plan || !plan.changes) return;
@@ -361,7 +363,11 @@ function showPlan(payload, kind) {
   document.getElementById("planTitle").textContent =
     kind === "tags" ? "Tags schreiben" : "Umbenennen";
   document.getElementById("planText").textContent = plan.text;
-  document.getElementById("planApply").disabled = !plan.safe;
+  const apply = document.getElementById("planApply");
+  // "Prüfen" blendet den Knopf aus - hier muss er wieder sichtbar werden,
+  // sonst ließ sich nach einer Prüfung kein Plan mehr ausführen.
+  apply.style.display = "";
+  apply.disabled = !plan.safe;
   document.getElementById("plan").showModal();
 }
 
@@ -379,6 +385,7 @@ document.getElementById("rename").onclick = () =>
   call("/api/plan/rename", {}).then(p => showPlan(p, "rename"));
 document.getElementById("build").onclick = () =>
   call("/api/build", {}).then(payload => {
+    if (!payload) return;
     render(payload);
     for (const name of payload.created || []) note("info", "erzeugt: " + name);
   });
@@ -402,10 +409,13 @@ document.getElementById("undo").onclick = async () => {
   if (!data.entries.length) { note("warning", "Nichts rückgängig zu machen."); return; }
   const last = data.entries[data.entries.length - 1];
   pendingPlan = "undo";
-  document.getElementById("planTitle").textContent = "Umbenennung zurücknehmen";
+  // Zurückgenommen werden Umbenennungen wie auch geschriebene Tags
+  document.getElementById("planTitle").textContent = "Zurücknehmen";
   document.getElementById("planText").textContent =
-    `${last.when}  ${last.release}  (${last.count} Umbenennungen)`;
-  document.getElementById("planApply").style.display = "";
+    `${last.when}  ${last.release}  (${last.count} ${last.label || "Einträge"})`;
+  const apply = document.getElementById("planApply");
+  apply.style.display = "";
+  apply.disabled = false;
   document.getElementById("plan").showModal();
 };
 

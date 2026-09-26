@@ -78,6 +78,23 @@ def register(*extensions: str):
     return deco
 
 
+def _read_errors() -> tuple[type[BaseException], ...]:
+    """Fehler, die eine einzelne kaputte oder unlesbare Datei ausloesen kann.
+
+    Die Reader fangen nur die "kein Header"-Fehler ihres Formats ab. Eine
+    abgeschnittene FLAC-Datei meldet mutagen aber etwa als allgemeines
+    ``mutagen.flac.error``, eine Datei ohne Leserecht als ``PermissionError``.
+    Ohne diese Liste brach daran der ganze Scan ab, statt die eine Datei zu
+    ueberspringen und zu melden.
+    """
+    errors: tuple[type[BaseException], ...] = (OSError, EOFError)
+    try:
+        from mutagen import MutagenError
+    except ImportError:                         # pragma: no cover
+        return errors
+    return errors + (MutagenError,)
+
+
 def read_file(path: str | Path) -> AudioInfo:
     p = Path(path)
     if not p.is_file():
@@ -85,7 +102,12 @@ def read_file(path: str | Path) -> AudioInfo:
     reader = READERS.get(p.suffix.lower())
     if reader is None:
         raise AudioError(f"nicht unterstuetzte Endung: {p.suffix}")
-    return reader(p)
+    try:
+        return reader(p)
+    except AudioError:
+        raise
+    except _read_errors() as exc:
+        raise AudioError(f"{p.name} nicht lesbar: {exc}") from exc
 
 
 # Channel-Mode-Bezeichnungen des AC-3/E-AC-3-acmod-Feldes.

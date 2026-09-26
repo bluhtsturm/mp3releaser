@@ -220,3 +220,40 @@ def test_track_layout_reports_width_and_continuation():
     assert Template.parse(plain).track_layout() == (8, False)
     assert Template.parse(with_cont).track_layout() == (8, True)
     assert Template.parse("#Artist   ").track_layout() == (0, False)
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+def test_space_before_kbps_goes_between_number_and_unit():
+    template = Template.parse("#Br           |")
+    release = make_release()
+    assert template.render(release).startswith("320kbps ")
+    spaced = template.render(release, Settings(space_before_kbps=True))
+    assert spaced.startswith("320 kbps ")
+
+
+def _words(text: str, drop: tuple[str, ...] = ()) -> list[str]:
+    return [w for w in text.replace("|", " ").split() if w not in drop]
+
+
+def test_wrapped_track_title_fits_a_narrower_continuation_line():
+    """Umbrochen wurde mit der Breite der Hauptzeile - im schmaleren
+    Fortsetzungsfeld fiel der Rest dann stillschweigend weg."""
+    template = Template.parse("#N #Trk" + " " * 26 + "|\n"
+                              "      #Trk" + " " * 6 + "|")
+    title = "eins zwei drei vier fuenf sechs sieben acht neun zehn elf"
+    release = make_release(discs=[Disc(1, tracks=[Track(1, title, 60.0)])])
+    out = template.render(release)
+    assert _words(out, drop=("01",)) == title.split()
+
+
+def test_wrapped_notes_fit_a_narrower_continuation_line():
+    template = Template.parse("#Rnotes" + " " * 24 + "|\n"
+                              "  #Rnotes" + " " * 5 + "|")
+    first = "Eine recht lange erste Notiz, die ueber mehrere Zeilen umbricht"
+    release = make_release(notes=[first, "zweite"])
+    out = template.render(release)
+    assert _words(out) == (first + " zweite").split()
+    widths = {len(line) for line in out.splitlines()}
+    assert max(widths) <= 32

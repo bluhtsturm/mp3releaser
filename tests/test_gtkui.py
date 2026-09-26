@@ -818,3 +818,51 @@ def test_template_check_button_opens_a_report(release_tree):
     assert result.returncode == 0, result.stderr
     assert "NOTEMPLATE warning" in result.stdout
     assert "OPENED True" in result.stdout
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+def test_save_defaults_keeps_the_rest_of_the_config(tmp_path, monkeypatch):
+    """Speichern schrieb die Datei neu - [tags] und audio_crc gingen verloren."""
+    from releaser.config import load
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    target = tmp_path / "mp3releaser" / "config.toml"
+    target.parent.mkdir(parents=True)
+    target.write_text('[tags]\ncase = "capitalize"\n\n[build]\naudio_crc = true\n',
+                      encoding="utf-8")
+
+    state = gtkui.build_state()
+    state.set_pattern("group", "NEU")
+    assert gtkui.save_defaults(state) == target
+
+    saved = load(target)
+    assert saved.tags == {"case": "capitalize"}
+    assert saved.build["audio_crc"] is True
+    assert saved.naming["group"] == "NEU"
+
+
+def test_desktop_reads_the_tags_and_build_sections():
+    from releaser.config import parse
+
+    config = parse('[tags]\ncase = "upper"\n\n[build]\naudio_crc = true\n'
+                   'sfv_include = ["log"]\n')
+    state = gtkui.build_state(config=config)
+    assert state.tags.charcase.value == "upper"
+    assert state.build_options.audio_crc is True
+    assert state.build_options.sfv_include == ("log",)
+
+
+def test_save_defaults_does_not_overwrite_a_broken_config(tmp_path, monkeypatch):
+    from releaser.config import Config, ConfigError
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    target = tmp_path / "mp3releaser" / "config.toml"
+    target.parent.mkdir(parents=True)
+    target.write_text("[naming\nkaputt", encoding="utf-8")
+
+    state = gtkui.build_state(config=Config())
+    with pytest.raises(ConfigError):
+        gtkui.save_defaults(state)
+    assert target.read_text(encoding="utf-8") == "[naming\nkaputt"

@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Iterable, Optional
 
+from .config import ConfigError
 from .model import Release
 from .provenance import OriginMap
 from .naming import (
@@ -60,27 +61,115 @@ def naming_from_config(config=None, group: Optional[str] = None,
 
     section = config.section("naming") if config is not None else {}
     base = NamingProfile()
-    profile = replace(
-        base,
+    # "case" gilt fuer beide Geltungsbereiche, case_dir/case_file schlagen
+    # es - dieselbe Regel wie auf der Kommandozeile. Frueher werteten nur
+    # die CLI "case", "pipeline" und "companion_pattern" aus; Desktop und
+    # Weboberflaeche uebergingen sie stillschweigend.
+    case = section.get("case")
+    try:
+        charcase = {
+            Scope.DIRECTORY: CharCase(
+                section.get("case_dir", case or PRESET_CASE["directory"])),
+            Scope.FILENAME: CharCase(
+                section.get("case_file", case or PRESET_CASE["file"])),
+            Scope.TAG: CharCase.UNCHANGED,
+            Scope.NFO: CharCase.UNCHANGED,
+        }
+    except ValueError as exc:
+        raise ConfigError(f"[naming] unbekannte Schreibweise: {exc}") from exc
+    values = dict(
         dir_pattern=section.get("dir_pattern", base.dir_pattern),
         file_pattern=section.get("file_pattern", base.file_pattern),
         group=group if group is not None else section.get("group", ""),
         space_char=section.get("space", base.space_char),
+        pipeline=tuple(_as_list(section.get("pipeline", base.pipeline))),
         companion_prefix=section.get("companion_prefix", base.companion_prefix),
-        charcase={
-            Scope.DIRECTORY: CharCase(
-                section.get("case_dir", PRESET_CASE["directory"])),
-            Scope.FILENAME: CharCase(
-                section.get("case_file", PRESET_CASE["file"])),
-            Scope.TAG: CharCase.UNCHANGED,
-            Scope.NFO: CharCase.UNCHANGED,
-        },
-        **overrides,
+        companion_pattern=section.get("companion_pattern",
+                                      base.companion_pattern),
+        charcase=charcase,
     )
+    # Ausdrueckliche Vorgaben des Aufrufers schlagen die Datei - als
+    # Woerterbuch zusammengefuehrt, damit ein doppelt genannter Schluessel
+    # kein TypeError wird.
+    values.update(overrides)
+    profile = replace(base, **values)
     if not section.get("prefix_all", True):
-        profile = replace(profile, prefixed_suffixes=frozenset(
-            {".nfo", ".jpg", ".jpeg", ".png", ".pdf"}))
+        profile = replace(profile, prefixed_suffixes=UNPREFIXED_COMPANIONS)
     return profile
+
+
+#: Begleitdateien mit Praefix, wenn ``prefix_all`` aus ist - wie im Original.
+UNPREFIXED_COMPANIONS: frozenset[str] = frozenset(
+    {".nfo", ".jpg", ".jpeg", ".png", ".pdf"})
+
+
+def _as_list(value) -> list:
+    """Ein einzelner Wert, wo eine Liste erwartet wird, bleibt ein Eintrag.
+
+    ``sfv_include = "log"`` ergab sonst ``("l", "o", "g")``.
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    return list(value)
+
+
+def tags_from_config(config=None) -> TagProfile:
+    """Baut das Tag-Profil aus dem Abschnitt ``[tags]``.
+
+    Die Kommandozeile las ``[tags]`` schon immer; die Desktop-Anwendung nahm
+    stattdessen fest die Voreinstellung - dieselbe Konfiguration schrieb
+    dort also andere Tags.
+    """
+    from .text import CharCase
+
+    section = config.section("tags") if config is not None else {}
+    base = TagProfile()
+    try:
+        charcase = CharCase(section.get("case", base.charcase.value))
+    except ValueError as exc:
+        raise ConfigError(f"[tags] unbekannte Schreibweise: {exc}") from exc
+    id3v2 = section.get("id3v2", base.id3v2_version)
+    if id3v2 not in (3, 4):
+        raise ConfigError(f"[tags] id3v2 muss 3 oder 4 sein, nicht {id3v2!r}")
+
+    def flag(key: str, default: bool) -> bool:
+        return bool(section.get(key, default))
+
+    return TagProfile(
+        charcase=charcase,
+        comment=str(section.get("comment", base.comment)),
+        label_in_comment=flag("label_in_comment", base.label_in_comment),
+        catalog_in_album=flag("catalog_in_album", base.catalog_in_album),
+        album_addition=str(section.get("album_addition", base.album_addition)),
+        write_totals=flag("write_totals", base.write_totals),
+        write_disc_for_single=flag("write_disc_for_single",
+                                   base.write_disc_for_single),
+        write_id3v1=flag("write_id3v1", base.write_id3v1),
+        id3v2_version=id3v2,
+        strip_existing=flag("strip_existing", base.strip_existing),
+        normalise_genre=flag("normalise_genre", base.normalise_genre),
+        write_apev2=flag("write_apev2", base.write_apev2),
+        write_lyrics3=flag("write_lyrics3", base.write_lyrics3),
+    )
+
+
+def build_options_from_config(config=None) -> "BuildOptions":
+    """Baut die Erzeugungsoptionen aus dem Abschnitt ``[build]``.
+
+    Die Vorlage bleibt aussen vor - die laden die Oberflaechen selbst, weil
+    sie dabei auch Feldbreiten und Pruefungen brauchen.
+    """
+    section = config.section("build") if config is not None else {}
+    return BuildOptions(
+        audio_crc=bool(section.get("audio_crc", False)),
+        sfv_comment=str(section.get("sfv_comment", "")),
+        sfv_include=tuple(_as_list(section.get("sfv_include"))),
+        clean=bool(section.get("clean", False)),
+        use_catalog_no=bool(section.get("catalog_no", False)),
+        m3u_windows_paths=bool(section.get("m3u_windows_paths", False)),
+    )
 
 
 #: Name der mitgelieferten Standardvorlage
@@ -173,7 +262,37 @@ def preview_tags(release: Release, profile: TagProfile) -> TagPlan:
 
 def write_tags(release: Release, profile: TagProfile) -> list[Path]:
     """Schreibt die Tags. Das Rueckgaengig-Protokoll fuehrt ``apply_tags``."""
-    return apply_tags(plan_tags(release, profile), profile)
+    written = apply_tags(plan_tags(release, profile), profile)
+    refresh_sizes(release)
+    return written
+
+
+def refresh_sizes(release: Release) -> None:
+    """Liest die Dateigroessen nach dem Tag-Schreiben neu ein.
+
+    Tags aendern die Dateigroesse - ein neuer ID3v2-Block, ein angehaengtes
+    ID3v1 oder APEv2. Das Modell hielt aber die Groessen vom Einlesen fest,
+    und ``#Size`` in der anschliessend erzeugten .nfo stimmte nicht mehr mit
+    den Dateien ueberein. Tracks aus einem CUE teilen sich eine Datei; ihre
+    Anteile werden im alten Verhaeltnis neu verteilt.
+    """
+    by_path: dict[str, list] = {}
+    for track in release.tracks:
+        if track.path:
+            by_path.setdefault(track.path, []).append(track)
+    for path, tracks in by_path.items():
+        try:
+            size = Path(path).stat().st_size
+        except OSError:
+            continue
+        if len(tracks) == 1:
+            tracks[0].size_bytes = size
+            continue
+        before = sum(t.size_bytes for t in tracks)
+        if before <= 0:
+            continue
+        for track in tracks:
+            track.size_bytes = int(size * track.size_bytes / before)
 
 
 # ------------------------------------------------------------ Umbenennen
@@ -292,6 +411,7 @@ def process(directory: str | Path, options: BuildOptions,
         plan = plan_tags(release, profile)
         outcome.warnings += plan.warnings
         apply_tags(plan, profile)
+        refresh_sizes(release)
 
     if do_rename:
         plan, root = perform_rename(release, root,

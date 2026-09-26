@@ -28,7 +28,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 672 Tests
+python3 -m pytest tests -q          # 724 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -274,10 +274,10 @@ ohne Spaltenlogik:
 --file-pattern "#N-#Artist-#Trk"
 ```
 
-Ein Vokabular für NFO *und* Dateinamen statt zweier paralleler Systeme. Drei
+Ein Vokabular für NFO *und* Dateinamen statt zweier paralleler Systeme. Fünf
 Tags kommen dazu, die nur beim Benennen Sinn ergeben (`#Cd`, `#Cd2`, `#Grp`,
-`#Ext`); sie stehen in einer eigenen Tabelle, damit `inspect` weiterhin nur
-echte SKL-Tags zeigt.
+`#Ext`, `#Fmt`); sie stehen in einer eigenen Tabelle, damit `inspect`
+weiterhin nur echte SKL-Tags zeigt.
 
 **Zweitens eine Regelkette** — jede Regel eine reine Funktion `str -> str` mit
 einem Namen. Die Konfiguration ist eine lesbare Liste statt Boolescher Flags:
@@ -477,7 +477,8 @@ Checkbox-Flut gekippt ist. Dieselbe Information steht hier in einer TOML-Datei:
 [naming]
 group = "GRP"
 case = "lower"
-companion_prefix = "00-"        # gilt für .nfo und Bilder, nicht für .sfv/.m3u
+companion_prefix = "00-"        # .nfo, Bilder, .sfv und .m3u
+prefix_all = true               # false: nur .nfo und Bilder
 
 [tags]
 case = "capitalize"
@@ -1036,7 +1037,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-672 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+724 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1055,6 +1056,9 @@ dem Stand des ersten Tages, weil Textersetzungen stillschweigend nicht
 griffen — eine Ersetzung ohne Treffer meldet nichts. `tests/test_readme.py`
 prüft jetzt, dass jedes erwähnte Kommando existiert, jedes existierende
 erwähnt ist, der Modulbaum stimmt und die genannte Testzahl aktuell ist.
+
+Die Korrekturen aus der Fehlerdurchsicht zu 0.22.1 stehen mit Ursache und
+Auswirkung in [`CHANGE.md`](CHANGE.md).
 
 ### Aus der ersten Erprobung
 

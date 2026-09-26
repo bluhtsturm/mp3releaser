@@ -372,3 +372,23 @@ def test_m3u_name_follows_release(tmp_path):
     release, _ = make_release(tmp_path, multi=True)
     assert m3u_name(release) == "A-B-2026-GRP.m3u"
     assert m3u_name(release, release.discs[1]) == "A-B-2026-GRP-cd2.m3u"
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+def test_sfv_comment_from_a_generator_reaches_every_disc(tmp_path):
+    """Ein Generator war nach dem ersten CD-Verzeichnis erschoepft."""
+    discs = []
+    for number in (1, 2):
+        path = tmp_path / f"CD{number}" / "01.mp3"
+        path.parent.mkdir()
+        path.write_bytes(bytes([number]) * 64)
+        discs.append(Disc(number, tracks=[Track(1, "t", 1.0, number, str(path))]))
+    release = Release(artist="A", album="B", discs=discs)
+
+    written = write_release_sfvs(release, tmp_path,
+                                 comments=(c for c in ["gruss"]))
+    assert len(written) == 2
+    for sfv in written:
+        assert "; gruss" in sfv.read_text(encoding="cp437")

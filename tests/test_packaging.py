@@ -304,6 +304,18 @@ def test_build_script_checks_for_the_obsolete_pathlib_package():
     assert "pip uninstall pathlib" in text
 
 
+def _pyinstaller_available() -> bool:
+    """Ob das ``python3`` im Suchpfad PyInstaller importieren kann - genau
+    das Programm, das build.sh aufruft."""
+    try:
+        return subprocess.run(["python3", "-c", "import PyInstaller"],
+                              capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+
+
+@pytest.mark.skipif(not _pyinstaller_available(),
+                    reason="PyInstaller nicht installiert")
 def test_preflight_passes_in_a_sane_environment():
     result = subprocess.run(
         ["bash", "-c",

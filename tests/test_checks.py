@@ -283,3 +283,13 @@ def test_cli_check_exit_code_reflects_errors(tmp_path):
         handle.write(b"kaputt")
 
     assert cli.main(["check", str(root)]) == 1
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+def test_naming_only_tags_are_reported_in_a_template():
+    """#Grp gibt es nur in Namensmustern - in der NFO stuende es woertlich."""
+    template = Template.parse("|#Artist" + " " * 40 + "#Grp  |")
+    report = check_template(template)
+    assert any("#Grp" in issue.message for issue in report.issues)

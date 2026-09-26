@@ -88,7 +88,9 @@ ALIASES: dict[str, str] = {
     "ebm": "EBM",
     "electronica": "Electronic",
     "electro": "Electro",
-    "alternativerock": "Alternative Rock",
+    # Die ID3v1-Liste fuehrt Nummer 40 als "Alt. Rock" - ein Alias auf
+    # "Alternative Rock" liefe ins Leere.
+    "alternativerock": "Alt. Rock",
     "acapella": "A Cappella",
 }
 

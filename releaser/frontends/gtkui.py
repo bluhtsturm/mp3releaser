@@ -32,7 +32,7 @@ from ..browse import Entry, Kind, LocalSource
 from ..fields import FieldView
 from ..naming import NamingProfile, Scope, format_plan as format_rename_plan
 from ..text import CharCase
-from ..tagwriter import TagProfile, format_plan as format_tag_plan
+from ..tagwriter import format_plan as format_tag_plan
 from ..uistate import Action, AppState, Level
 
 APP_ID = "de.uniprojekt.mp3releaser"
@@ -287,7 +287,8 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             header.pack_start(save_button)
 
             undo_button = Gtk.Button(icon_name="edit-undo-symbolic")
-            undo_button.set_tooltip_text("Letzte Umbenennung zuruecknehmen")
+            undo_button.set_tooltip_text(
+                "Letzte Umbenennung oder letzten Tag-Lauf zuruecknehmen")
             undo_button.connect("clicked", self._on_undo)
             header.pack_start(undo_button)
 
@@ -733,8 +734,10 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 detail = "\n".join(f"  {dst}\n     ->  {src}"
                                    for src, dst in entry.moves)
             else:
+                # Pseudofelder wie "#containers" sind Buchhaltung, kein Tag
                 detail = "\n".join(
-                    f"  {Path(file).name}: {', '.join(values)}"
+                    f"  {Path(file).name}: "
+                    + ", ".join(k for k in values if not k.startswith("#"))
                     for file, values in entry.tags.items())
             _confirm(self, "Zurücknehmen", entry.describe() + "\n\n" + detail,
                      lambda: self.state.undo_last())
@@ -754,28 +757,7 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             Beim naechsten Start sind Vorlage, Muster, Gruppe und
             Schreibweisen gesetzt - kein Klicken mehr fuer eine Vorfuehrung.
             """
-            from ..config import Config, save
-            from ..naming import Scope
-
-            naming = self.state.naming
-            config = Config(
-                naming={
-                    "dir_pattern": naming.dir_pattern,
-                    "file_pattern": naming.file_pattern,
-                    "group": naming.group,
-                    "case_dir": naming.charcase.get(
-                        Scope.DIRECTORY, CharCase.UNCHANGED).value,
-                    "case_file": naming.charcase.get(
-                        Scope.FILENAME, CharCase.UNCHANGED).value,
-                    "companion_prefix": naming.companion_prefix,
-                    "prefix_all": ".sfv" in naming.prefixed_suffixes,
-                },
-                build={},
-            )
-            if self.state.template_path:
-                config.build["template"] = str(self.state.template_path)
-
-            target = save(config)
+            target = save_defaults(self.state)
             self.state.say(f"Standard gespeichert: {target}")
             self.refresh()
 
@@ -956,6 +938,44 @@ def main(argv: Optional[list[str]] = None) -> int:
     return run(state)
 
 
+def save_defaults(state: AppState, path: Optional[Path] = None) -> Path:
+    """Schreibt Vorlage, Muster, Gruppe und Schreibweisen als Standard.
+
+    Ergaenzt die vorhandene Benutzerkonfiguration, statt sie zu ersetzen.
+    Frueher entstand die Datei jedes Mal neu - ein von Hand gepflegter
+    Abschnitt ``[tags]`` oder Schluessel wie ``audio_crc`` gingen beim
+    Speichern verloren. Ohne GTK testbar.
+
+    Ist die vorhandene Datei nicht lesbar, wird sie nicht ueberschrieben:
+    der ``ConfigError`` geht an den Aufrufer, die Oberflaeche zeigt ihn an.
+    """
+    from ..config import Config, load, save, user_config_path
+
+    target = Path(path) if path else user_config_path()
+    config = load(target) if target.is_file() else Config()
+
+    naming = state.naming
+    config.naming = dict(config.naming)
+    config.naming.update({
+        "dir_pattern": naming.dir_pattern,
+        "file_pattern": naming.file_pattern,
+        "group": naming.group,
+        "case_dir": naming.charcase.get(
+            Scope.DIRECTORY, CharCase.UNCHANGED).value,
+        "case_file": naming.charcase.get(
+            Scope.FILENAME, CharCase.UNCHANGED).value,
+        "companion_prefix": naming.companion_prefix,
+        "prefix_all": ".sfv" in naming.prefixed_suffixes,
+    })
+    # case_dir/case_file stehen jetzt ausdruecklich da - ein allgemeines
+    # "case" wuerde beim Lesen nicht mehr gebraucht, aber verwirren
+    config.naming.pop("case", None)
+    config.build = dict(config.build)
+    if state.template_path:
+        config.build["template"] = str(state.template_path)
+    return save(config, target)
+
+
 def build_state(start: Optional[str] = None, mounts: Optional[str] = None,
                 template: Optional[str] = None,
                 group: Optional[str] = None,
@@ -973,11 +993,16 @@ def build_state(start: Optional[str] = None, mounts: Optional[str] = None,
     naming_cfg = settings.section("naming")
     build_cfg = settings.section("build")
 
-    from ..service import naming_from_config
+    from ..service import (build_options_from_config, naming_from_config,
+                           tags_from_config)
 
     source = from_environment(mounts) if mounts else LocalSource(start)
     profile = naming_from_config(settings, group=group or None)
-    state = AppState(source=source, naming=profile, tags=TagProfile())
+    # [tags] und [build] gelten hier genauso wie auf der Kommandozeile -
+    # frueher nahm die Desktop-Anwendung fest die Voreinstellungen.
+    state = AppState(source=source, naming=profile,
+                     tags=tags_from_config(settings),
+                     build_options=build_options_from_config(settings))
     prefix = naming_cfg.get("companion_prefix", NamingProfile.companion_prefix)
     if prefix:
         state.set_companion_prefix(

@@ -538,3 +538,87 @@ def test_new_keys_are_known():
     for key in ("case_dir", "case_file", "prefix_all", "companion_prefix"):
         assert key in config_module.KNOWN_KEYS["naming"], key
     assert "template" in config_module.KNOWN_KEYS["build"]
+
+
+# ================================================ Korrekturen (Fehlerdurchsicht)
+
+
+def test_every_genre_alias_resolves():
+    for alias, target in genres.ALIASES.items():
+        assert genres.lookup(target) is not None, alias
+    assert genres.normalise("Alternative Rock")[:2] == ("Alt. Rock", 40)
+
+
+def test_cue_with_utf8_bom_keeps_its_first_line(tmp_path):
+    """Der BOM verschluckte die erste Zeile - meist PERFORMER oder REM GENRE."""
+    path = tmp_path / "bom.cue"
+    path.write_bytes('﻿PERFORMER "Der Artist"\nTITLE "Das Album"\n'
+                     .encode("utf-8"))
+    sheet = cue_module.read_cue(path)
+    assert sheet.performer == "Der Artist"
+    assert sheet.title == "Das Album"
+
+
+@pytest.mark.parametrize("line,name,kind", [
+    ('FILE "a b.flac" WAVE', "a b.flac", "WAVE"),
+    ("FILE mix.mp3 MP3", "mix.mp3", "MP3"),
+    ("FILE mix.wav", "mix.wav", "WAVE"),
+])
+def test_cue_file_type_with_and_without_quotes(line, name, kind):
+    sheet = cue_module.parse_cue(line + "\n")
+    assert sheet.files[0].name == name
+    assert sheet.files[0].file_type == kind
+
+
+def test_cue_can_be_applied_without_an_origin_map(tmp_path):
+    from releaser.audio.base import AudioInfo
+    from releaser.audio.scan import _apply_cue_sheets
+
+    audio = tmp_path / "mix.flac"
+    (tmp_path / "mix.cue").write_text(
+        'FILE "mix.flac" WAVE\n'
+        '  TRACK 01 AUDIO\n    TITLE "Eins"\n    INDEX 01 00:00:00\n'
+        '  TRACK 02 AUDIO\n    TITLE "Zwei"\n    INDEX 01 01:00:00\n',
+        encoding="utf-8")
+    info = AudioInfo(path=audio, duration=120.0, size_bytes=1200)
+    release = Release(discs=[Disc(1, tracks=[
+        Track(1, "mix", 120.0, path=str(audio), size_bytes=1200)])])
+
+    _apply_cue_sheets(tmp_path, release, [info], [])
+    assert [t.title for t in release.tracks] == ["Eins", "Zwei"]
+
+
+def test_split_group_needs_three_parts():
+    assert dupecheck.split_group("Artist-Album") == ("Artist-Album", "")
+    assert dupecheck.split_group("Artist-Album-GRP") == ("Artist-Album", "GRP")
+
+
+def test_albums_of_one_artist_without_group_are_not_dupes():
+    """Bei zwei Bestandteilen galt das Album als Gruppenkuerzel - dann war
+    jedes Album eines Artists ein "identischer" Treffer."""
+    index = dupecheck.DupeIndex()
+    index.add("Der_Artist-Das_Album")
+    assert index.check("Der_Artist-Ein_ganz_anderes_Werk") == []
+
+
+def test_config_save_ignores_an_empty_xdg_variable(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", "")
+    monkeypatch.setenv("HOME", str(tmp_path))
+    target = config_module.save(config_module.Config(naming={"group": "G"}))
+    assert target == tmp_path / ".config" / "mp3releaser" / "config.toml"
+    assert target.is_file()
+
+
+def test_config_dump_escapes_control_characters():
+    """Ein Zeilenumbruch im Wert machte die gespeicherte Datei unlesbar."""
+    value = 'zwei\nZeilen\tmit "Zitat" \\ und \x01'
+    again = config_module.parse(config_module.dump(
+        config_module.Config(tags={"comment": value})))
+    assert again.tags["comment"] == value
+
+
+def test_config_with_invalid_utf8_is_a_config_error(tmp_path):
+    path = tmp_path / "kaputt.toml"
+    path.write_bytes(b'[naming]\ngroup = "\xff"\n')
+    with pytest.raises(config_module.ConfigError, match="UTF-8"):
+        config_module.load(path)

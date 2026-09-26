@@ -206,8 +206,12 @@ class TrackBlock(Block):
                 out.append(render_line(self.cont, _with(ctx, track_text="")))
             for track in disc.tracks:
                 title = compose_track_title(track, ctx.settings)
-                if ctx.settings.wrap_tracklist and self.cont is not None and main_w:
-                    parts = wrap_value(title, main_w)
+                if (ctx.settings.wrap_tracklist and self.cont is not None
+                        and main_w and cont_w > 0):
+                    # Erste Zeile so breit wie das Hauptfeld, der Rest so
+                    # breit wie das Fortsetzungsfeld - sonst wird dort
+                    # abgeschnitten, was umbrochen werden sollte.
+                    parts = wrap_value(title, cont_w, first_width=main_w)
                 else:
                     parts = [title]
                 out.append(render_line(self.main, _with(ctx, track=track, disc=disc,
@@ -242,10 +246,17 @@ class TextBlock(Block):
         main_w = self._width(self.main)
         cont_w = self._width(self.cont) if self.cont else main_w
 
+        # Nur die allererste Ausgabezeile steht in der Hauptzeile - auch die
+        # Umbruchreste der ersten Notiz landen schon in der Fortsetzungszeile
+        # und muessen deshalb deren Breite haben.
         wrapped: list[str] = []
-        for i, line in enumerate(raw_lines):
-            width = main_w if (i == 0 or self.cont is None) else cont_w
-            wrapped.extend(wrap_value(line, width) if width else [line])
+        for line in raw_lines:
+            if self.cont is None:
+                width, first = main_w, None
+            else:
+                width, first = cont_w, (main_w if not wrapped else None)
+            wrapped.extend(wrap_value(line, width, first_width=first)
+                           if width else [line])
 
         out: list[str] = []
         for i, line in enumerate(wrapped):

@@ -21,6 +21,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -30,26 +31,40 @@ from ..tags import REGISTRY, Settings
 from ..text import CharCase, write_nfo
 
 
+def _check_fields(cls, data: dict, what: str) -> None:
+    """Unbekannte Schluessel melden, statt mit einem TypeError abzubrechen.
+
+    Fuer die Release selbst gab es das schon; ein Tippfehler in einem Track
+    oder in den Einstellungen endete dagegen in einem Traceback.
+    """
+    unknown = set(data) - set(cls.__dataclass_fields__)
+    if unknown:
+        raise SystemExit(f"unbekannte Felder in {what}: {sorted(unknown)}")
+
+
 def release_from_dict(data: dict) -> Release:
     discs_data = data.pop("discs", [])
     tracks_data = data.pop("tracks", [])
-    known = {f for f in Release.__dataclass_fields__}
-    unknown = set(data) - known
-    if unknown:
-        raise SystemExit(f"unbekannte Felder in der Releasebeschreibung: {sorted(unknown)}")
+    _check_fields(Release, data, "der Releasebeschreibung")
+
+    def track(values: dict) -> Track:
+        _check_fields(Track, values, "einem Track")
+        return Track(**values)
 
     discs: list[Disc] = []
     if discs_data:
         for d in discs_data:
-            tracks = [Track(**t) for t in d.pop("tracks", [])]
+            tracks = [track(t) for t in d.pop("tracks", [])]
+            _check_fields(Disc, d, "einer CD")
             discs.append(Disc(tracks=tracks, **d))
     elif tracks_data:
-        discs = [Disc(1, tracks=[Track(**t) for t in tracks_data])]
+        discs = [Disc(1, tracks=[track(t) for t in tracks_data])]
 
     return Release(discs=discs, **data)
 
 
 def settings_from_dict(data: dict) -> Settings:
+    _check_fields(Settings, data, "den Einstellungen")
     if "nfo_charcase" in data:
         data["nfo_charcase"] = CharCase(data["nfo_charcase"])
     return Settings(**data)
@@ -135,6 +150,7 @@ def _tag_profile_from_args(args: argparse.Namespace):
         write_id3v1=not pick("no_id3v1", args.no_id3v1 or None,
                              not pick("write_id3v1", None, True)),
         id3v2_version=pick("id3v2", args.id3v2, 4),
+        write_disc_for_single=pick("write_disc_for_single", None, False),
         strip_existing=pick("strip_existing", args.strip_tags or None, False),
         write_apev2=pick("write_apev2", args.apev2 or None, False),
         write_lyrics3=pick("write_lyrics3", args.lyrics3 or None, False),
@@ -205,15 +221,20 @@ def _profile_from_args(args: argparse.Namespace):
     case_dir = CharCase(pick("case_dir", args.case_dir, default_dir))
     case_file = CharCase(pick("case_file", args.case_file, default_file))
     pipeline = pick("pipeline", args.pipeline, list(DEFAULT_PIPELINE))
+    # --no-prefix ist ein ausdruecklicher Schalter und schlaegt deshalb auch
+    # ein companion_prefix aus der Datei. Frueher gewann die Datei.
+    prefix = ("" if args.no_prefix
+              else pick("companion_prefix", args.companion_prefix, "00-"))
     return NamingProfile(
         dir_pattern=pick("dir_pattern", args.dir_pattern,
                          NamingProfile.dir_pattern),
         file_pattern=pick("file_pattern", args.file_pattern, "#N-#Artist-#Trk"),
         group=pick("group", args.group, ""),
         space_char=pick("space", args.space, "_"),
-        pipeline=tuple(pipeline),
-        companion_prefix=pick("companion_prefix", args.companion_prefix,
-                              "" if args.no_prefix else "00-"),
+        pipeline=tuple([pipeline] if isinstance(pipeline, str) else pipeline),
+        companion_prefix=prefix,
+        companion_pattern=pick("companion_pattern", None,
+                               NamingProfile.companion_pattern),
         charcase={Scope.DIRECTORY: case_dir, Scope.FILENAME: case_file,
                   Scope.TAG: CharCase.UNCHANGED, Scope.NFO: CharCase.UNCHANGED},
         prefixed_suffixes=frozenset(
@@ -243,9 +264,10 @@ def _add_naming_args(parser: argparse.ArgumentParser) -> None:
                         help="Praefix auch fuer .sfv und .m3u (Standard)")
     parser.add_argument("--no-prefix", action="store_true",
                         help="kein '00-' vor den Begleitdateien")
+    from ..naming import DEFAULT_PIPELINE
+
     parser.add_argument("--pipeline", nargs="*", metavar="REGEL",
-                        help="Regelkette, Standard: "
-                             "inch transliterate forbidden spaces collapse trim")
+                        help="Regelkette, Standard: " + " ".join(DEFAULT_PIPELINE))
 
 
 def cmd_rename(args: argparse.Namespace) -> int:
@@ -278,7 +300,7 @@ def cmd_rename(args: argparse.Namespace) -> int:
 def cmd_build(args: argparse.Namespace) -> int:
     """Der komplette Ablauf. Die Arbeit macht die Dienstschicht."""
     from ..config import resolve
-    from ..service import BuildOptions, process
+    from ..service import BuildOptions, _as_list, process
 
     cfg = args._config
     pick = lambda key, value, default: resolve(cfg, "build", key, value, default)
@@ -291,8 +313,9 @@ def cmd_build(args: argparse.Namespace) -> int:
         m3u=not args.no_m3u,
         clean=pick("clean", args.clean or None, False),
         audio_crc=pick("audio_crc", args.audio_crc or None, False),
-        sfv_comment=args.sfv_comment or "",
-        sfv_include=tuple(pick("sfv_include", args.sfv_include or None, [])),
+        sfv_comment=pick("sfv_comment", args.sfv_comment, ""),
+        sfv_include=tuple(_as_list(pick("sfv_include", args.sfv_include or None,
+                                        []))),
         use_catalog_no=pick("catalog_no", args.catalog_no or None, False),
         codepage=args.codepage,
         m3u_windows_paths=build_pick_bool("m3u_windows_paths",
@@ -349,10 +372,14 @@ def cmd_web(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 2
     print(f"Sichtbar: {', '.join(source.names)}", file=sys.stderr)
+    from ..service import build_options_from_config
+
+    templates = args.templates or os.environ.get("RELEASER_TEMPLATES") or None
     return run(host=args.host, port=args.port, source=source,
                naming=_profile_from_args(args),
                tags=_tag_profile_from_args(args),
-               templates_dir=Path(args.templates) if args.templates else None)
+               templates_dir=Path(templates) if templates else None,
+               build_options=build_options_from_config(args._config))
 
 
 def cmd_gui(args: argparse.Namespace) -> int:
@@ -735,7 +762,8 @@ def main(argv: list[str] | None = None) -> int:
     wb.add_argument("--port", type=int, default=8000)
     wb.add_argument("--mounts", help="eingehaengte Verzeichnisse; sonst aus "
                                      "RELEASER_MOUNTS")
-    wb.add_argument("--templates", help="Verzeichnis mit .skl-Vorlagen")
+    wb.add_argument("--templates", help="Verzeichnis mit .skl-Vorlagen "
+                                         "(sonst aus RELEASER_TEMPLATES)")
     _add_naming_args(wb)
     _add_tag_args(wb)
     wb.set_defaults(func=cmd_web)

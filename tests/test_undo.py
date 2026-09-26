@@ -488,3 +488,17 @@ def test_audio_data_survives_write_and_undo(tmp_path):
     undo.undo(undo.last())
 
     assert audio_crc32(target)[0] == before
+
+
+# ------------------------------------------------ Korrekturen (Fehlerdurchsicht)
+
+
+def test_a_damaged_entry_does_not_hide_the_others(tmp_path):
+    import json
+
+    path = tmp_path / "undo.json"
+    path.write_text(json.dumps([
+        {"timestamp": 1, "release": "kaputt", "moves": [["nur-ein-pfad"]]},
+        {"timestamp": 2, "release": "gut", "moves": [["a", "b"]]},
+    ]), encoding="utf-8")
+    assert [e.release for e in undo.load(path)] == ["gut"]

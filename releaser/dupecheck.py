@@ -47,9 +47,15 @@ DEFAULT_THRESHOLD = 0.88
 
 
 def split_group(name: str) -> tuple[str, str]:
-    """(Name ohne Gruppenkürzel, Gruppenkürzel)."""
+    """(Name ohne Gruppenkürzel, Gruppenkürzel).
+
+    Ein Gruppenkürzel gibt es erst ab drei Bestandteilen
+    (``Artist-Album-GRP``). Bei ``Artist-Album`` ist der letzte Teil das
+    Album - wurde es als Gruppe abgetrennt, galten alle Alben eines Artists
+    als dasselbe Release.
+    """
     match = _GROUP.search(name)
-    if not match:
+    if not match or "-" not in name[:match.start()]:
         return name, ""
     return name[:match.start()], match.group(1)
 
