@@ -270,6 +270,8 @@ function render(state) {
 
   renderNames(state);
   refreshNfo();
+  const picker = document.getElementById("template");
+  if (state.template && picker.value !== state.template) picker.value = state.template;
 
   document.getElementById("status").textContent = state.status;
   for (const message of state.messages) note(message.level, message.text);

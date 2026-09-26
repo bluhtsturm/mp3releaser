@@ -67,8 +67,11 @@ class SessionStore:
 
     def __init__(self, source: MountedSource, naming: NamingProfile,
                  tags: TagProfile, ttl: float = SESSION_TTL,
-                 limit: int = MAX_SESSIONS):
+                 limit: int = MAX_SESSIONS,
+                 default_template: Optional[Path] = None):
         self.source = source
+        #: wird in jeder neuen Sitzung gleich geladen
+        self.default_template = default_template
         self.naming = naming
         self.tags = tags
         self.ttl = ttl
@@ -100,6 +103,9 @@ class SessionStore:
         state = AppState(source=self.source,
                          naming=self.naming, tags=self.tags,
                          undo_scope="session")
+        if self.default_template is not None:
+            state.load_template(self.default_template)
+            state.clear_messages()
         state.show_roots()
         self._sessions[key] = Session(state)
         self._expire()
@@ -182,10 +188,19 @@ def create_app(source: Optional[MountedSource] = None,
 
     from ...service import naming_from_config
 
+    from ...service import STANDARD_TEMPLATE, bundled_template
+
     resolved = source if source is not None else from_environment()
-    store = SessionStore(resolved, naming or naming_from_config(),
-                         tags or TagProfile())
     templates = Path(templates_dir) if templates_dir else None
+    # Die Standardvorlage aus dem eingehaengten Vorlagenordner bevorzugen,
+    # sonst die mitgelieferte - jede neue Sitzung hat damit gleich eine.
+    preloaded = None
+    if templates is not None and (templates / STANDARD_TEMPLATE).is_file():
+        preloaded = templates / STANDARD_TEMPLATE
+    elif templates is None:
+        preloaded = bundled_template()
+    store = SessionStore(resolved, naming or naming_from_config(),
+                         tags or TagProfile(), default_template=preloaded)
 
     app = FastAPI(title="mp3releaser", docs_url="/api/docs")
     app.state.store = store

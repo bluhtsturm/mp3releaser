@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mp3releaser"
-version = "0.21.2"
+version = "0.22.0"
 description = "Linux-Reimplementierung von MP3 Releaser 3.9"
 readme = "README.md"
 requires-python = ">=3.11"

@@ -58,8 +58,22 @@ build_binary() {
     log "fertig: $DIST/mp3releaser ($(du -h "$DIST/mp3releaser" | cut -f1))"
 }
 
+binary_is_stale() {
+    # Kein Bündel, oder eine Quelldatei ist neuer als das Bündel. Ohne diese
+    # Pruefung wurde eine alte Einzeldatei wiederverwendet - das AppImage
+    # kannte dann Kommandos nicht, die es im Quelltext laengst gab.
+    [ -x "$DIST/mp3releaser" ] || return 0
+    [ -n "$(find "$ROOT/releaser" "$ROOT/packaging" -newer "$DIST/mp3releaser" \
+              -type f \( -name '*.py' -o -name '*.spec' -o -name '*.html' \) \
+              -print -quit)" ]
+}
+
 build_appdir() {
-    [ -x "$DIST/mp3releaser" ] || build_binary
+    if binary_is_stale; then
+        build_binary
+    else
+        log "Einzeldatei ist aktuell - wird wiederverwendet"
+    fi
 
     log "AppDir zusammenstellen"
     rm -rf "$APPDIR"
@@ -81,6 +95,7 @@ build_appdir() {
 
     # Beispielvorlage und Beispielkonfiguration mitgeben - ohne Vorlage
     # kann das Programm keine .nfo erzeugen.
+    cp "$ROOT/templates/standard.skl" "$APPDIR/usr/share/mp3releaser/" 2>/dev/null || true
     cp "$ROOT/templates/example.skl" "$APPDIR/usr/share/mp3releaser/" 2>/dev/null || true
     "$DIST/mp3releaser" config --example \
         > "$APPDIR/usr/share/mp3releaser/mp3releaser.toml" 2>/dev/null || true

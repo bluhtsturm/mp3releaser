@@ -1,0 +1,7 @@
+# Vorlagen und NFO-artige Dateien sind CP437 mit CRLF - spaltengenau und
+# byteweise gemeint. Git darf daran keine Zeilenenden umschreiben, sonst
+# stimmen Feldbreiten und Pruefsummen nicht mehr.
+*.skl   -text
+*.nfo   -text
+*.sfv   -text
+*.m3u   -text

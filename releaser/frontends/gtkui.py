@@ -983,7 +983,12 @@ def build_state(start: Optional[str] = None, mounts: Optional[str] = None,
         state.set_companion_prefix(
             prefix, include_all=naming_cfg.get("prefix_all", True))
 
-    chosen = template or build_cfg.get("template")
+    from ..service import bundled_template
+
+    # Reihenfolge: ausdruecklich angegeben, gespeichert, mitgeliefert. Ohne
+    # die letzte Stufe waere "Vorlage waehlen" der erste Klick jeder
+    # Vorfuehrung.
+    chosen = template or build_cfg.get("template") or bundled_template()
     if chosen and Path(chosen).is_file():
         state.load_template(Path(chosen))
     elif chosen:

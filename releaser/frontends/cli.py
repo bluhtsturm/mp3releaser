@@ -625,7 +625,13 @@ def cmd_inspect(args: argparse.Namespace) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    from .. import __version__
+
     ap = argparse.ArgumentParser(prog="releaser", description=__doc__)
+    # Beantwortet "welche Fassung habe ich eigentlich gebaut?" - ein
+    # veraltetes Buendel kannte sonst Kommandos nicht, ohne dass man es sah.
+    ap.add_argument("--version", action="version",
+                    version=f"mp3releaser {__version__}")
     ap.add_argument("--config", metavar="PFAD",
                     help="Konfigurationsdatei (Standard: automatisch suchen)")
     ap.add_argument("--codepage", default="cp437",

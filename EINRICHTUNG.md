@@ -18,9 +18,9 @@ Programm benennt um und schreibt Tags:
 ```bash
 cp -r /pfad/zu/einem/release /tmp/probe
 releaser scan /tmp/probe                       # was erkannt wurde
-releaser fields /tmp/probe templates/example.skl
+releaser fields /tmp/probe templates/standard.skl
 releaser rename /tmp/probe --group GRP         # nur Vorschau
-releaser wizard /tmp/probe templates/example.skl
+releaser wizard /tmp/probe templates/standard.skl
 ```
 
 `rename`, `tag` und der geführte Modus zeigen immer erst einen Plan. Erst
@@ -29,7 +29,7 @@ releaser wizard /tmp/probe templates/example.skl
 Alles auf einmal:
 
 ```bash
-releaser build /tmp/probe templates/example.skl \
+releaser build /tmp/probe templates/standard.skl \
     --tag --rename --group GRP --audio-crc
 releaser verify /tmp/probe/*.sfv
 ```
@@ -41,7 +41,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **655 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **672 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash
@@ -61,7 +61,7 @@ pip install fastapi uvicorn httpx pyinstaller
 ```bash
 releaser gui                                   # ganzes Dateisystem
 releaser gui --mounts "eingang:/tmp/probe"     # beschränkt, wie im Container
-releaser gui --group GRP --template templates/example.skl
+releaser gui --group GRP --template templates/standard.skl
 ```
 
 Links auswählen, „Einlesen", rechts die Felder. Die Eingabefelder sind so

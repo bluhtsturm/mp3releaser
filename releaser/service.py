@@ -83,6 +83,33 @@ def naming_from_config(config=None, group: Optional[str] = None,
     return profile
 
 
+#: Name der mitgelieferten Standardvorlage
+STANDARD_TEMPLATE = "standard.skl"
+
+
+def bundled_template() -> Optional[Path]:
+    """Die mitgelieferte Standardvorlage, sofern auffindbar.
+
+    Gesucht wird dort, wo die drei Auslieferungsformen sie ablegen: im
+    AppImage unter ``$APPDIR/usr/share/mp3releaser``, im Container und im
+    Quelltext unter ``templates/``. Ohne Fund gibt es keine Voreinstellung -
+    dann muss eine Vorlage gewaehlt werden, wie vorher auch.
+    """
+    import os
+
+    candidates = []
+    appdir = os.environ.get("APPDIR")
+    if appdir:
+        candidates.append(Path(appdir) / "usr" / "share" / "mp3releaser"
+                          / STANDARD_TEMPLATE)
+    candidates.append(Path(__file__).resolve().parents[1] / "templates"
+                      / STANDARD_TEMPLATE)
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 @dataclass
 class BuildOptions:
     """Was beim Erzeugen der Begleitdateien entsteht und wie."""

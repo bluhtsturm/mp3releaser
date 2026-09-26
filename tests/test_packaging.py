@@ -158,13 +158,14 @@ def test_bundle_does_the_whole_job(tmp_path):
                          "--tag", "--rename", "--group", "GRP", "--audio-crc")
     assert built.returncode == 0, built.stderr
 
-    target = tmp_path / "der_artist-das_album-2026-grp"
-    assert target.is_dir()
+    # Voreinstellung: Ordner kapitalisiert, Begleitdateien klein mit "00-"
+    target = tmp_path / "Der_Artist-Das_Album-2026-GRP"
+    assert target.is_dir(), sorted(p.name for p in tmp_path.iterdir())
     assert sorted(p.suffix for p in target.iterdir()) == [
         ".m3u", ".mp3", ".mp3", ".nfo", ".sfv"]
 
     checked = run_isolated(str(APPRUN), "verify",
-                           str(target / "der_artist-das_album-2026-grp.sfv"))
+                           str(target / "00-der_artist-das_album-2026-grp.sfv"))
     assert checked.returncode == 0
     assert "2 ok" in checked.stdout
 
@@ -342,3 +343,37 @@ def test_compare_names_the_broken_file(tmp_path, capsys):
     err = capsys.readouterr().err
     assert "kaputt.json" in err
     assert "JSON" in err
+
+
+def test_version_flag(capsys):
+    from releaser import __version__, cli
+
+    with pytest.raises(SystemExit) as done:
+        cli.main(["--version"])
+    assert done.value.code == 0
+    assert __version__ in capsys.readouterr().out
+
+
+def test_build_script_rebuilds_a_stale_binary():
+    """Eine alte Einzeldatei wurde wiederverwendet - das AppImage war veraltet."""
+    text = (PACKAGING / "build.sh").read_text(encoding="utf-8")
+    assert "binary_is_stale" in text
+    assert "-newer" in text
+
+
+@needs_bundle
+def test_bundle_knows_every_current_command():
+    """Das Bündel muss dieselben Kommandos kennen wie der Quelltext."""
+    from releaser.frontends.cli import main
+    import io
+    from contextlib import redirect_stdout, suppress
+
+    buffer = io.StringIO()
+    with redirect_stdout(buffer), suppress(SystemExit):
+        main(["--help"])
+    import re
+    commands = set(re.findall(r"^\s{4}(\w+)\s", buffer.getvalue(), re.M))
+
+    bundled = run_isolated(str(BUNDLE), "--help").stdout
+    missing = {c for c in commands if c not in bundled}
+    assert not missing, f"im Bündel fehlen: {sorted(missing)} - veraltet?"

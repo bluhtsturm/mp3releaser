@@ -13,7 +13,7 @@ Weboberfläche im Container.
 
 ```bash
 # Kommandozeile
-python3 -m releaser wizard /pfad/zur/release vorlage.skl      # geführt
+python3 -m releaser wizard /pfad/zur/release templates/standard.skl
 python3 -m releaser build  /pfad/zur/release vorlage.skl --tag --rename --group GRP
 python3 -m releaser verify /pfad/zur/release/xyz.sfv
 python3 -m releaser fields /pfad/zur/release vorlage.skl      # Felder prüfen
@@ -28,7 +28,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 655 Tests
+python3 -m pytest tests -q          # 672 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -797,6 +797,39 @@ die gerade getroffene Auswahl weg — „Einlesen" blieb wirkungslos. Die Liste
 wird jetzt nur neu gebaut, wenn sich ihr Inhalt geändert hat, und die
 Auswahl ist ein eigener Zustand neben dem geöffneten Verzeichnis.
 
+## Standardvorlage
+
+`templates/standard.skl` enthält jedes Feld, das sich in einer Oberfläche
+eintragen lässt, dazu die berechneten Werte — Bitrate, Samplerate, Laufzeiten,
+Größe, Trackliste mit Fortsetzungszeile, Notizen und Gruppennachrichten. 78
+Spalten breit, Rahmen aus Codepage 437, eigene Gestaltung.
+
+```
+╠════════════════════════════════[ RELEASE ]═════════════════════════════════╣
+║   Artist          : Die Ärzte                                              ║
+║   Full title      : Ein Album (Deluxe)                                     ║
+╠═══════════════════════════════[ TRACKLIST ]════════════════════════════════╣
+║       CD1                                                                  ║
+║   01. Intro                                                      [01:05]   ║
+║   02. Ein ziemlich langer Titel, der in die Fortsetzungszeile    [03:35]   ║
+║       umbricht                                                             ║
+```
+
+Sie wird **von selbst geladen**, in allen drei Formen: im Desktop und auf der
+Kommandozeile aus `templates/`, im AppImage aus `usr/share/mp3releaser/`, im
+Container aus dem eingehängten Vorlagenordner. Eine ausdrücklich gewählte
+oder gespeicherte Vorlage hat Vorrang.
+
+Nicht enthalten sind nur Tags, die einen schon vorhandenen Wert anders
+ausgerichtet wiederholen würden (`Tpti#` neben `#Tpti`, `#Releasenc` neben
+`#Release` …), die Positionsmarker `#Notesmark` und `#Notesmarkend` und das
+im Original unbenutzte `#Bm`. Ein Test hält fest, dass jeder andere Tag
+drinsteht — ein vergessener fiele auf.
+
+Erzeugt wird die Datei von `tools/make_standard_skl.py`: Eine `.skl` ist
+spaltengenau, und ein Leerzeichen zu viel verschiebt den rechten Rahmen. Der
+Generator baut jede Zeile auf dieselbe Breite und prüft das selbst.
+
 ## Prüfen
 
 Ein Kommando, zwei Gegenstände — was geprüft wird, entscheidet der Pfad.
@@ -1003,7 +1036,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-655 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+672 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1270,6 +1303,20 @@ Plan, der nichts protokolliert.
 Gegengeprüft, ohne Befund: Tag-Rücknahme bei MP3, AAC, Ogg und FLAC — jeweils
 exakt der Ausgangsstand, einschließlich der Gesamtzahl `3/12`, und der
 Audio-CRC ist nach Schreiben und Rücknahme unverändert.
+
+### Beim Bauen der Standardvorlage
+
+* **Das Build-Skript verwendete ein veraltetes Bündel.** `build.sh appdir`
+  baute die Einzeldatei nur, wenn gar keine da war. Eine alte blieb liegen —
+  das AppImage kannte dann `check` und `undo` nicht, obwohl der Quelltext sie
+  längst hatte. Jetzt wird neu gebaut, sobald eine Quelldatei neuer ist als
+  das Bündel, und `releaser --version` sagt, welche Fassung man vor sich hat.
+* **Ein übersprungener Test war veraltet.** Der Ende-zu-Ende-Test des
+  Bündels lief hier seit Wochen nicht, weil kein Bündel gebaut war. Die
+  geänderte Voreinstellung für die Schreibweise hat er deshalb nie gesehen —
+  er erwartete noch den klein geschriebenen Ordner. Übersprungene Tests
+  verrotten unbemerkt; ein zusätzlicher Test prüft jetzt, dass das Bündel
+  jedes Kommando des Quelltexts kennt.
 
 ### Die Tests und das Benutzerverzeichnis
 
