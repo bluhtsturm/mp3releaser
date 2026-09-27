@@ -8,6 +8,10 @@
 # Voraussetzungen: Python 3.11+, PyInstaller. Fuer das fertige AppImage
 # zusaetzlich appimagetool; fehlt es, entsteht trotzdem ein lauffaehiges
 # AppDir, das sich mit ./AppDir/AppRun direkt starten laesst.
+#
+# Die grafische Oberflaeche kommt nur ins Buendel, wenn der bauende
+# Interpreter PyGObject und GTK 4 importieren kann. Anderen Interpreter
+# waehlen:  PYTHON=python3.12 ./packaging/build.sh
 set -eu
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -15,11 +19,12 @@ BUILD="$ROOT/build"
 DIST="$BUILD/dist"
 APPDIR="$BUILD/AppDir"
 TARGET="${1:-all}"
+PYTHON="${PYTHON:-python3}"
 
 log() { printf '==> %s\n' "$*"; }
 
 preflight() {
-    python3 - <<'CHECK' || exit 1
+    "${PYTHON:-python3}" - <<'CHECK' || exit 1
 import sys
 
 if sys.version_info < (3, 11):
@@ -50,13 +55,27 @@ try:
     import PyInstaller  # noqa: F401
 except ImportError:
     sys.exit("PyInstaller fehlt:\n    pip install pyinstaller")
+
+# Kein Abbruch - die Kommandozeile funktioniert auch ohne. Aber ohne diesen
+# Hinweis entstand still ein AppImage, dessen Oberflaeche nur meldete, GTK
+# sei nicht verfuegbar.
+try:
+    import gi
+
+    gi.require_version("Gtk", "4.0")
+    from gi.repository import Gtk  # noqa: F401
+except (ImportError, ValueError) as exc:
+    print("Warnung: GTK 4 ist fuer diesen Interpreter nicht importierbar "
+          f"({exc}).\nDas Buendel bekommt keine grafische Oberflaeche. "
+          "Anderen Interpreter waehlen:\n    PYTHON=python3.12 "
+          "./packaging/build.sh", file=sys.stderr)
 CHECK
 }
 
 build_binary() {
     preflight
     log "Einzeldatei bauen"
-    python3 -m PyInstaller "$ROOT/packaging/pyinstaller.spec" \
+    "${PYTHON:-python3}" -m PyInstaller "$ROOT/packaging/pyinstaller.spec" \
         --distpath "$DIST" --workpath "$BUILD/work" --noconfirm >/dev/null
     log "fertig: $DIST/mp3releaser ($(du -h "$DIST/mp3releaser" | cut -f1))"
 }
@@ -113,14 +132,17 @@ build_appimage() {
 ==> appimagetool nicht gefunden - das AppDir ist trotzdem lauffaehig:
         ./build/AppDir/AppRun metrics
     Fuer die fertige Einzeldatei:
-        wget -O appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
+        wget -O appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
         chmod +x appimagetool
         ./appimagetool build/AppDir build/mp3releaser-x86_64.AppImage
 HINT
         return 0
     fi
     log "AppImage bauen"
-    appimagetool "$APPDIR" "$BUILD/mp3releaser-x86_64.AppImage"
+    # APPIMAGE_EXTRACT_AND_RUN: appimagetool ist selbst ein AppImage und
+    # braucht sonst FUSE - in Containern und CI-Umgebungen fehlt das meist.
+    ARCH="${ARCH:-x86_64}" APPIMAGE_EXTRACT_AND_RUN=1 \
+        appimagetool "$APPDIR" "$BUILD/mp3releaser-x86_64.AppImage"
     log "fertig: $BUILD/mp3releaser-x86_64.AppImage"
 }
 

@@ -105,7 +105,7 @@ def parse_cue(text: str) -> CueSheet:
     # Ein UTF-8-BOM ueberlebt das Dekodieren als "utf-8" als Zeichen U+FEFF.
     # Er gilt weder als Leerraum noch als Buchstabe - die erste Zeile (oft
     # PERFORMER oder REM GENRE) ging deshalb stillschweigend verloren.
-    text = text.lstrip("﻿")
+    text = text.lstrip("\ufeff")
     for raw in text.replace("\r\n", "\n").split("\n"):
         match = _LINE.match(raw)
         if not match:

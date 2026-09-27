@@ -389,3 +389,53 @@ def test_bundle_knows_every_current_command():
     bundled = run_isolated(str(BUNDLE), "--help").stdout
     missing = {c for c in commands if c not in bundled}
     assert not missing, f"im Bündel fehlen: {sorted(missing)} - veraltet?"
+
+
+# ================================================ Oberfläche im Bündel
+
+
+def test_spec_bundles_the_gtk_overrides():
+    """Ohne ``gi.overrides.Gtk`` brach die Oberfläche im Bündel beim Start ab
+    ("set_text() takes exactly 3 arguments"). PyInstaller nimmt die Overrides
+    nur mit, wenn sein GTK-3-Hook greift - auf einem Rechner mit nur GTK 4
+    fehlten sie, ohne dass der Bau etwas meldete."""
+    text = (PACKAGING / "pyinstaller.spec").read_text(encoding="utf-8")
+    for module in ("gi.overrides.Gtk", "gi.overrides.Gdk"):
+        assert f'"{module}"' in text, module
+
+
+def test_spec_leaves_host_graphics_libraries_out():
+    """GTK kommt vom Wirt - seine Grafikbibliotheken dürfen nicht in einer
+    zweiten Fassung aus dem Bündel daneben geladen werden."""
+    text = (PACKAGING / "pyinstaller.spec").read_text(encoding="utf-8")
+    assert "HOST_PROVIDED" in text
+    for name in ("libX11.", "libxcb", "libcairo", "libfontconfig."):
+        assert f'"{name}"' in text, name
+
+
+def _gui_can_start() -> bool:
+    from releaser.frontends import gtkui
+
+    return gtkui.is_available() and shutil.which("xvfb-run") is not None
+
+
+@needs_appdir
+@pytest.mark.skipif(not _gui_can_start(), reason="GTK 4 oder xvfb-run nicht vorhanden")
+def test_bundled_gui_starts_without_errors(tmp_path):
+    """Startet die Oberfläche aus dem AppDir und lässt sie einige Sekunden laufen.
+
+    Endet der Prozess von selbst, ist sie abgestürzt oder hat nur den Hinweis
+    auf fehlendes GTK ausgegeben; ein Traceback heißt, dass im Bündel etwas
+    fehlt.
+    """
+    try:
+        result = subprocess.run(
+            ["xvfb-run", "-a", "timeout", "8", str(APPRUN)],
+            capture_output=True, text=True, timeout=60,
+            env={**os.environ, "HOME": str(tmp_path)})
+    except subprocess.TimeoutExpired:
+        pytest.fail("xvfb-run hing")
+    output = result.stdout + result.stderr
+    assert "Traceback" not in output, output[-2000:]
+    assert "nicht zur Verfügung" not in output, output[-2000:]
+    assert result.returncode == 124, output[-2000:]      # von timeout beendet

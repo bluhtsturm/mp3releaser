@@ -6,7 +6,8 @@ Textersetzungen stillschweigend nicht griffen - eine Ersetzung ohne Treffer
 meldet nichts. Dokumentation, die nichts erzwingt, driftet.
 
 Geprüft wird deshalb, was sich prüfen lässt: erwähnte Kommandos, der
-Modulbaum und die genannte Testzahl.
+Modulbaum und die genannte Testzahl - für die deutsche und die englische
+Fassung gleichermaßen, und die Testzahl auch in der Einrichtungsanleitung.
 """
 
 import io
@@ -22,6 +23,11 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 ROOT = Path(__file__).resolve().parents[1]
 README = ROOT / "README.md"
+README_EN = ROOT / "README.en.md"
+#: Beide Fassungen durchlaufen dieselben Pruefungen - eine Uebersetzung, die
+#: niemand prueft, driftet genauso wie das Original frueher.
+READMES = pytest.mark.parametrize("readme", [README, README_EN],
+                                  ids=["de", "en"])
 
 #: Woerter, die im Fliesstext hinter "releaser" stehen, aber keine
 #: Unterkommandos sind.
@@ -34,6 +40,17 @@ def text() -> str:
 
 
 @pytest.fixture(scope="module")
+def collected_tests() -> int:
+    collected = subprocess.run(
+        [sys.executable, "-m", "pytest", str(ROOT / "tests"), "-q",
+         "--collect-only", "-p", "no:cacheprovider"],
+        capture_output=True, text=True, timeout=180, cwd=ROOT)
+    found = re.search(r"(\d+) tests collected", collected.stdout)
+    assert found, collected.stdout[-800:]
+    return int(found.group(1))
+
+
+@pytest.fixture(scope="module")
 def commands() -> set[str]:
     from releaser.frontends.cli import main
 
@@ -43,23 +60,30 @@ def commands() -> set[str]:
     return set(re.findall(r"^\s{4}(\w+)\s", buffer.getvalue(), re.M))
 
 
-def test_readme_exists_and_is_substantial(text):
-    assert len(text) > 5000
+@READMES
+def test_readme_exists_and_is_substantial(readme):
+    assert len(readme.read_text(encoding="utf-8")) > 5000
 
 
-def test_every_mentioned_command_exists(text, commands):
+@READMES
+def test_every_mentioned_command_exists(readme, commands):
+    text = readme.read_text(encoding="utf-8")
     mentioned = set(re.findall(r"releaser\s+(\w+)", text)) - NOT_COMMANDS
     unknown = mentioned - commands
     assert not unknown, f"im README erwähnt, aber kein Kommando: {sorted(unknown)}"
 
 
-def test_every_command_is_mentioned(text, commands):
+@READMES
+def test_every_command_is_mentioned(readme, commands):
     """Ein Kommando, das nirgends steht, findet niemand."""
+    text = readme.read_text(encoding="utf-8")
     missing = {c for c in commands if c not in text}
     assert not missing, f"nicht im README erwähnt: {sorted(missing)}"
 
 
-def test_module_tree_matches_reality(text):
+@READMES
+def test_module_tree_matches_reality(readme):
+    text = readme.read_text(encoding="utf-8")
     listed = set(re.findall(r"^\s{2,4}(\w+\.py)\s", text, re.M))
     actual = {p.name for p in (ROOT / "releaser").rglob("*.py")
               if p.name not in ("__init__.py", "__main__.py")}
@@ -72,20 +96,23 @@ def test_module_tree_matches_reality(text):
         f"vorhanden, aber nicht im README: {sorted(actual - listed)}"
 
 
-def test_claimed_test_count_is_current(text):
-    claimed = {int(n) for n in re.findall(r"(\d+) Tests", text)}
-    assert claimed, "das README nennt keine Testzahl"
+@pytest.mark.parametrize("document,pattern", [
+    ("README.md", r"(\d+) Tests"),
+    ("README.en.md", r"(\d+) tests"),
+    ("EINRICHTUNG.md", r"(\d+) bestanden"),
+], ids=["de", "en", "einrichtung"])
+def test_claimed_test_count_is_current(document, pattern, collected_tests):
+    text = (ROOT / document).read_text(encoding="utf-8")
+    claimed = {int(n) for n in re.findall(pattern, text)}
+    assert claimed, f"{document} nennt keine Testzahl"
+    assert claimed == {collected_tests}, (
+        f"{document} nennt {sorted(claimed)}, "
+        f"tatsächlich sind es {collected_tests}")
 
-    collected = subprocess.run(
-        [sys.executable, "-m", "pytest", str(ROOT / "tests"), "-q",
-         "--collect-only", "-p", "no:cacheprovider"],
-        capture_output=True, text=True, timeout=180, cwd=ROOT)
-    found = re.search(r"(\d+) tests collected", collected.stdout)
-    assert found, collected.stdout[-800:]
-    actual = int(found.group(1))
 
-    assert claimed == {actual}, (
-        f"README nennt {sorted(claimed)}, tatsächlich sind es {actual}")
+def test_both_versions_link_to_each_other():
+    assert "(README.en.md)" in README.read_text(encoding="utf-8")
+    assert "(README.md)" in README_EN.read_text(encoding="utf-8")
 
 
 def test_no_stale_planning_language(text):

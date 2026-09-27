@@ -552,7 +552,7 @@ def test_every_genre_alias_resolves():
 def test_cue_with_utf8_bom_keeps_its_first_line(tmp_path):
     """Der BOM verschluckte die erste Zeile - meist PERFORMER oder REM GENRE."""
     path = tmp_path / "bom.cue"
-    path.write_bytes('﻿PERFORMER "Der Artist"\nTITLE "Das Album"\n'
+    path.write_bytes('\ufeffPERFORMER "Der Artist"\nTITLE "Das Album"\n'
                      .encode("utf-8"))
     sheet = cue_module.read_cue(path)
     assert sheet.performer == "Der Artist"

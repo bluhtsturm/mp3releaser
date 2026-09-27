@@ -41,7 +41,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **672 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **734 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash
@@ -91,17 +91,30 @@ Sichtbar ist ausschließlich, was unter `volumes` steht.
 
 ```bash
 pip install pyinstaller
-./packaging/build.sh binary      # eine Datei, ~15 MB, läuft ohne Python
+./packaging/build.sh binary      # eine Datei, ~21 MB, läuft ohne Python
 ./packaging/build.sh appdir      # startbar über ./build/AppDir/AppRun
 ```
 
-Für die fertige Einzeldatei zusätzlich:
+Die grafische Oberfläche kommt nur ins Bündel, wenn der bauende Interpreter
+PyGObject und GTK 4 importieren kann – `build.sh` warnt, wenn nicht. Unter
+Ubuntu/Debian ist das meist das System-Python; ein anderes wählt man so:
 
 ```bash
-wget -O appimagetool https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
-chmod +x appimagetool
-./appimagetool build/AppDir build/mp3releaser-x86_64.AppImage
+PYTHON=python3.12 ./packaging/build.sh
 ```
+
+Für die fertige Einzeldatei zusätzlich `appimagetool` in den Suchpfad legen,
+dann baut `./packaging/build.sh` ohne Argument alles bis zum AppImage:
+
+```bash
+wget -O ~/.local/bin/appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+chmod +x ~/.local/bin/appimagetool
+./packaging/build.sh             # -> build/mp3releaser-x86_64.AppImage
+```
+
+Das fertige AppImage braucht auf dem Zielrechner glibc 2.38 oder neuer
+(Ubuntu 24.04, Linux Mint 22, Debian 13, Fedora 39 und neuer) und für die
+grafische Oberfläche GTK 4 des Systems. Die Kommandozeile läuft ohne GTK.
 
 ## 6. Die drei Formen vergleichen
 

@@ -5,3 +5,6 @@
 *.nfo   -text
 *.sfv   -text
 *.m3u   -text
+
+# Gebaute Programme - nie als Text behandeln
+*.AppImage binary

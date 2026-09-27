@@ -9,6 +9,25 @@ Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen in
 drei Auslieferungsformen: Kommandozeile, gebündelte Anwendung (AppImage) und
 Weboberfläche im Container.
 
+*English version: [README.en.md](README.en.md)*
+
+## Herunterladen
+
+Das fertige AppImage liegt im Repository unter
+[`releases/`](releases/) – eine Datei, ohne Installation, ohne Python:
+
+```bash
+chmod +x mp3releaser-0.22.1-x86_64.AppImage
+./mp3releaser-0.22.1-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.22.1-x86_64.AppImage --help       # Kommandozeile
+sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
+```
+
+Voraussetzung: Linux x86_64 mit glibc 2.38 oder neuer (Ubuntu 24.04,
+Linux Mint 22, Debian 13, Fedora 39 und neuer). Die grafische Oberfläche
+nutzt das GTK 4 des Systems; die Kommandozeile läuft auch ohne. Fehlt FUSE,
+startet es mit `--appimage-extract-and-run`.
+
 ## Schnellstart
 
 ```bash
@@ -28,7 +47,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 724 Tests
+python3 -m pytest tests -q          # 734 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -107,7 +126,9 @@ sie als Fortsetzungszeile für
 * CD-Kopfzeilen bei Multi-CD-Releases,
 * die Leerzeile darunter.
 
-Dasselbe Muster gilt für `#Rnotes` und `#Gnews`.
+Dasselbe Muster gilt für `#Rnotes` und `#Gnews`. Umbrochen wird mit der
+Breite der Fortsetzungszeile, nicht der Hauptzeile — sonst schnitte ein
+schmaleres Fortsetzungsfeld den Rest stillschweigend ab.
 
 **Introspektion.** `Template.field_widths()` und `Template.tag_names()` liefern
 genau das, was das Original für die GUI brauchte: Feldbreiten zum Dimensionieren
@@ -143,11 +164,13 @@ Referenz-NFOs klären — ein sauberer Verifikationsschritt für die Arbeit.
 ## Audio-Layer
 
 Gemeinsames Interface: jeder Reader liefert ein `AudioInfo`, `scan.py` baut
-daraus die `Release`.
+daraus die `Release`. Eine Datei, die sich nicht lesen lässt — abgeschnitten,
+beschädigt, ohne Leserecht —, wird übersprungen und als Hinweis gemeldet,
+statt den ganzen Scan abzubrechen (`--strict` bricht bewusst ab).
 
 | Format | Quelle | Besonderheit |
 |---|---|---|
-| MP3 | mutagen (`ID3`, `MPEGInfo`) | VBR-Status, Channel-Mode in Szene-Schreibweise, Encoder aus LAME/Xing |
+| MP3 | mutagen (`ID3`, `MPEGInfo`) | VBR-/ABR-Status, Channel-Mode in Szene-Schreibweise, Encoder aus LAME/Xing |
 | FLAC | mutagen (`FLAC`, Vorbis) | Kompressionsrate für `#FlacC` aus STREAMINFO gegen Dateigröße |
 | Ogg Vorbis | mutagen | Tag-Abbildung mit FLAC geteilt |
 | Opus | mutagen | Bitrate aus Dateigröße geschätzt (meldet keine) |
@@ -187,6 +210,10 @@ Info-Metadaten. Die Bedingungen dort folgen FFmpegs `eac3_parser`, der an zwei
 Stellen präziser ist als der Prosatext der Spezifikation (`dmixmod` und
 `paninfo` hängen von `acmod`-Schwellen ab, die im Fließtext anders stehen).
 
+Die aufwendige Traversierung läuft nur über die ersten Frames; jeder weitere
+Frame wird allein aus seinen ersten Bytes gezählt. Dauer und Bitrate stimmen
+damit auch bei langen Dateien.
+
 Schlägt diese Traversierung fehl, bleiben die Kernfelder trotzdem gültig und
 `atmos` wird `None` — **unbekannt, nicht nein**. Diese Unterscheidung ist
 wichtig: ein falsches „kein Atmos" ist schlimmer als ein ehrliches „weiß nicht".
@@ -198,7 +225,7 @@ und der Scanner schreibt eine Warnung — statt stillschweigend etwas zu raten.
 ### Verifikation
 
 Der EC-3-Parser wurde gegen echte, mit ffmpeg erzeugte Bitstreams getestet
-(Mono, Stereo, 5.1, 44,1 kHz, EC-3 in MP4). Samplerate, Kanalzahl, Bitrate und
+(Mono, Stereo, 5.1, 44,1 kHz, EC-3 in MP4, Zehn-Minuten-Streams). Samplerate, Kanalzahl, Bitrate und
 Dauer stimmen exakt mit `ffprobe` überein, und die BSI-Tiefentraversierung
 läuft bei allen bis `addbsi` durch.
 
@@ -245,11 +272,13 @@ Dateien, die es beschreibt. `--sfv-include log pdf` nimmt weitere Endungen auf.
 
 Erweitertes Format mit `#EXTINF:<sekunden>,<Artist> - <Titel>`. Je CD eine
 Playlist mit nackten Dateinamen, dazu bei Mehr-CD-Releases die **Super-M3U**
-im Wurzelverzeichnis mit Pfaden relativ dazu (`CD1\01-....mp3`). Bei einer
+im Wurzelverzeichnis mit Pfaden relativ dazu (`CD1/01-....mp3`). Bei einer
 einzelnen CD entfällt die Super-M3U, sie wäre nur eine Dopplung.
 
-Rückwärts-Slashes sind Default, weil die Playlists historisch unter Windows
-gelesen wurden; `windows_paths=False` schaltet um.
+Normale Schrägstriche sind Voreinstellung — unter Linux findet kein Abspieler
+eine Datei hinter `CD1\01-….mp3`. Das Original schrieb Rückwärts-Schrägstriche,
+weil es unter Windows lief; `--m3u-windows-paths` (in der Konfiguration
+`m3u_windows_paths = true`) stellt das wieder her.
 
 ## Testansatz
 
@@ -311,6 +340,10 @@ Programms überprüfbar, bevor sie passiert.
 Kollisionen werden in zwei Formen erkannt: zwei Tracks, die auf denselben
 Namen abbilden, und Ziele, die bereits auf der Platte liegen. Letztere zählen
 nicht als Kollision, wenn sie selbst Quelle im Plan sind — sie weichen ja noch.
+Ebenso wenig eine reine Änderung der Schreibweise auf einem Dateisystem, das
+Groß und klein nicht unterscheidet (FAT/exFAT, SMB): Dort „existiert"
+`track.mp3`, wenn `Track.mp3` umbenannt werden soll — es ist aber dieselbe
+Datei.
 
 ### Drei Fallstricke, die Tests aufgedeckt haben
 
@@ -352,6 +385,9 @@ Ein normalisierter Satz Feldnamen (`title`, `artist`, `album`, `tracknumber`
 Vorbis trennt dabei Nummer und Gesamtzahl in eigene Felder, MP4 nutzt Tupel;
 das erledigt der jeweilige Writer.
 
+„Vorhandene Tags entfernen" (`--strip-tags`) entfernt sie restlos — ID3v2,
+ID3v1, APEv2 und Lyrics3v2 —, auch bei Dateien, die gar keinen Tag hatten.
+
 ### Wiederholbarkeit
 
 Zwei Fehler sind mir hier aufgefallen, beide erst beim zweiten Durchlauf:
@@ -370,7 +406,8 @@ Tag-Lauf.
 
 `--tag` läuft vor `--rename`, und beide vor der Erzeugung von NFO, SFV und
 M3U. Das ist keine Kosmetik: würde das SFV vor dem Tag-Lauf entstehen, wären
-sämtliche Prüfsummen sofort falsch.
+sämtliche Prüfsummen sofort falsch. Nach dem Taggen werden die Dateigrößen neu
+gelesen, damit `#Size` in der NFO zu den Dateien passt.
 
 ## Als Bibliothek
 
@@ -493,19 +530,24 @@ Rangfolge: ausdrücklich gesetzter Schalter schlägt Datei, Datei schlägt
 Voreinstellung. Umgesetzt dadurch, dass die CLI-Voreinstellungen `None` sind —
 `None` heißt „nicht angegeben", nicht „aus".
 
-Gesucht wird in `./mp3releaser.toml`, `./.mp3releaser.toml` und
+Gesucht wird in `./mp3releaser.toml`, `./.mp3releaser.toml`,
+`$XDG_CONFIG_HOME/mp3releaser/config.toml` und
 `~/.config/mp3releaser/config.toml`. `config --example` gibt eine
 kommentierte Vorlage aus.
 
-Das ist gleichzeitig die Datenbasis aller Oberflächen: CLI, Bündel und
-Weboberfläche lesen dieselbe Datei und rufen denselben Kern.
+Das ist gleichzeitig die Datenbasis aller Oberflächen: Kommandozeile,
+Desktop-Anwendung und Weboberfläche lesen dieselbe Datei — alle drei
+Abschnitte — und rufen denselben Kern. Die Profile baut die Dienstschicht an
+einer Stelle (`naming_from_config`, `tags_from_config`,
+`build_options_from_config`).
 
 ## CUE-Sheets
 
 Ein CUE beschreibt die Trackaufteilung einer Audiodatei, die als ein Stück
 vorliegt. Laufzeiten ergeben sich aus dem Abstand zum nächsten `INDEX 01`; der
 letzte Track reicht bis zum Dateiende, dessen Länge das CUE nicht kennt —
-die kommt aus dem Audio-Layer.
+die kommt aus dem Audio-Layer. Gelesen wird UTF-8 (mit oder ohne BOM), mit
+Rückfall auf CP1252 und CP437.
 
 **Die Folge ist die eigentliche Arbeit:** alle Tracks zeigen dann auf
 dieselbe Datei. Ohne Gegenmaßnahme würde das Umbenennen sie mehrfach
@@ -524,8 +566,10 @@ Der_Artist-Das_Album-CDDA-2026-GRP
 der.artist-das.album-WEB-2026-ANDERE
 ```
 
-als dasselbe Release erkannt werden. Zusätzlich findet ein unscharfer
-Vergleich Tippfehler. Er liefert Kandidaten, keine Urteile.
+als dasselbe Release erkannt werden. Ein Gruppenkürzel wird erst ab drei
+Bestandteilen abgetrennt (`Artist-Album-GRP`); bei `Artist-Album` ist der
+letzte Teil das Album. Zusätzlich findet ein unscharfer Vergleich Tippfehler.
+Er liefert Kandidaten, keine Urteile.
 
 Beim Bauen der Wortliste war Zurückhaltung nötig: „Album", „Single" und
 „Sampler" stehen oft im echten Titel. Sie zu entfernen ließ in einem Test
@@ -537,11 +581,13 @@ ID3v1 kennt Genres nur als Zahl. Wer „electronic" statt „Electronic"
 schreibt, bekommt dort 255 („unbekannt") — die Angabe geht beim Schreiben
 stillschweigend verloren. Der Name wird deshalb auf die kanonische
 Schreibweise gebracht, mit Aliassen für gängige Varianten (`DnB`,
-`Hip Hop`, `rock n roll`). Unbekannte Genres bleiben als Freitext stehen
-und erzeugen eine Warnung, statt verworfen zu werden.
+`Hip Hop`, `rock n roll`, `Alternative Rock` → `Alt. Rock`). Unbekannte
+Genres bleiben als Freitext stehen und erzeugen eine Warnung, statt verworfen
+zu werden.
 
 Die Liste wird in einem Test gegen mutagens abgeglichen, damit beide nicht
-auseinanderlaufen.
+auseinanderlaufen, und ein weiterer Test stellt sicher, dass jeder Alias
+auflösbar ist.
 
 ## Lyrics3v2
 
@@ -656,9 +702,10 @@ Der Scanner wusste das alles schon — er hat es bisher nur weggeworfen.
 ## Auslieferung als Bündel
 
 ```
-./packaging/build.sh binary     # eine Datei, 15 MB, laeuft ohne Python
+./packaging/build.sh binary     # eine Datei, 21 MB, laeuft ohne Python
 ./packaging/build.sh appdir     # AppDir, direkt startbar ueber ./AppRun
 ./packaging/build.sh            # zusaetzlich das AppImage (braucht appimagetool)
+PYTHON=python3.12 ./packaging/build.sh   # mit einem bestimmten Interpreter
 ```
 
 PyInstaller bündelt den Python-Interpreter und mutagen in eine Datei. Geprüft
@@ -670,6 +717,20 @@ M3U, und `verify` meldet anschließend „2 ok".
 verwoben; zwei GTK-Fassungen im selben Prozess vertragen sich nicht. Die
 grafische Oberfläche nutzt deshalb das GTK des Wirts, und `metrics` sagt das
 auch — statt einen Anspruch zu erheben, den das Bündel nicht einlöst.
+
+Mitgebündelt wird nur die Python-Seite von PyGObject, einschließlich der
+**GTK-Overrides** (`gi.overrides.Gtk`, `gi.overrides.Gdk`). PyInstaller nahm
+die nur mit, wenn sein GTK-3-Hook griff; auf einem Rechner mit ausschließlich
+GTK 4 fehlten sie, und die Oberfläche brach beim Start ab. Sie stehen jetzt
+ausdrücklich im Spec. Umgekehrt bleiben Grafikbibliotheken, die GTK auf dem
+Wirt ohnehin mitbringt (X11, xcb, cairo, fontconfig, freetype …), draußen –
+dieselben Namen stehen auf der Ausschlussliste der AppImage-Gemeinschaft.
+Ein Test startet die Oberfläche aus dem AppDir unter `xvfb-run`.
+
+Die Oberfläche kommt nur ins Bündel, wenn der bauende Interpreter PyGObject
+und GTK 4 importieren kann; `build.sh` warnt sonst. Das fertige AppImage
+braucht glibc 2.38 oder neuer – das legt der Rechner fest, auf dem gebaut
+wird.
 
 `AppRun` kommt ohne externe Programme aus: kein `readlink`, kein `dirname`.
 Ein Bündel, das eine funktionierende `PATH`-Variable voraussetzt, hätte den
@@ -710,7 +771,8 @@ Anzeige diesmal ein Netz. Das hat drei Folgen, die im Code sichtbar sind.
 `AppState`, mit Cookie adressiert, nach einer Stunde verfallen. Wer den
 Dienst betreibt, hat Zugriff darauf. Bei den anderen beiden Formen liegt
 derselbe Zustand im Arbeitsspeicher des eigenen Rechners. Ein Test hält fest,
-dass zwei Clients ihre Eingaben nicht sehen.
+dass zwei Clients ihre Eingaben nicht sehen. Die Sitzungsverwaltung ist
+threadsicher, weil FastAPI die Endpunkte in einem Thread-Pool ausführt.
 
 **Die Dateiauswahl ist beschränkt.** Es gibt hier ausschließlich
 `MountedSource`. Sichtbar ist, was jemand vorher in die Compose-Datei
@@ -752,8 +814,8 @@ jetzt, dass der Prüfstand Fehler auch meldet.
 
 Nie ein Pfad des Wirtsystems. Der Browser sieht
 `eingang/Artist-Album-2026-GRP`, der Weg zurück läuft ausschließlich über
-`MountedSource.resolve()`. Vorlagennamen dürfen keine Pfadtrenner enthalten,
-sonst wären sie ein zweiter Weg nach draußen.
+`MountedSource.resolve()`. Vorlagennamen dürfen keine Pfadtrenner und keine
+Null-Bytes enthalten, sonst wären sie ein zweiter Weg nach draußen.
 
 Der Container läuft als eigener Benutzer, ohne Capabilities, mit
 `no-new-privileges`, und der Port ist auf `127.0.0.1` gebunden. Ein Test
@@ -847,7 +909,8 @@ eng.skl: 4 Hinweise
 ```
 
 Geprüft werden zu schmale Felder, fehlende Tags, Tippfehler wie `#Quatsch`,
-eine fehlende Fortsetzungszeile in der Trackliste und die Gesamtbreite. Das
+reine Namens-Tags wie `#Grp` (sie landeten wörtlich in der NFO), eine
+fehlende Fortsetzungszeile in der Trackliste und die Gesamtbreite. Das
 steckt alles in der `.skl` selbst und fiele sonst erst an einem Release auf,
 dessen Werte zufällig lang genug sind. In der Oberfläche gibt es dafür den
 Knopf „Vorlage prüfen".
@@ -898,7 +961,9 @@ Das Protokoll wird in `apply_tags` geschrieben, nicht in der Dienstschicht
 darüber. Das hat einen Grund: Das `tag`-Kommando schrieb an der Dienstschicht
 vorbei und blieb deshalb zunächst unprotokolliert — derselbe Fehler, der
 vorher schon beim `rename` aufgefallen war. An der Stelle, durch die jedes
-Schreiben muss, kann ihn niemand mehr umgehen.
+Schreiben muss, kann ihn niemand mehr umgehen. Ein einzelner beschädigter
+Eintrag im Protokoll wird übergangen, statt das ganze Protokoll unlesbar zu
+machen.
 
 Die Rücknahme läuft in umgekehrter Reihenfolge: erst das Wurzelverzeichnis,
 dann die CD-Ordner, zuletzt die Dateien. Das ist auch der Grund für einen
@@ -977,7 +1042,11 @@ die Herkunft des Feldes auf „von Hand" — damit verschwindet die Warnung
 
 Fehler aus der Tiefe werden zu Meldungen statt zu Abstürzen: Ein Pfad, der
 aus dem Einhängepunkt herausführt, landet als rote Zeile in der Meldungsliste
-und die Auswahl bleibt leer.
+und die Auswahl bleibt leer. Dasselbe gilt für scheiternde schreibende
+Aktionen — ein fehlendes Schreibrecht etwa erscheint im Web als Meldung statt
+als nackter Serverfehler 500. Und hat sich zwischen Vorschau und Ausführung
+etwas geändert, sodass der Umbenennungsplan nicht mehr sicher ist, wird nichts
+umbenannt, und die Oberfläche sagt das.
 
 ## Dateiauswahl
 
@@ -1037,7 +1106,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-724 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+734 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1046,7 +1115,7 @@ Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 | GTK 4 | Fenster wirklich aufgebaut, unter `xvfb-run` |
 | Web-API | über HTTP mit `TestClient` |
 | Webseite | in WebKitGTK bedient — Klicks, Eingaben, Dialoge |
-| Bündel | mit `env -i` und `PATH=/nonexistent` gestartet |
+| Bündel | mit `env -i` und `PATH=/nonexistent` gestartet; Oberfläche aus dem AppDir gestartet |
 | EC-3-Parser | gegen `ffprobe` als unabhängiges Orakel |
 | Prüfsummen | gegen eine eigene bitweise CRC32-Implementierung |
 | dieses README | gegen Kommandoliste, Modulbaum und Testzahl |
@@ -1054,8 +1123,9 @@ Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 Der letzte Eintrag hat einen Anlass: Der Kopf dieses README stand lange auf
 dem Stand des ersten Tages, weil Textersetzungen stillschweigend nicht
 griffen — eine Ersetzung ohne Treffer meldet nichts. `tests/test_readme.py`
-prüft jetzt, dass jedes erwähnte Kommando existiert, jedes existierende
-erwähnt ist, der Modulbaum stimmt und die genannte Testzahl aktuell ist.
+prüft jetzt für beide Sprachfassungen, dass jedes erwähnte Kommando existiert,
+jedes existierende erwähnt ist, der Modulbaum stimmt und die genannte
+Testzahl aktuell ist.
 
 Die Korrekturen aus der Fehlerdurchsicht zu 0.22.1 stehen mit Ursache und
 Auswirkung in [`CHANGE.md`](CHANGE.md).
@@ -1106,7 +1176,8 @@ das Fenster blieb stehen, ohne dass jemand erfuhr, warum.
 * **Standard speichern.** Ein Knopf in der Kopfleiste schreibt Vorlage,
   Muster, Gruppe, Schreibweisen und Präfix nach
   `~/.config/mp3releaser/config.toml`. Beim nächsten Start ist alles gesetzt
-  — für eine Vorführung entscheidend.
+  — für eine Vorführung entscheidend. Gespeichert wird in die vorhandene
+  Datei hinein; von Hand gepflegte Abschnitte wie `[tags]` bleiben erhalten.
 * **Einfachklick öffnete den Ordner.** `GtkListBox` löst `row-activated`
   standardmäßig schon beim einfachen Klick aus. Jetzt wählt ein Klick aus,
   ein Doppelklick öffnet.
@@ -1185,7 +1256,8 @@ Der_Artist-Das_Album-2026-GRP/
 * **Bitratenwarnung bei verlustfreien Formaten.** FLAC hat je Datei eine
   andere Bitrate; die Meldung „unterschiedliche Bitraten" kam bei jedem
   FLAC-Release und war reines Rauschen. Sie gilt jetzt nur noch für
-  verlustbehaftete Formate.
+  verlustbehaftete Formate. Mit ABR kodierte MP3 zählen ebenfalls als
+  variabel.
 * **Überlange Pfade.** Ein Pfadbestandteil jenseits von 255 Zeichen ließ das
   Betriebssystem werfen — in der Weboberfläche ein Serverfehler mit Traceback
   statt einer Meldung. Wird jetzt vorher abgewiesen.

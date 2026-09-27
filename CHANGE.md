@@ -13,9 +13,9 @@ zusätzliche Tests sichern Nachbarfälle ab, die schon vorher funktionierten
 
 | | vorher | nachher |
 |---|---|---|
-| Tests | 672 | 724 |
+| Tests | 672 | 734 |
 | Ergebnis ohne GTK (Python 3.11) | 2 rot (Build-Skript), Rest grün | alle grün; übersprungen wird nur, wofür GTK, WebKitGTK oder ein gebautes Bündel fehlt |
-| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | – | alle 724 grün, nichts übersprungen |
+| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | – | alle 734 grün, nichts übersprungen |
 | `pyflakes` | sauber | sauber |
 
 Die Funktionalität ist unverändert; es wurden nur Fehler behoben und
@@ -149,9 +149,9 @@ Doku verhindern soll:
 | Schlüssel | vorher ignoriert in | jetzt |
 |---|---|---|
 | `[naming] companion_pattern` | überall | überall wirksam |
-| `[naming] case`, `pipeline` | Desktop, Web | überall wirksam |
+| `[naming] case`, `pipeline` | Desktop | überall wirksam |
 | `[tags]` (komplett) | Desktop | überall wirksam |
-| `[tags] write_disc_for_single` | Kommandozeile | überall wirksam |
+| `[tags] write_disc_for_single` | Kommandozeile, Web | überall wirksam |
 | `[build]` (komplett) | Desktop, Web | überall wirksam |
 | `[build] sfv_comment` | Kommandozeile | überall wirksam |
 
@@ -272,11 +272,56 @@ installiertes PyInstaller übersprungen statt fehlzuschlagen.
   `frontends/__init__.py` („geplant: Desktop und Web“ – beides existiert).
 * Version auf **0.22.1** (`pyproject.toml`, `releaser/__init__.py`).
 
+## 16. Nachkontrolle, AppImage und englische README
+
+Beim zweiten Durchgang und beim Bau des AppImage kamen noch diese Punkte
+hinzu:
+
+* **Die Oberfläche im AppImage stürzte beim Start ab** (*schwer*).
+  PyInstaller bündelte PyGObjects GTK-Overrides (`gi.overrides.Gtk`,
+  `gi.overrides.Gdk`) nur, wenn sein GTK-3-Hook griff. Auf einem Rechner mit
+  ausschließlich GTK 4 fehlten sie; die Oberfläche brach mit
+  „`Gtk.TextBuffer.set_text() takes exactly 3 arguments`“ ab. Sie stehen jetzt
+  ausdrücklich in `packaging/pyinstaller.spec`.
+* **Grafikbibliotheken des Wirts im Bündel.** Über die Gdk-/cairo-Typelibs
+  kamen X11, xcb, cairo, fontconfig, freetype und Verwandte ins Bündel – und
+  wären neben dem GTK des Wirts in einer zweiten Fassung geladen worden. Sie
+  bleiben jetzt draußen (dieselben Namen stehen auf der Ausschlussliste der
+  AppImage-Gemeinschaft); das Bündel wurde dadurch 3 MB kleiner.
+* **`build.sh`:** warnt, wenn der bauende Interpreter GTK 4 nicht importieren
+  kann (sonst entstand still ein AppImage ohne Oberfläche); der Interpreter
+  ist über `PYTHON=` wählbar; `appimagetool` läuft ohne FUSE, also auch in
+  Containern und CI; der Download-Hinweis nennt die aktuelle Adresse
+  (`AppImage/appimagetool` statt des eingestellten `AppImageKit`).
+* **Unsichtbares Zeichen im Quelltext:** Die BOM-Korrektur aus 2.1 stand als
+  wörtliches U+FEFF in `cue.py` (und im Test) – funktionsfähig, aber
+  unsichtbar und von manchem Editor stillschweigend entfernt. Jetzt als
+  Escape-Sequenz `"\ufeff"`.
+* **Dokumentation:** Die README beschrieb die M3U noch mit
+  Rückwärts-Schrägstrichen als Voreinstellung und nannte
+  `$XDG_CONFIG_HOME` nicht als Suchort; `EINRICHTUNG.md` nannte eine veraltete
+  Testzahl; eine Zeile der Tabelle in 8.1 war ungenau (die Weboberfläche las
+  `case` und `pipeline` schon vorher über die Kommandozeile).
+* **Englische README** (`README.en.md`): vollständige Übersetzung, beide
+  Fassungen verweisen aufeinander. `tests/test_readme.py` prüft jetzt beide
+  gleichermaßen (Kommandos, Modulbaum, Testzahl) und dazu die Testzahl in
+  `EINRICHTUNG.md`.
+* **AppImage veröffentlicht** unter `releases/` mit `SHA256SUMS` –
+  Download-Hinweise in beiden README-Fassungen.
+
+Das AppImage wurde selbst geprüft: ohne Python und ohne `PATH`
+(`env -i`) läuft der komplette Ablauf durch (taggen, umbenennen, NFO, SFV,
+M3U; `verify` meldet „3 ok“), und die Oberfläche startet unter Xvfb ohne
+Fehler. Es braucht glibc 2.38 oder neuer (Ubuntu 24.04, Linux Mint 22,
+Debian 13, Fedora 39 und neuer) und für die Oberfläche GTK 4 des Systems.
+
 ## Neue Tests
 
-52 Regressionstests, verteilt auf die jeweils zuständige Testdatei und dort
-unter der Überschrift „Korrekturen (Fehlerdurchsicht)“ zu finden:
+62 Tests, verteilt auf die jeweils zuständige Testdatei und dort
+unter der Überschrift „Korrekturen (Fehlerdurchsicht)“ bzw. „Oberfläche im
+Bündel“ zu finden:
 `test_audio.py`, `test_extras.py`, `test_skl.py`, `test_tagwriter.py`,
 `test_sfv_m3u.py`, `test_naming.py`, `test_checks.py`, `test_undo.py`,
 `test_service.py`, `test_api.py`, `test_uistate.py`, `test_web.py`,
-`test_gtkui.py`.
+`test_gtkui.py`, `test_packaging.py`, dazu die auf beide Sprachfassungen
+erweiterten Prüfungen in `test_readme.py`.
