@@ -13,9 +13,9 @@ zusätzliche Tests sichern Nachbarfälle ab, die schon vorher funktionierten
 
 | | vorher | nachher |
 |---|---|---|
-| Tests | 672 | 735 |
+| Tests | 672 | 736 |
 | Ergebnis ohne GTK (Python 3.11) | 2 rot (Build-Skript), Rest grün | alle grün; übersprungen wird nur, wofür GTK, WebKitGTK oder ein gebautes Bündel fehlt |
-| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | – | alle 735 grün, nichts übersprungen |
+| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | – | alle 736 grün, nichts übersprungen |
 | `pyflakes` | sauber | sauber |
 
 Die Funktionalität ist unverändert; es wurden nur Fehler behoben und
@@ -343,9 +343,14 @@ dafür `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS` – der Browser-Test startete
 seinen Prüfstand aber mit einer leeren Umgebung, die Variable kam nie an. Er
 reicht sie jetzt durch, wenn sie gesetzt ist.
 
+Außerdem: `upload-artifact`/`download-artifact` auf die ersten Fassungen mit
+Node 24 (v6/v7), und ein Test prüft am *gebauten* Bündel, dass keine der
+ausgeschlossenen Grafikbibliotheken darin steckt – welche Bibliotheken
+PyInstaller hereinzieht, hängt vom Rechner ab, auf dem gebaut wird.
+
 ## Neue Tests
 
-63 Tests, verteilt auf die jeweils zuständige Testdatei und dort
+64 Tests, verteilt auf die jeweils zuständige Testdatei und dort
 unter der Überschrift „Korrekturen (Fehlerdurchsicht)“ bzw. „Oberfläche im
 Bündel“ zu finden:
 `test_audio.py`, `test_extras.py`, `test_skl.py`, `test_tagwriter.py`,

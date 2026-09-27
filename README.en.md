@@ -52,7 +52,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 735 tests
+python3 -m pytest tests -q          # 736 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -1141,7 +1141,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 735 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 736 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |

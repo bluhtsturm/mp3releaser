@@ -471,3 +471,28 @@ def test_release_workflow_builds_and_checks_before_publishing():
     assert release["needs"] == "appimage"
     assert release["permissions"] == {"contents": "write"}
     assert workflow["permissions"] == {"contents": "read"}
+
+
+PKG_TOC = ROOT / "build" / "work" / "pyinstaller" / "PKG-00.toc"
+
+
+@needs_bundle
+@pytest.mark.skipif(not PKG_TOC.is_file(), reason="Bauprotokoll von PyInstaller fehlt")
+def test_bundle_contains_no_host_graphics_libraries():
+    """Prüft den Ausschluss am gebauten Bündel, nicht nur am Spec.
+
+    Welche Bibliotheken PyInstaller hereinzieht, hängt vom Rechner ab, auf
+    dem gebaut wird - eine Vorgabe im Spec allein beweist nichts.
+    """
+    import ast
+    import re
+
+    spec = (PACKAGING / "pyinstaller.spec").read_text(encoding="utf-8")
+    prefixes = ast.literal_eval(
+        re.search(r"HOST_PROVIDED = (\(.*?\))", spec, re.S).group(1))
+    bundled = re.findall(r"\('([^']+)',\s*'[^']*',\s*'BINARY'\)",
+                         PKG_TOC.read_text(encoding="utf-8"))
+    assert bundled, "keine Bibliotheken im Bauprotokoll gefunden"
+    leaked = sorted(name for name in bundled
+                    if Path(name).name.startswith(prefixes))
+    assert not leaked, f"Bibliotheken des Wirts im Bündel: {leaked}"
