@@ -336,6 +336,13 @@ Geprüft mit `actionlint` (samt `shellcheck`) und durch einen vollständigen
 Nachbau des Build-Jobs in einer frischen Kopie des Repositorys. Ein Test in
 `tests/test_packaging.py` hält die wesentlichen Eigenschaften fest.
 
+Der erste Lauf auf GitHub zeigte eine Lücke, die lokal nicht auffallen
+konnte: Auf dem Runner (normaler Benutzer, Ubuntu 24.04) darf WebKits Sandbox
+keine Namespaces anlegen, und der Webprozess stürzte ab. Der Workflow setzt
+dafür `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS` – der Browser-Test startete
+seinen Prüfstand aber mit einer leeren Umgebung, die Variable kam nie an. Er
+reicht sie jetzt durch, wenn sie gesetzt ist.
+
 ## Neue Tests
 
 63 Tests, verteilt auf die jeweils zuständige Testdatei und dort

@@ -10,6 +10,7 @@ abstürzt statt eine Ausnahme zu werfen - ein Absturz würde die ganze
 Testsitzung mitnehmen.
 """
 
+import os
 import shutil
 import subprocess
 import sys
@@ -57,14 +58,27 @@ def served_tree(tmp_path: Path) -> Path:
     return tmp_path
 
 
+#: Wird aus der Umgebung durchgereicht, falls gesetzt. Auf Ubuntu 24.04 darf
+#: ein normaler Benutzer keine Namespaces anlegen; WebKits Sandbox (bwrap)
+#: scheitert dann, und der Webprozess stuerzt ab. Der Release-Workflow setzt
+#: die Variable - geladen wird nur die eigene Seite vom eigenen Testserver.
+PASS_THROUGH = ("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS",)
+
+
+def _browser_env(home: Path) -> dict:
+    """Bewusst schmale Umgebung - nur, was der Pruefstand wirklich braucht."""
+    env = {"PATH": "/usr/bin:/bin", "HOME": str(home), "NO_AT_BRIDGE": "1"}
+    env.update({key: os.environ[key] for key in PASS_THROUGH if key in os.environ})
+    return env
+
+
 @needs_browser
 def test_page_works_in_a_real_browser_engine(served_tree):
     result = subprocess.run(
         ["xvfb-run", "-a", sys.executable, str(CHECKER),
          str(served_tree / "eingang"), str(ROOT / "templates")],
         capture_output=True, text=True, timeout=180,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(served_tree),
-             "NO_AT_BRIDGE": "1"},
+        env=_browser_env(served_tree),
     )
     output = result.stdout
 
@@ -95,8 +109,7 @@ def test_checker_reports_its_own_failures(served_tree, tmp_path):
         ["xvfb-run", "-a", sys.executable, str(CHECKER),
          str(broken), str(ROOT / "templates")],
         capture_output=True, text=True, timeout=180,
-        env={"PATH": "/usr/bin:/bin", "HOME": str(tmp_path),
-             "NO_AT_BRIDGE": "1"},
+        env=_browser_env(tmp_path),
     )
     assert result.returncode != 0
     assert "[FEHLER]" in result.stdout or "fehlgeschlagen" in result.stdout
