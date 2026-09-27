@@ -306,7 +306,8 @@ hinzu:
   Fassungen verweisen aufeinander. `tests/test_readme.py` prüft jetzt beide
   gleichermaßen (Kommandos, Modulbaum, Testzahl) und dazu die Testzahl in
   `EINRICHTUNG.md`.
-* **AppImage veröffentlicht** unter `releases/` mit `SHA256SUMS` –
+* **AppImage veröffentlicht** – zunächst als Datei unter `releases/`, seit
+  dem Release-Workflow (Abschnitt 17) als GitHub-Release mit `SHA256SUMS`.
   Download-Hinweise in beiden README-Fassungen.
 
 Das AppImage wurde selbst geprüft: ohne Python und ohne `PATH`
@@ -342,6 +343,12 @@ keine Namespaces anlegen, und der Webprozess stürzte ab. Der Workflow setzt
 dafür `WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS` – der Browser-Test startete
 seinen Prüfstand aber mit einer leeren Umgebung, die Variable kam nie an. Er
 reicht sie jetzt durch, wenn sie gesetzt ist.
+
+Seit das erste Release steht, liegt das AppImage nicht mehr im Repository
+(`releases/` entfernt); die Download-Hinweise zeigen auf die Release-Seite.
+Jede Version im Repository hätte die Historie um gut 20 MB vergrößert – die
+bereits eingecheckte Datei bleibt in der Historie, weil ein Umschreiben der
+Historie jeden vorhandenen Klon ungültig machen würde.
 
 Außerdem: `upload-artifact`/`download-artifact` auf die ersten Fassungen mit
 Node 24 (v6/v7), und ein Test prüft am *gebauten* Bündel, dass keine der

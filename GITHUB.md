@@ -59,8 +59,16 @@ die könnten Pfade aus deinem System enthalten).
 **Was mit hochgeht.** Der Quelltext, die Tests, `packaging/`, `Dockerfile`,
 `docker-compose.yml`, die beiden Vorlagen `templates/standard.skl` und
 `templates/example.skl`, der Generator `tools/make_standard_skl.py`, die
-Dokumentation (deutsch und englisch) und unter `releases/` das fertige
-AppImage mit Prüfsumme. `git ls-files` zeigt die vollständige Liste.
+Dokumentation (deutsch und englisch) und der Release-Workflow unter
+`.github/workflows/`. `git ls-files` zeigt die vollständige Liste.
+
+**Das AppImage** liegt nicht im Repository, sondern unter *Releases*. Es
+entsteht auf GitHub Actions, sobald ein Versions-Tag gepusht wird:
+
+```bash
+git tag v0.22.1
+git push origin v0.22.1
+```
 
 **Nicht enthalten** ist das Original — weder `Mp3Releaser.exe` noch dessen
 `.nfo`-Dateien oder `generic.skl`. Das ist Absicht: Die ASCII-Grafik darin

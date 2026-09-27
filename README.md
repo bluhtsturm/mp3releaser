@@ -13,8 +13,9 @@ Weboberfläche im Container.
 
 ## Herunterladen
 
-Das fertige AppImage liegt im Repository unter
-[`releases/`](releases/) – eine Datei, ohne Installation, ohne Python:
+Das fertige AppImage gibt es unter
+[**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.22.1:
 
 ```bash
 chmod +x mp3releaser-0.22.1-x86_64.AppImage
@@ -702,7 +703,7 @@ Der Scanner wusste das alles schon — er hat es bisher nur weggeworfen.
 ## Auslieferung als Bündel
 
 ```
-./packaging/build.sh binary     # eine Datei, 21 MB, laeuft ohne Python
+./packaging/build.sh binary     # eine Datei, gut 20 MB, laeuft ohne Python
 ./packaging/build.sh appdir     # AppDir, direkt startbar ueber ./AppRun
 ./packaging/build.sh            # zusaetzlich das AppImage (braucht appimagetool)
 PYTHON=python3.12 ./packaging/build.sh   # mit einem bestimmten Interpreter

@@ -91,7 +91,7 @@ Sichtbar ist ausschließlich, was unter `volumes` steht.
 
 ```bash
 pip install pyinstaller
-./packaging/build.sh binary      # eine Datei, ~21 MB, läuft ohne Python
+./packaging/build.sh binary      # eine Datei, gut 20 MB, läuft ohne Python
 ./packaging/build.sh appdir      # startbar über ./build/AppDir/AppRun
 ```
 

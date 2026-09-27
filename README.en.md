@@ -18,8 +18,9 @@ interface in a container.
 
 ## Download
 
-The ready-made AppImage lives in the repository under
-[`releases/`](releases/) — a single file, no installation, no Python:
+The ready-made AppImage is available under
+[**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
+is `SHA256SUMS` with the checksum. Using 0.22.1 as an example:
 
 ```bash
 chmod +x mp3releaser-0.22.1-x86_64.AppImage
@@ -707,7 +708,7 @@ The scanner knew all this already — it just threw it away until now.
 ## Delivery as a bundle
 
 ```
-./packaging/build.sh binary     # one file, 21 MB, runs without Python
+./packaging/build.sh binary     # one file, a little over 20 MB, runs without Python
 ./packaging/build.sh appdir     # AppDir, directly startable via ./AppRun
 ./packaging/build.sh            # additionally the AppImage (needs appimagetool)
 PYTHON=python3.12 ./packaging/build.sh   # with a specific interpreter
