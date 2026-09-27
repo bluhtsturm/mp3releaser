@@ -13,9 +13,9 @@ zusätzliche Tests sichern Nachbarfälle ab, die schon vorher funktionierten
 
 | | vorher | nachher |
 |---|---|---|
-| Tests | 672 | 734 |
+| Tests | 672 | 735 |
 | Ergebnis ohne GTK (Python 3.11) | 2 rot (Build-Skript), Rest grün | alle grün; übersprungen wird nur, wofür GTK, WebKitGTK oder ein gebautes Bündel fehlt |
-| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | – | alle 734 grün, nichts übersprungen |
+| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | – | alle 735 grün, nichts übersprungen |
 | `pyflakes` | sauber | sauber |
 
 Die Funktionalität ist unverändert; es wurden nur Fehler behoben und
@@ -315,9 +315,30 @@ M3U; `verify` meldet „3 ok“), und die Oberfläche startet unter Xvfb ohne
 Fehler. Es braucht glibc 2.38 oder neuer (Ubuntu 24.04, Linux Mint 22,
 Debian 13, Fedora 39 und neuer) und für die Oberfläche GTK 4 des Systems.
 
+## 17. Release-Workflow
+
+`.github/workflows/release.yml` baut das AppImage bei jedem Versions-Tag
+(`v*`) auf GitHub Actions und veröffentlicht es als Release – statt es als
+Datei ins Repository zu legen, wo jede Version die Historie um gut 20 MB
+vergrößert.
+
+Ablauf: Systempakete (GTK 4, WebKitGTK, xvfb, ffmpeg) → Python-Umgebung mit
+PyGObject aus dem System → Abgleich von Tag, `__version__` und
+`pyproject.toml` → pyflakes und komplette Testsuite → `appimagetool` 1.9.1
+mit geprüfter SHA-256 → Bau → Bündeltests einschließlich Start der
+Oberfläche → AppImage ohne Python und ohne `PATH` gestartet → Umbenennen,
+Prüfsumme → Release mit AppImage und `SHA256SUMS` und zweisprachigen
+Hinweisen. Veröffentlicht wird nur, wenn alle Schritte davor bestanden haben;
+nur dieser letzte Schritt hat Schreibrecht. Ein erneuter Lauf für dasselbe
+Tag ersetzt die Dateien, statt zu scheitern.
+
+Geprüft mit `actionlint` (samt `shellcheck`) und durch einen vollständigen
+Nachbau des Build-Jobs in einer frischen Kopie des Repositorys. Ein Test in
+`tests/test_packaging.py` hält die wesentlichen Eigenschaften fest.
+
 ## Neue Tests
 
-62 Tests, verteilt auf die jeweils zuständige Testdatei und dort
+63 Tests, verteilt auf die jeweils zuständige Testdatei und dort
 unter der Überschrift „Korrekturen (Fehlerdurchsicht)“ bzw. „Oberfläche im
 Bündel“ zu finden:
 `test_audio.py`, `test_extras.py`, `test_skl.py`, `test_tagwriter.py`,

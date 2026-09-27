@@ -439,3 +439,35 @@ def test_bundled_gui_starts_without_errors(tmp_path):
     assert "Traceback" not in output, output[-2000:]
     assert "nicht zur Verfügung" not in output, output[-2000:]
     assert result.returncode == 124, output[-2000:]      # von timeout beendet
+
+
+# ==================================================== Release-Workflow
+
+
+WORKFLOW = ROOT / ".github" / "workflows" / "release.yml"
+
+
+def test_release_workflow_builds_and_checks_before_publishing():
+    """Der Workflow muss prüfen, bevor er veröffentlicht - und das AppImage
+    so bauen, wie es lokal geprüft wurde."""
+    yaml = pytest.importorskip("yaml")
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    # PyYAML liest den Schlüssel "on" als Wahrheitswert
+    triggers = workflow.get("on", workflow.get(True))
+    assert triggers["push"]["tags"] == ["v*"]
+
+    build = workflow["jobs"]["appimage"]
+    runs = "\n".join(step.get("run", "") for step in build["steps"])
+    assert "PYTHON=.venv/bin/python ./packaging/build.sh" in runs
+    assert "--system-site-packages" in runs          # PyGObject aus dem System
+    assert "pytest tests" in runs
+    assert "tests/test_packaging.py" in runs          # nach dem Bau erneut
+    assert "GITHUB_REF_NAME" in runs                  # Tag passt zur Version
+
+    digest = build["env"]["APPIMAGETOOL_SHA256"]
+    assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
+
+    release = workflow["jobs"]["release"]
+    assert release["needs"] == "appimage"
+    assert release["permissions"] == {"contents": "write"}
+    assert workflow["permissions"] == {"contents": "read"}

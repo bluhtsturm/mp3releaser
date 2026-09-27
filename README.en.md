@@ -52,7 +52,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 734 tests
+python3 -m pytest tests -q          # 735 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -738,6 +738,26 @@ needs glibc 2.38 or newer — that is determined by the machine it is built on.
 `build.sh` also runs `appimagetool` without FUSE, so it works in containers
 and CI.
 
+### Publishing a new version
+
+GitHub Actions builds the AppImage (`.github/workflows/release.yml`) as soon
+as a version tag is pushed:
+
+```bash
+# bump the version in pyproject.toml and releaser/__init__.py, commit, then:
+git tag v0.22.2
+git push origin v0.22.2
+```
+
+The workflow builds on Ubuntu 24.04 with the same setup as above, runs the
+complete test suite first (under `xvfb` with GTK 4 and WebKitGTK), then the
+bundle tests including starting the interface, starts the AppImage without
+Python and without `PATH` — and only then creates the release with the
+AppImage and `SHA256SUMS`. If the tag does not match the version in the code,
+it aborts. `appimagetool` is pinned to one version with a checksum. Started by
+hand (*Actions → Release → Run workflow*) it only produces an artifact for
+trying out, no release.
+
 `AppRun` needs no external programs: no `readlink`, no `dirname`. A bundle
 that requires a working `PATH` variable would miss its purpose. A test starts
 it with `PATH=/nonexistent`.
@@ -1121,7 +1141,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 734 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 735 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
