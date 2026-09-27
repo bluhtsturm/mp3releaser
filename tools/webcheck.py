@@ -268,6 +268,38 @@ def build_steps(checker: Checker) -> None:
                  c.report(not still_open, "Abbrechen schließt den Dialog"),
                  c.next()))
 
+    def step_file_name_by_hand():
+        # Reiter "Namen": ein Dateiname wird überschrieben, der Server
+        # bereinigt ihn, das Feld zeigt danach den übernommenen Namen und
+        # ist als "von Hand" markiert.
+        c.js("""
+             [...document.querySelectorAll('.tab')]
+               .find(t => t.dataset.tab === 'names').click();
+             JSON.stringify('ok')
+             """, lambda _: None)
+        c.wait("JSON.stringify(document.querySelectorAll("
+               "'#filenames input').length > 0)",
+               lambda _: c.js("""
+                   const input = document.querySelector(
+                       '#filenames input[data-file-index="0"]');
+                   input.value = '01 Teil I - Teil II.mp3';
+                   input.dispatchEvent(new Event('change'));
+                   JSON.stringify('ok')
+                   """, lambda _: c.wait("""
+                   JSON.stringify(document.querySelector(
+                       '#filenames input[data-file-index="0"]')
+                       .classList.contains('manual'))
+                   """, lambda _: c.js("""
+                   const row = document.querySelector('#filenames tbody tr');
+                   JSON.stringify({
+                     value: row.querySelector('input').value,
+                     reset: !row.querySelector('button').disabled})
+                   """, lambda got: (
+                       c.report(got.get("value") == "01_Teil_I_-_Teil_II"
+                                and got.get("reset"),
+                                f"Dateiname von Hand übernommen ({got})"),
+                       c.next())))))
+
     def step_nfo_tab():
         c.js("""
              [...document.querySelectorAll('.tab')]
@@ -294,7 +326,8 @@ def build_steps(checker: Checker) -> None:
                step_load_release, step_groups,
                step_unused_collapsed, step_field_value,
                step_counter_turns_red, step_plan_dialog,
-               step_cancel_changes_nothing, step_nfo_tab, step_status]
+               step_cancel_changes_nothing, step_file_name_by_hand,
+               step_nfo_tab, step_status]
 
 
 def main() -> int:

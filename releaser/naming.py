@@ -74,6 +74,10 @@ EXTRA_RESOLVERS: dict[str, Callable[["NameContext"], str]] = {
     "#Grp": lambda c: c.group,
     "#Ext": lambda c: c.extension.lstrip("."),
     "#Fmt": lambda c: format_marker(c.release),
+    # In Namen gilt die eigene Quelle des Verzeichnisnamens, nicht die der
+    # .nfo - siehe ``Release.dir_source``. Sonst fuellte das eine Feld das
+    # andere aus.
+    "#Source": lambda c: c.release.dir_source,
 }
 
 
@@ -339,6 +343,40 @@ class RenamePlan:
 def track_stem(release: Release, track: Track, disc: Disc,
                profile: NamingProfile) -> str:
     """Dateiname ohne Endung für einen Track.
+
+    Ein von Hand gesetzter Name (``Track.manual_stem``) hat Vorrang vor dem
+    Muster - siehe :func:`clean_manual_stem`.
+    """
+    if track.manual_stem:
+        suffix = Path(track.path).suffix if track.path else ""
+        manual = clean_manual_stem(track.manual_stem, profile, suffix)
+        if manual:
+            return manual
+    return pattern_stem(release, track, disc, profile)
+
+
+def clean_manual_stem(value: str, profile: NamingProfile,
+                      suffix: str = "") -> str:
+    """Ein von Hand eingegebener Dateiname - wörtlich, bis auf das Unmögliche.
+
+    Weder Regelkette noch Schreibweise greifen: genau die haben den Namen ja
+    verändert, den jemand von Hand richtigstellt (``collapse`` machte etwa
+    aus "Titel I - Teil 2" ein "titel_i-teil_2"). Übrig bleiben nur Regeln,
+    ohne die kein gültiger Dateiname entsteht: verbotene Zeichen fallen weg,
+    Leerzeichen werden zum eingestellten Trennzeichen, Punkte am Rand
+    verschwinden (ein führender Punkt versteckte die Datei), und eine
+    mitgetippte Endung wird abgeschnitten statt verdoppelt.
+    """
+    value = value.strip()
+    if suffix and value.lower().endswith(suffix.lower()):
+        value = value[:-len(suffix)]
+    value = rule_spaces(rule_forbidden(value), profile.space_char)
+    return value.strip(". ")
+
+
+def pattern_stem(release: Release, track: Track, disc: Disc,
+                 profile: NamingProfile) -> str:
+    """Dateiname ohne Endung, wie ihn das Dateimuster ergibt.
 
     Der "intro"-Sonderfall des Originals stellt den Artist voran, damit nicht
     mehrere Releases im selben Verzeichnis eine Datei ``intro.mp3`` haben.

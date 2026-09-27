@@ -50,7 +50,7 @@ def make_release(tmp_path: Path, multi: bool = False, titles=None) -> tuple[Rele
             tracks.append(Track(no, title, 100.0, number, str(path), 4))
         discs.append(Disc(number, tracks=tracks))
     release = Release(artist="Der Artist", album="Das Album", year=2026,
-                      source="CDDA", dirname=root.name, discs=discs)
+                      dir_source="CDDA", dirname=root.name, discs=discs)
     return release, root
 
 
@@ -152,7 +152,7 @@ def test_default_pipeline_is_documented_order():
 
 def test_release_dirname_uses_pattern_and_group():
     release = Release(artist='Die Ärzte', album='Ein Album (12" Mix)',
-                      year=2026, source="CDDA")
+                      year=2026, dir_source="CDDA")
     name = release_dirname(release, NamingProfile(group="GRP"))
     # Klammern und andere Sonderzeichen gehoeren nicht in Dateinamen - der
     # Trennstrich des Musters bleibt aber erhalten
@@ -389,7 +389,7 @@ def test_capitalize_keeps_short_acronyms():
 
 def test_directory_capitalized_while_files_stay_lowercase():
     release = Release(artist="die ärzte", album="ein Album", year=2026,
-                      source="CDDA", dirname="roh",
+                      dir_source="CDDA", dirname="roh",
                       discs=[Disc(1, tracks=[Track(1, "Erster Titel", 10.0)])])
     profile = NamingProfile(group="GRP", charcase={
         Scope.DIRECTORY: CharCase.CAPITALIZE,
@@ -469,14 +469,14 @@ def test_atmos_beats_the_container_format():
 ])
 def test_format_appears_before_the_year(audio_format, expected):
     release = Release(artist="Der Artist", album="Das Album", year=2026,
-                      source="CDDA", audio_format=audio_format)
+                      dir_source="CDDA", audio_format=audio_format)
     profile = NamingProfile(group="GRP", charcase={Scope.DIRECTORY: CharCase.LOWER})
     assert release_dirname(release, profile) == expected
 
 
 def test_empty_format_leaves_no_double_separator():
     """Ohne Kennung darf kein '--' im Namen stehen bleiben."""
-    release = Release(artist="A", album="B", year=2026, source="CDDA",
+    release = Release(artist="A", album="B", year=2026, dir_source="CDDA",
                       audio_format="MP3")
     name = release_dirname(release, NamingProfile(group="GRP"))
     assert "--" not in name
@@ -615,3 +615,80 @@ def test_a_foreign_file_at_the_target_is_still_a_collision(tmp_path):
     plan = RenamePlan(ops=[RenameOp(src, dst, "file")])
     _check_existing_targets(plan)
     assert plan.collisions
+
+
+# ------------------------------------------------------ Dateinamen von Hand
+
+
+@pytest.mark.parametrize("value, suffix, expected", [
+    # der Fall aus der Praxis: collapse machte aus "_-_" ein "-"
+    ("01-los_maranones_i_-_nattern_narren", ".mp3",
+     "01-los_maranones_i_-_nattern_narren"),
+    ("01 Mein Titel", ".mp3", "01_Mein_Titel"),          # Leerzeichen -> _
+    ("01-titel.mp3", ".mp3", "01-titel"),                # Endung nicht doppelt
+    ("01-titel.MP3", ".mp3", "01-titel"),
+    ("01-titel.flac", ".mp3", "01-titel.flac"),          # fremde Endung bleibt
+    ("a/b\\c:d", ".mp3", "abcd"),                        # verbotene Zeichen
+    ("..versteckt.", ".mp3", "versteckt"),               # Punkte am Rand
+    ("  ", ".mp3", ""),
+])
+def test_manual_stem_is_taken_literally(value, suffix, expected):
+    from releaser.naming import clean_manual_stem
+
+    assert clean_manual_stem(value, NamingProfile(), suffix) == expected
+
+
+def test_manual_stem_keeps_case_and_ignores_the_rule_chain():
+    from releaser.naming import clean_manual_stem
+
+    profile = NamingProfile(charcase={Scope.FILENAME: CharCase.LOWER})
+    assert clean_manual_stem("Ärger_&_Co", profile) == "Ärger_&_Co"
+
+
+def test_manual_stem_uses_the_configured_space_character():
+    from releaser.naming import clean_manual_stem
+
+    assert clean_manual_stem("a b", NamingProfile(space_char=".")) == "a.b"
+
+
+def test_manual_stem_wins_over_the_pattern(tmp_path):
+    release, root = make_release(tmp_path, titles=["Teil I - Teil II", "B"])
+    profile = NamingProfile(group="GRP", file_pattern="#N-#Trk")
+    disc = release.discs[0]
+    track = disc.tracks[0]
+    assert track_stem(release, track, disc, profile) == "01-teil_i-teil_ii"
+
+    track.manual_stem = "01-teil_i_-_teil_ii"
+    assert track_stem(release, track, disc, profile) == "01-teil_i_-_teil_ii"
+
+
+def test_manual_stem_that_cleans_to_nothing_falls_back_to_the_pattern(tmp_path):
+    release, root = make_release(tmp_path)
+    disc = release.discs[0]
+    track = disc.tracks[0]
+    track.manual_stem = "///"
+    profile = NamingProfile(file_pattern="#N-#Trk")
+    assert track_stem(release, track, disc, profile) == "01-erster_titel"
+
+
+def test_plan_and_apply_use_the_manual_name(tmp_path):
+    release, root = make_release(tmp_path)
+    release.discs[0].tracks[0].manual_stem = "01-Von_Hand"
+    profile = NamingProfile(group="GRP")
+
+    plan = plan_rename(release, root, profile)
+    assert any(op.dst.name == "01-Von_Hand.mp3" for op in plan.ops)
+    apply_plan(plan, release)
+    assert Path(release.discs[0].tracks[0].path).name == "01-Von_Hand.mp3"
+
+    # danach passt alles - ein zweiter Plan hat nichts mehr zu tun
+    new_root = Path(release.tracks[0].path).parent
+    assert plan_rename(release, new_root, profile).changes == []
+
+
+def test_two_manual_names_can_collide(tmp_path):
+    release, root = make_release(tmp_path)
+    for track in release.discs[0].tracks:
+        track.manual_stem = "gleich"
+    plan = plan_rename(release, root, NamingProfile(group="GRP"))
+    assert plan.collisions and not plan.is_safe

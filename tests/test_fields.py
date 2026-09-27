@@ -205,8 +205,10 @@ def test_usage_marks_naming_patterns():
     naming = NamingProfile(dir_pattern="#Artist-#Album-#Source-#Year",
                            file_pattern="#N-#Trk")
     used = usage(naming=naming)
-    assert Consumer.DIRNAME in used["source"]
-    assert Consumer.FILENAME not in used["source"]
+    # #Source im Muster speist das eigene Namensfeld, nicht die NFO-Quelle
+    assert Consumer.DIRNAME in used["dir_source"]
+    assert Consumer.FILENAME not in used["dir_source"]
+    assert Consumer.DIRNAME not in used["source"]
 
 
 def test_usage_follows_tag_profile_options():
@@ -303,3 +305,42 @@ def test_album_addition_is_a_profile_text_not_a_release_field():
     """Der Zusatz im Tag-Profil sagt nichts ueber das Releasefeld aus."""
     used = usage(tags=TagProfile(album_addition="CDDA"))
     assert used["album_addition"] == set()
+
+
+# ================================ Quelle: NFO und Name sind eigene Felder
+
+
+def test_nfo_source_and_name_source_are_independent():
+    """"Quelle" in der Vorlage und im Verzeichnisnamen füllen sich nicht
+    gegenseitig aus - es sind zwei Felder mit je eigenem Wert."""
+    from releaser.model import Release
+    from releaser.naming import release_dirname
+    from releaser.tags import Settings
+
+    naming = NamingProfile(dir_pattern="#Artist-#Source-#Year", group="")
+    template = Template.parse("#Source          |")
+
+    only_nfo = Release(artist="A", year=2026, source="Vinyl (180 g)")
+    assert release_dirname(only_nfo, naming) == "a-2026"
+    assert "Vinyl (180 g)" in template.render(only_nfo, Settings())
+
+    only_name = Release(artist="A", year=2026, dir_source="VINYL")
+    assert release_dirname(only_name, naming) == "a-vinyl-2026"
+    assert "VINYL" not in template.render(only_name, Settings())
+
+
+def test_both_source_fields_appear_in_their_own_group():
+    from releaser.model import Release
+
+    template = Template.parse("#Source          |")
+    naming = NamingProfile(dir_pattern="#Artist-#Source")
+    release = Release(artist="A", source="Vinyl (180 g)", dir_source="VINYL")
+    groups = dict(group_views(build_views(release, template=template,
+                                          naming=naming)))
+
+    in_template = {v.spec.name: v.value for v in groups["in der Vorlage"]}
+    in_dirname = {v.spec.name: v.value for v in groups["im Verzeichnisnamen"]}
+    assert in_template.get("source") == "Vinyl (180 g)"
+    assert "dir_source" not in in_template
+    assert in_dirname.get("dir_source") == "VINYL"
+    assert "source" not in in_dirname

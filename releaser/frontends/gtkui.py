@@ -250,6 +250,12 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             self._skip_form = False
             #: Referenzen auf die Zeilen, damit sie nicht eingesammelt werden
             self.rows: list = []
+            #: Eingabefelder der Dateinamen im Reiter "Namen" und was zuletzt
+            #: darin stand - siehe _refresh_file_rows
+            self.file_rows: list = []
+            self._file_rows_key: Optional[tuple] = None
+            self._file_row_data: list = []
+            self._rebuilding_files = False
 
             self.set_titlebar(self._build_header())
 
@@ -435,7 +441,10 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 label="Verfügbare Tags: #Artist #Album #Year #Source #Fmt "
                       "#Grp #Typ #Catnr · Dateien: #N #Trk #Cd\n"
                       "#Fmt setzt FLAC, AAC oder ATMOS ein - bei MP3 nichts.\n"
-                      "Ein Verzeichnisname ohne Tags wird wörtlich übernommen.",
+                      "Ein Verzeichnisname ohne Tags wird wörtlich übernommen.\n"
+                      "Dateinamen lassen sich unten einzeln von Hand ändern "
+                      "(Eingabetaste übernimmt); leer lassen oder ↺ nimmt "
+                      "wieder das Muster.",
                 xalign=0.0, wrap=True)
             hint.add_css_class("dim-label")
             box.append(hint)
@@ -455,11 +464,22 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             self.companions_label.add_css_class("dim-label")
             box.append(self.companions_label)
 
-            self.names_view = Gtk.TextView(editable=False, monospace=True,
-                                           cursor_visible=False)
+            # Verzeichnis alt -> neu, darunter je Datei ein Eingabefeld: der
+            # Name aus dem Muster steht vorgefüllt da und lässt sich von Hand
+            # überschreiben.
+            self.dir_line = Gtk.Label(xalign=0.0, selectable=True, wrap=True)
+            self.dir_line.add_css_class("monospace")
+            box.append(self.dir_line)
+
+            self.files_grid = Gtk.Grid(column_spacing=8, row_spacing=4,
+                                       margin_top=4, margin_bottom=4)
             scroller = Gtk.ScrolledWindow(vexpand=True, min_content_height=220)
-            scroller.set_child(self.names_view)
+            scroller.set_child(self.files_grid)
             box.append(scroller)
+
+            self.collisions_label = Gtk.Label(xalign=0.0, wrap=True)
+            self.collisions_label.add_css_class("error")
+            box.append(self.collisions_label)
             return box
 
         def _build_footer(self) -> Gtk.Widget:
@@ -490,10 +510,11 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
 
         def _refresh_names(self) -> None:
             preview = self.state.preview_names()
-            buffer = self.names_view.get_buffer()
             if preview["directory"] is None:
                 self.dirname_entry.set_text("")
-                buffer.set_text("Kein Release geladen.")
+                self.dir_line.set_text("Kein Release geladen.")
+                self.collisions_label.set_text("")
+                self._refresh_file_rows([])
                 return
 
             old_dir, new_dir = preview["directory"]
@@ -517,15 +538,123 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 text += f"   ·   Bild erkannt: {covers[0].name}"
             self.companions_label.set_text(text)
 
-            width = max((len(old) for old, _ in preview["files"]), default=0)
-            lines = [f"{old_dir}  ->  {new_dir}", ""]
-            lines += [f"  {old.ljust(width)}  ->  {new}"
-                      for old, new in preview["files"]]
-            if preview["collisions"]:
-                lines.append("")
-                lines += [f"  Kollision: {name}"
-                          for name in preview["collisions"]]
-            buffer.set_text("\n".join(lines))
+            self.dir_line.set_text(f"{old_dir}  ->  {new_dir}")
+            self._refresh_file_rows(preview["rows"])
+            self.collisions_label.set_text(
+                "Kollision: " + ", ".join(preview["collisions"])
+                if preview["collisions"] else "")
+
+        # -- Dateinamen von Hand ----------------------------------------
+
+        def _widget_has_focus(self, widget) -> bool:
+            """Steht der Cursor in ``widget``? Bei einer ``Gtk.Entry`` liegt
+            der Fokus auf ihrem inneren Textfeld, nicht auf ihr selbst."""
+            focus = self.get_focus()
+            return focus is not None and (focus == widget
+                                          or focus.is_ancestor(widget))
+
+        def _refresh_file_rows(self, rows: list) -> None:
+            """Baut die Zeilen nur neu, wenn sich die Dateien geändert haben.
+
+            Sonst werden nur Texte nachgezogen. Ein Neuaufbau zerstört die
+            Eingabefelder; hätte eines davon den Fokus, meldete es beim
+            Abräumen "leave" und schriebe in einen Zustand, der gerade neu
+            gezeichnet wird - derselbe Absturz wie früher im Formular.
+            """
+            key = tuple((row["folder"], row["old"], row["suffix"])
+                        for row in rows)
+            if key != self._file_rows_key:
+                self._file_rows_key = key
+                self._rebuilding_files = True
+                try:
+                    self._build_file_rows(rows)
+                finally:
+                    self._rebuilding_files = False
+            self._file_row_data = rows
+            for widgets, row in zip(self.file_rows, rows):
+                entry = widgets["entry"]
+                if (not self._widget_has_focus(entry)
+                        and entry.get_text() != row["stem"]):
+                    entry.set_text(row["stem"])
+                widgets["mark"].set_text("von Hand" if row["manual"] else "")
+                widgets["reset"].set_sensitive(row["manual"])
+                if row["collision"]:
+                    entry.add_css_class("error")
+                else:
+                    entry.remove_css_class("error")
+
+        def _build_file_rows(self, rows: list) -> None:
+            while (child := self.files_grid.get_first_child()) is not None:
+                self.files_grid.remove(child)
+            self.file_rows = []
+            if not rows:
+                return
+            for column, title in enumerate(("Bisher", "Neuer Name")):
+                header = Gtk.Label(label=title, xalign=0.0)
+                header.add_css_class("dim-label")
+                self.files_grid.attach(header, column, 0, 1, 1)
+
+            for row in rows:
+                line = row["index"] + 1
+                old = Gtk.Label(label=(f"{row['folder']}/" if row["folder"]
+                                       else "") + row["old"],
+                                xalign=0.0, selectable=True)
+                old.add_css_class("dim-label")
+                old.add_css_class("monospace")
+
+                entry = Gtk.Entry(hexpand=True, text=row["stem"])
+                entry.set_tooltip_text(
+                    "Name ohne Endung - Eingabetaste übernimmt, "
+                    "leer lassen nimmt wieder das Muster")
+                index = row["index"]
+                entry.connect("activate",
+                              lambda e, i=index: self._on_file_name(e, i))
+                focus = Gtk.EventControllerFocus()
+                focus.connect("leave", lambda *_a, e=entry, i=index:
+                              self._on_file_name(e, i))
+                entry.add_controller(focus)
+
+                suffix = Gtk.Label(label=row["suffix"], xalign=0.0)
+                suffix.add_css_class("monospace")
+                mark = Gtk.Label(xalign=0.0)
+                mark.add_css_class("dim-label")
+                reset = Gtk.Button(label="↺")
+                reset.set_tooltip_text("wieder den Namen aus dem Muster nehmen")
+                reset.connect("clicked",
+                              lambda _b, i=index: self._on_file_reset(i))
+
+                for column, widget in enumerate((old, entry, suffix, mark, reset)):
+                    self.files_grid.attach(widget, column, line, 1, 1)
+                self.file_rows.append({"entry": entry, "mark": mark,
+                                       "reset": reset})
+
+        @guarded
+        def _on_file_name(self, entry, index: int) -> None:
+            if self._rebuilding_files:
+                return
+            rows = self._file_row_data
+            if index >= len(rows) or entry.get_text() == rows[index]["stem"]:
+                return
+            # Ein Dateiname ändert nichts am Formular - es muss dafür nicht
+            # neu gebaut werden.
+            self._skip_form = True
+            try:
+                self.state.set_file_name(index, entry.get_text())
+            finally:
+                self._skip_form = False
+            # Das Feld hatte beim Neuzeichnen den Fokus und wurde deshalb
+            # nicht angefasst - den bereinigten Namen jetzt hineinschreiben.
+            rows = self._file_row_data
+            if index < len(rows):
+                entry.set_text(rows[index]["stem"])
+
+        @guarded
+        def _on_file_reset(self, index: int) -> None:
+            self._skip_form = True
+            try:
+                self.state.set_file_name(index, "")
+            finally:
+                self._skip_form = False
 
         def _refresh_actions(self) -> None:
             enabled = self.state.enabled()

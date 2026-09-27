@@ -336,6 +336,50 @@ def test_a_hash_in_a_manual_name_is_refused_over_http(client):
 
 
 @needs_ffmpeg
+def test_state_carries_editable_file_rows(client):
+    names = load_release(client)["names"]
+    assert len(names["rows"]) == 2
+    row = names["rows"][0]
+    assert row["index"] == 0 and row["suffix"] == ".mp3"
+    assert row["manual"] is False
+    assert names["files"][0][1] == row["new"]
+
+
+@needs_ffmpeg
+def test_file_name_can_be_set_by_hand_over_http(client, tree):
+    load_release(client)
+    state = client.post("/api/filename",
+                        json={"index": 0,
+                              "value": "01-los_maranones_i_-_nattern_narren"}).json()
+    row = state["names"]["rows"][0]
+    assert row["stem"] == "01-los_maranones_i_-_nattern_narren"
+    assert row["manual"] is True
+    assert state["names"]["files"][0][1] == "01-los_maranones_i_-_nattern_narren.mp3"
+
+    assert client.post("/api/plan/rename", json={}).json()["plan"]["safe"] is True
+    client.post("/api/apply/rename", json={})
+    renamed = [p.name for p in (tree / "eingang").rglob("*.mp3")]
+    assert "01-los_maranones_i_-_nattern_narren.mp3" in renamed
+
+
+@needs_ffmpeg
+def test_empty_file_name_over_http_returns_to_the_pattern(client):
+    load_release(client)
+    client.post("/api/filename", json={"index": 1, "value": "Fest"})
+    state = client.post("/api/filename", json={"index": 1, "value": ""}).json()
+    row = state["names"]["rows"][1]
+    assert row["manual"] is False and row["stem"] == row["pattern"]
+
+
+@needs_ffmpeg
+def test_file_name_for_an_unknown_position_over_http(client):
+    load_release(client)
+    response = client.post("/api/filename", json={"index": 7, "value": "x"})
+    assert response.status_code == 200
+    assert any(m["level"] == "error" for m in response.json()["messages"])
+
+
+@needs_ffmpeg
 def test_format_marker_appears_in_the_preview(client, tree):
     """FLAC-Release bekommt -flac- vor dem Jahr, MP3 nichts."""
     flac = tree / "eingang" / "Flac-Album-2026-GRP"

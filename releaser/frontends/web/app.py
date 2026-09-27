@@ -175,7 +175,10 @@ def state_json(state: AppState) -> dict:
             "file_pattern": state.naming.file_pattern,
             "group": state.naming.group,
             "directory": preview["directory"],
-            "files": preview["files"][:40],
+            "files": preview["files"],
+            # je Datei bearbeitbar - ohne Begrenzung, sonst liessen sich
+            # die hinteren Dateien grosser Releases nicht umbenennen
+            "rows": preview["rows"],
             "collisions": preview["collisions"],
             "companions": state.companion_preview(),
             "covers": [p.name for p in state.covers()],
@@ -368,6 +371,15 @@ def create_app(source: Optional[MountedSource] = None,
             state.set_literal_dirname(value)
         else:
             state.set_pattern(which, value)
+        return answer(response, state)
+
+    @app.post("/api/filename")
+    def set_filename(response: Response, index: int = Body(...),
+                     value: str = Body(""),
+                     releaser_session: Optional[str] = Cookie(default=None)):
+        """Dateiname von Hand - leerer Wert heisst: wieder aus dem Muster."""
+        state = session(response, releaser_session)
+        state.set_file_name(index, value)
         return answer(response, state)
 
     # ----------------------------------------------------------------- Felder

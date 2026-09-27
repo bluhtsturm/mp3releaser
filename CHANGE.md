@@ -1,3 +1,123 @@
+# Änderungen – 0.23.0: Dateinamen von Hand, zwei Quellen
+
+Stand: 27.09.2026 · Version 0.22.1 → **0.23.0**
+
+Zwei Rückmeldungen aus der Erprobung des AppImage.
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 736 | 769 |
+| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | alle grün | alle 769 grün, nichts übersprungen |
+| Prüfungen im echten Browser (`tools/webcheck.py`) | 15 | 16 |
+| `pyflakes` | sauber | sauber |
+
+## 1. Dateinamen im Reiter „Namen“ von Hand bearbeiten
+
+**Anlass.** Aus dem Titel „Los Marañones I - Nattern Narren“ machte die
+Regelkette `los_maranones_i-nattern_narren`. Gemeint war `_-_`. Ursache ist
+die Regel `collapse`, die Folgen von Trennzeichen wie `_-_` zu einem `-`
+zusammenzieht – für die meisten Titel gewollt, für diesen nicht. Die
+Dateinamen ließen sich nur über das Muster beeinflussen, nicht einzeln.
+
+**Jetzt.** Im Reiter „Namen“ steht jede Datei in einer eigenen Zeile:
+bisheriger Name, ein Eingabefeld mit dem neuen Namen (ohne Endung), die
+Endung, und `↺`. Das gilt für die Desktop-Anwendung (AppImage) wie für die
+Weboberfläche.
+
+* Das Feld ist mit dem Namen aus dem Dateimuster vorgefüllt. Überschreiben
+  und Eingabetaste (bzw. Feld verlassen) übernimmt den Namen; die Zeile ist
+  dann als „von Hand“ markiert.
+* Ein Name von Hand wird **wörtlich** übernommen: keine Regelkette, keine
+  Schreibweise. Nur was keinen gültigen Dateinamen ergäbe, fällt weg –
+  verbotene Zeichen (`/ \ : * ? " < > |`), Punkte am Rand (ein führender
+  Punkt versteckte die Datei). Leerzeichen werden zum eingestellten
+  Trennzeichen, eine mitgetippte Endung (`.mp3`) wird nicht verdoppelt.
+* Leer lassen oder `↺` nimmt wieder den Namen aus dem Muster. Wer genau den
+  Namen des Musters eintippt, bleibt ebenfalls beim Muster – die Datei folgt
+  dann weiter späteren Änderungen am Muster.
+* Ein Name von Hand bleibt bestehen, wenn das Muster geändert wird. „Neu
+  laden“ verwirft ihn, wie ungespeicherte Feldänderungen auch.
+* Zwei gleiche Namen im selben Ordner werden als Kollision markiert (Zeile
+  rot, Hinweis darunter), der Umbenennungsplan ist dann nicht ausführbar.
+* Eine Änderung verwirft eine bereits erstellte Umbenennungsvorschau – der
+  Plan bezog sich auf die alten Namen.
+* Im Web sind alle Dateien bearbeitbar, auch bei großen Releases; die
+  Vorschau war vorher auf die ersten Dateien begrenzt.
+
+**Umsetzung.**
+* `releaser/model.py`: `Track.manual_stem` (am Ende der Felder, damit
+  positionale Aufrufe gültig bleiben).
+* `releaser/naming.py`: `track_stem()` nimmt den Namen von Hand, sonst
+  `pattern_stem()` (die bisherige Logik). `clean_manual_stem()` bereinigt
+  die Eingabe. Umbenennungsplan und Vorschau gehen beide über
+  `track_stem()` und zeigen damit dasselbe.
+* `releaser/uistate.py`: `preview_names()` liefert zusätzlich `rows` – je
+  Datei Index, alter Name, Unterordner, neuer Name, Name aus dem Muster,
+  Markierung „von Hand“ und Kollision. `set_file_name(index, text)` setzt
+  oder löscht den Namen von Hand und meldet ungültige Eingaben.
+* Web: neuer Endpunkt `POST /api/filename` (`index`, `value`); die Seite
+  zeigt eine Tabelle mit Eingabefeldern statt der Textliste. Escape stellt
+  den vorigen Namen wieder her. Wird die Tabelle neu gezeichnet, während
+  schon im nächsten Feld getippt wird, bleibt das Getippte stehen.
+* GTK: Die Zeilen werden nur neu aufgebaut, wenn sich die Dateien selbst
+  ändern (Laden, Umbenennen); sonst werden nur Texte nachgezogen. Ein
+  Neuaufbau zerstörte sonst das Feld mit dem Fokus – derselbe Absturzweg,
+  der früher im Formular aufgetreten war (siehe unten, 0.22.1).
+
+## 2. „Quelle“ in der Vorlage und im Verzeichnisnamen getrennt
+
+**Anlass.** „Quelle“ stand im Formular unter „in der Vorlage“ und unter „im
+Verzeichnisnamen“ – war aber dasselbe Feld (`#Source`). Eine Eingabe in der
+einen Gruppe erschien in der anderen, und die Quelle für die NFO („Vinyl
+(180 g)“) landete zwangsläufig auch im Ordnernamen.
+
+**Jetzt.** Zwei eigenständige Felder:
+
+| Feld | Gruppe | wirkt auf |
+|---|---|---|
+| Quelle | in der Vorlage | `#Source` in der `.nfo` |
+| Quelle (Name) | im Verzeichnisnamen / im Dateinamen | `#Source` in den Namensmustern |
+
+Keins füllt das andere aus. **Wer die Quelle bisher im Ordnernamen hatte,
+trägt sie jetzt in „Quelle (Name)“ ein** – ohne Eintrag fällt `#Source` im
+Namen weg (samt Trennzeichen, wie jeder leere Tag).
+
+**Umsetzung.** `Release.dir_source` in `releaser/model.py`; in
+`releaser/naming.py` löst `#Source` in Mustern auf `dir_source` auf. In
+`releaser/fields.py` kennt `FieldSpec` jetzt `pattern_tag` (Tag in den
+Namensmustern, falls er vom SKL-Tag abweicht) und `in_patterns`; danach
+richtet sich die Gruppierung im Formular.
+
+## 3. Dokumentation
+
+* `README.md`, `README.en.md`: Namen von Hand und die zwei Quellen im
+  Abschnitt „Naming-Schema“, Beispielausgabe von `releaser fields`, neuer
+  Abschnitt „Aus der zwölften Erprobung“, Testzahl.
+* `README.md`: Die Beispiel-Regelkette nannte die Voreinstellung ohne
+  `alnum` – sie lautet `inch transliterate alnum forbidden spaces collapse
+  trim`.
+* `EINRICHTUNG.md`: Testzahl.
+
+## Neue Tests
+
+* `tests/test_naming.py`: Bereinigung von Hand-Namen (Endung, verbotene
+  Zeichen, Punkte am Rand, Trennzeichen, keine Schreibweise), Vorrang vor
+  dem Muster, Rückfall bei leerem Ergebnis, Plan und Ausführung mit
+  Hand-Namen, Kollision zweier Hand-Namen.
+* `tests/test_uistate.py`: Zeilen der Vorschau, Setzen, Zurücksetzen, Name
+  gleich Muster, Muster ändern, Kollision, ungültige Position, nur verbotene
+  Zeichen, ohne Release, Neu laden.
+* `tests/test_web.py`: `rows` im Zustand, `/api/filename` bis zur
+  ausgeführten Umbenennung, Zurücksetzen, ungültige Position.
+* `tests/test_gtkui.py`: Namen von Hand im echten GTK-Fenster (Eingabe,
+  Markierung, `↺`, Feld bleibt dasselbe Widget); der bestehende
+  Namens-Test liest die neuen Widgets.
+* `tests/test_fields.py`: beide Quellen unabhängig, jede in ihrer Gruppe.
+* `tools/webcheck.py`: neuer Schritt im echten Browser – Dateiname
+  überschreiben, bereinigter Name und Markierung erscheinen.
+
+---
+
 # Änderungen – Fehlerdurchsicht 0.22.1
 
 Stand: 26.09.2026 · Version 0.22.0 → **0.22.1**

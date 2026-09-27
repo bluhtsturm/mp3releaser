@@ -334,17 +334,13 @@ def test_names_tab_shows_and_accepts_patterns(release_tree):
             window = ReleaserWindow(a, state)
             state.load("eingang/Artist-Album-2026-GRP")
 
-            buffer = window.names_view.get_buffer()
-            text = buffer.get_text(buffer.get_start_iter(),
-                                   buffer.get_end_iter(), False)
-            print("HASARROW", "->" in text)
+            print("HASARROW", "->" in window.dir_line.get_text())
             print("DIRENTRY", window.dirname_entry.get_text())
 
             window.pattern_entries["file"].set_text("#N-#Trk")
             window._on_pattern(window.pattern_entries["file"], "file")
-            text = buffer.get_text(buffer.get_start_iter(),
-                                   buffer.get_end_iter(), False)
-            print("SHORTNAME", "01-titel_1" in text)
+            stems = [row["entry"].get_text() for row in window.file_rows]
+            print("SHORTNAME", "01-titel_1" in stems)
 
             window.dirname_entry.set_text("Von Hand")
             window._on_dirname(window.dirname_entry)
@@ -359,6 +355,65 @@ def test_names_tab_shows_and_accepts_patterns(release_tree):
     assert "DIRENTRY der_artist-das_album-2026-grp" in result.stdout
     assert "SHORTNAME True" in result.stdout
     assert "MANUAL von_hand" in result.stdout
+
+
+@needs_gtk
+@needs_ffmpeg
+def test_names_tab_edits_file_names_by_hand(release_tree):
+    """Jeder Dateiname lässt sich im Reiter „Namen“ von Hand überschreiben."""
+    result = run_in_display(f"""
+        import sys; sys.path.insert(0, {str(ROOT)!r})
+        import gi; gi.require_version("Gtk", "4.0")
+        from gi.repository import Gio, Gtk
+        from releaser.browse import Mount, MountedSource
+        from releaser.frontends.gtkui import ReleaserWindow
+        from releaser.naming import NamingProfile
+        from releaser.uistate import AppState
+
+        state = AppState(
+            source=MountedSource([Mount("eingang", {str(release_tree / 'eingang')!r})]),
+            naming=NamingProfile(group="GRP"))
+
+        app = Gtk.Application(application_id="de.test.filenames",
+                              flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+        def activate(a):
+            window = ReleaserWindow(a, state)
+            state.load("eingang/Artist-Album-2026-GRP")
+            rows = window.file_rows
+            print("ROWS", len(rows) == len(state.release.tracks))
+            first = rows[0]
+            print("RESET_OFF", first["reset"].get_sensitive())
+
+            first["entry"].set_text("01 Mein Titel - Teil_2.mp3")
+            first["entry"].emit("activate")
+            print("STEM", first["entry"].get_text())
+            print("MODEL", state.release.tracks[0].manual_stem)
+            print("MARK", first["mark"].get_text())
+            print("RESET_ON", first["reset"].get_sensitive())
+            print("SAME_WIDGET", window.file_rows[0]["entry"] is first["entry"])
+            print("PLAN", any(new.endswith("01_mein_titel_-_teil_2.mp3")
+                              or new.endswith("01_Mein_Titel_-_Teil_2.mp3")
+                              for _, new in state.preview_names()["files"]))
+
+            first["reset"].emit("clicked")
+            print("AFTER_RESET", first["entry"].get_text(),
+                  repr(state.release.tracks[0].manual_stem))
+            a.quit()
+
+        app.connect("activate", activate)
+        raise SystemExit(app.run([]))
+    """)
+    assert result.returncode == 0, result.stderr
+    assert "ROWS True" in result.stdout
+    assert "RESET_OFF False" in result.stdout
+    assert "STEM 01_Mein_Titel_-_Teil_2" in result.stdout
+    assert "MODEL 01_Mein_Titel_-_Teil_2" in result.stdout
+    assert "MARK von Hand" in result.stdout
+    assert "RESET_ON True" in result.stdout
+    assert "SAME_WIDGET True" in result.stdout
+    assert "PLAN True" in result.stdout
+    assert "AFTER_RESET 01-der_artist-titel_1 ''" in result.stdout
 
 
 @needs_gtk

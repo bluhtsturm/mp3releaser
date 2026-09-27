@@ -54,6 +54,18 @@ class FieldSpec:
     tag: Optional[str] = None
     kind: str = "text"          # text | number | lines
     hint: str = ""
+    #: Tag in den Namensmustern, falls er vom SKL-Tag abweicht
+    pattern_tag: Optional[str] = None
+    #: False: das Feld speist keine Namensmuster, auch wenn sein SKL-Tag
+    #: dort vorkommt - dafür gibt es dann ein eigenes Feld
+    in_patterns: bool = True
+
+    @property
+    def name_tag(self) -> Optional[str]:
+        """Der Tag, unter dem das Feld in Namensmustern steht, oder None."""
+        if not self.in_patterns:
+            return None
+        return self.pattern_tag or self.tag
 
 
 FIELDS: tuple[FieldSpec, ...] = (
@@ -66,7 +78,12 @@ FIELDS: tuple[FieldSpec, ...] = (
     FieldSpec("subgenre", "Subgenre", "Subgenre"),
     FieldSpec("style", "Stil", "Style"),
     FieldSpec("release_type", "Art", "Typ", hint="Album, Single, Maxi, EP"),
-    FieldSpec("source", "Quelle", "Source", hint="CDDA, WEB, Vinyl"),
+    # Zwei eigenständige Felder: die Quelle in der .nfo und die im
+    # Verzeichnis-/Dateinamen. Sie füllen sich nicht gegenseitig aus.
+    FieldSpec("source", "Quelle", "Source", hint="CDDA, WEB, Vinyl",
+              in_patterns=False),
+    FieldSpec("dir_source", "Quelle (Name)", None, pattern_tag="Source",
+              hint="für Verzeichnis- und Dateinamen, z. B. CDDA, WEB"),
     FieldSpec("audio_format", "Format", "Format"),
     FieldSpec("language", "Sprache", "Language"),
     FieldSpec("country", "Land", "Country"),
@@ -125,9 +142,9 @@ def usage(template: Optional[Template] = None,
         used: set[Consumer] = set()
         if spec.tag and spec.tag in in_template:
             used.add(Consumer.NFO)
-        if spec.tag and spec.tag in in_dir:
+        if spec.name_tag and spec.name_tag in in_dir:
             used.add(Consumer.DIRNAME)
-        if spec.tag and spec.tag in in_file:
+        if spec.name_tag and spec.name_tag in in_file:
             used.add(Consumer.FILENAME)
         if spec.name in tag_fields:
             used.add(Consumer.TAGS)

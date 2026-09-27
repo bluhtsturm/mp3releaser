@@ -30,6 +30,10 @@ class Track:
     channel_mode: Optional[str] = None
     vbr: bool = False
 
+    #: von Hand gesetzter Dateiname ohne Endung. Leer = aus dem Dateimuster.
+    #: Steht am Ende, damit positionale Aufrufe gueltig bleiben.
+    manual_stem: str = ""
+
 
 @dataclass
 class Disc:
@@ -105,6 +109,12 @@ class Release:
     vbr: bool = False
     vbr_string: str = ""
     flac_compression: Optional[float] = None
+
+    #: Quelle fuer Verzeichnis- und Dateinamen (``#Source`` in den Mustern).
+    #: Bewusst ein eigenes Feld neben ``source``, das nur in die .nfo geht:
+    #: "Vinyl (180 g)" im NFO und "VINYL" im Ordnernamen sind verschiedene
+    #: Angaben, und keine darf die andere stillschweigend ausfuellen.
+    dir_source: str = ""
 
     # ---------------------------------------------------------------- helpers
 

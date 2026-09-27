@@ -2,8 +2,8 @@
 #
 # Ausgeloest durch ein Versions-Tag, das zu releaser.__version__ passt:
 #
-#     git tag v0.22.1
-#     git push origin v0.22.1
+#     git tag v0.23.0
+#     git push origin v0.23.0
 #
 # Von Hand gestartet (Actions -> Release -> Run workflow) entsteht nur ein
 # Artefakt zum Herunterladen, kein Release - zum Ausprobieren vor dem Tag.

@@ -58,9 +58,25 @@
   .panel.hidden { display: none; }
   .grid.names { grid-template-columns: 180px 1fr; }
   .hint { color: var(--dim); font-size: 12px; }
-  #namelist { font-family: ui-monospace, monospace; font-size: 12px;
-              white-space: pre-wrap; background: var(--panel);
-              border: 1px solid var(--line); border-radius: 8px; padding: 12px; }
+  #dirline { font-family: ui-monospace, monospace; font-size: 12px;
+             margin: 12px 0 8px; }
+  /* Dateinamen: je Datei ein Eingabefeld */
+  #filenames { width: 100%; border-collapse: collapse; font-size: 12px;
+               background: var(--panel); border: 1px solid var(--line);
+               border-radius: 8px; }
+  #filenames th { text-align: left; color: var(--dim); font-weight: 500;
+                  padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  #filenames td { padding: 3px 8px; vertical-align: middle; }
+  #filenames td.old, #filenames td.suffix { font-family: ui-monospace, monospace;
+                                            color: var(--dim); white-space: nowrap; }
+  #filenames input { width: 100%; background: #10151a; color: var(--text);
+                     border: 1px solid var(--line); border-radius: 5px;
+                     padding: 4px 6px; font: 12px ui-monospace, monospace; }
+  #filenames input:focus { outline: 1px solid var(--accent); }
+  #filenames input.manual { border-color: var(--accent); }
+  #filenames tr.collision input { border-color: var(--error); }
+  #filenames button { padding: 2px 8px; }
+  #collisions { color: var(--error); }
   /* Kein Umbruch: die Vorlage ist spaltengenau */
   #nfotext { font-family: ui-monospace, monospace; font-size: 12px;
              white-space: pre; overflow-x: auto; background: var(--panel);
@@ -140,9 +156,16 @@
       </div>
       <p class="hint">Tags: #Artist #Album #Year #Source #Fmt #Grp ·
          Dateien: #N #Trk #Cd. #Fmt setzt FLAC, AAC oder ATMOS ein —
-         bei MP3 nichts. Ein Verzeichnisname ohne Tags gilt wörtlich.</p>
+         bei MP3 nichts. Ein Verzeichnisname ohne Tags gilt wörtlich.
+         Dateinamen lassen sich unten einzeln von Hand ändern (Eingabetaste
+         übernimmt); leer lassen oder ↺ nimmt wieder das Muster.</p>
       <p class="hint" id="companions"></p>
-      <pre id="namelist"></pre>
+      <p id="dirline"></p>
+      <table id="filenames">
+        <thead><tr><th>Bisher</th><th>Neuer Name</th><th></th><th></th></tr></thead>
+        <tbody></tbody>
+      </table>
+      <p class="hint" id="collisions"></p>
     </div>
     <div id="nfo" class="panel hidden">
       <pre id="nfotext"></pre>
@@ -305,6 +328,9 @@ async function refreshNfo() {
     : "";
 }
 
+// Index des Dateinamens, der gerade übernommen wird - siehe renderNames
+let committedFile = null;
+
 function renderNames(state) {
   const names = state.names || {};
   const set = (id, value) => {
@@ -323,14 +349,82 @@ function renderNames(state) {
          ? "   ·   Bild erkannt: " + names.covers.join(", ") : "")
     : "";
 
-  const list = document.getElementById("namelist");
-  if (!names.directory) { list.textContent = "Kein Release geladen."; return; }
-  const width = Math.max(0, ...(names.files || []).map(([old]) => old.length));
-  const lines = [`${names.directory[0]}  ->  ${names.directory[1]}`, ""];
-  for (const [old, now] of names.files || [])
-    lines.push(`  ${old.padEnd(width)}  ->  ${now}`);
-  for (const bad of names.collisions || []) lines.push(`  Kollision: ${bad}`);
-  list.textContent = lines.join("\n");
+  const dirline = document.getElementById("dirline");
+  const body = document.querySelector("#filenames tbody");
+  const collisions = document.getElementById("collisions");
+  if (!names.directory) {
+    dirline.textContent = "Kein Release geladen.";
+    body.replaceChildren();
+    collisions.textContent = "";
+    return;
+  }
+  dirline.textContent = `${names.directory[0]}  →  ${names.directory[1]}`;
+
+  // Die Tabelle wird neu gebaut. Steht der Cursor in einem Namensfeld -
+  // etwa nach Tab ins nächste -, kommt er an dieselbe Stelle zurück. Was
+  // dort schon getippt wurde, während die Antwort unterwegs war, bleibt
+  // stehen; nur das gerade übernommene Feld zeigt den bereinigten Namen.
+  const active = document.activeElement;
+  const focus = active && active.dataset && active.dataset.fileIndex !== undefined
+    ? { index: active.dataset.fileIndex, value: active.value,
+        start: active.selectionStart, end: active.selectionEnd } : null;
+  const keepTyped = focus && focus.index !== committedFile;
+  committedFile = null;
+
+  body.replaceChildren();
+  for (const row of names.rows || []) {
+    const tr = document.createElement("tr");
+    if (row.collision) tr.className = "collision";
+
+    const old = document.createElement("td");
+    old.className = "old";
+    old.textContent = (row.folder ? row.folder + "/" : "") + row.old;
+
+    const cell = document.createElement("td");
+    const input = document.createElement("input");
+    input.value = row.stem;
+    input.dataset.fileIndex = String(row.index);
+    input.spellcheck = false;
+    input.classList.toggle("manual", row.manual);
+    input.title = row.manual
+      ? "von Hand gesetzt – leer lassen oder ↺ für den Namen aus dem Muster"
+      : "aus dem Muster – zum Ändern einfach überschreiben";
+    input.onchange = () => {
+      committedFile = String(row.index);
+      call("/api/filename", { index: row.index, value: input.value }).then(render);
+    };
+    input.onkeydown = event => {
+      if (event.key === "Escape") { input.value = row.stem; input.blur(); }
+    };
+    cell.appendChild(input);
+
+    const suffix = document.createElement("td");
+    suffix.className = "suffix";
+    suffix.textContent = row.suffix;
+
+    const resetCell = document.createElement("td");
+    const reset = document.createElement("button");
+    reset.textContent = "↺";
+    reset.title = "wieder den Namen aus dem Muster nehmen";
+    reset.disabled = !row.manual;
+    reset.onclick = () =>
+      call("/api/filename", { index: row.index, value: "" }).then(render);
+    resetCell.appendChild(reset);
+
+    tr.append(old, cell, suffix, resetCell);
+    body.appendChild(tr);
+  }
+
+  if (focus) {
+    const again = body.querySelector(`input[data-file-index="${focus.index}"]`);
+    if (again) {
+      if (keepTyped) again.value = focus.value;
+      again.focus();
+      try { again.setSelectionRange(focus.start, focus.end); } catch (_) {}
+    }
+  }
+  collisions.textContent = (names.collisions || []).length
+    ? "Kollision: " + names.collisions.join(", ") : "";
 }
 
 for (const tab of document.querySelectorAll(".tab")) {

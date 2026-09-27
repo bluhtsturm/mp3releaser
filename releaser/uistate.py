@@ -448,40 +448,105 @@ class AppState:
         """Wie Verzeichnis und Dateien nach dem Umbenennen hießen.
 
         Rein rechnerisch, ohne etwas anzufassen - gedacht für eine Anzeige,
-        die sich beim Tippen mitändert.
+        die sich beim Tippen mitändert. ``rows`` enthält je Datei, was eine
+        Oberfläche zum Bearbeiten braucht; ``files`` ist dasselbe als Paare
+        (alt, neu).
         """
-        from .naming import release_dirname, track_stem
+        from .naming import release_dirname
 
         if self.release is None:
-            return {"directory": None, "files": [], "collisions": []}
+            return {"directory": None, "files": [], "rows": [],
+                    "collisions": []}
 
         directory = release_dirname(self.release, self.naming)
-        files: list[tuple[str, str]] = []
+        rows = [row for row, _track in self._file_rows()]
+        return {
+            "directory": (self.root.name if self.root else "", directory),
+            "files": [(row["old"], row["new"]) for row in rows],
+            "rows": rows,
+            "collisions": [row["new"] for row in rows if row["collision"]],
+        }
+
+    def _file_rows(self) -> list[tuple[dict, object]]:
+        """Je umzubenennender Datei eine Zeile samt zugehörigem Track.
+
+        Die Reihenfolge ist die des Plans; ``index`` ist die Position darin
+        und dient den Oberflächen als Schlüssel für :meth:`set_file_name`.
+        """
+        from .naming import pattern_stem, track_stem
+
+        rows: list[tuple[dict, object]] = []
+        if self.release is None:
+            return rows
         # Je Verzeichnis, wie beim echten Plan: CD1/01-intro.mp3 und
         # CD2/01-intro.mp3 kollidieren nicht. Mehrere CUE-Tracks teilen sich
         # eine Datei und zaehlen nur einmal.
         seen: set[tuple[str, str]] = set()
         sources: set[str] = set()
-        collisions: list[str] = []
         for disc in self.release.discs:
             for track in disc.tracks:
                 if track.path and track.path in sources:
                     continue
                 if track.path:
                     sources.add(track.path)
-                suffix = Path(track.path).suffix.lower() if track.path else ""
-                name = track_stem(self.release, track, disc, self.naming) + suffix
-                old = Path(track.path).name if track.path else ""
-                folder = str(Path(track.path).parent) if track.path else ""
-                if (folder, name.lower()) in seen:
-                    collisions.append(name)
-                seen.add((folder, name.lower()))
-                files.append((old, name))
-        return {
-            "directory": (self.root.name if self.root else "", directory),
-            "files": files,
-            "collisions": collisions,
-        }
+                path = Path(track.path) if track.path else None
+                suffix = path.suffix.lower() if path else ""
+                stem = track_stem(self.release, track, disc, self.naming)
+                name = stem + suffix
+                folder = str(path.parent) if path else ""
+                key = (folder, name.lower())
+                rows.append(({
+                    "index": len(rows),
+                    "old": path.name if path else "",
+                    "folder": (path.parent.name if path and self.root
+                               and path.parent != self.root else ""),
+                    "stem": stem,
+                    "suffix": suffix,
+                    "new": name,
+                    "pattern": pattern_stem(self.release, track, disc,
+                                            self.naming),
+                    "manual": bool(track.manual_stem),
+                    "collision": key in seen,
+                }, track))
+                seen.add(key)
+        return rows
+
+    def set_file_name(self, index: int, text: str) -> bool:
+        """Setzt den Namen einer Datei von Hand - oder mit leerem Text zurück.
+
+        Der Name gilt ohne Endung; wer sie mittippt, bekommt sie nicht
+        doppelt. Er wird wörtlich übernommen, nur verbotene Zeichen fallen weg
+        (:func:`releaser.naming.clean_manual_stem`). Entspricht er genau dem,
+        was das Muster ohnehin ergibt, bleibt die Datei beim Muster - dann
+        folgt sie auch späteren Änderungen am Muster.
+        """
+        from .naming import clean_manual_stem
+
+        rows = self._file_rows()
+        if not 0 <= index < len(rows):
+            self.say(f"keine Datei an Position {index}", Level.ERROR)
+            self._changed()
+            return False
+        row, track = rows[index]
+
+        cleaned = clean_manual_stem(text, self.naming, row["suffix"])
+        if text.strip() and not cleaned:
+            self.say(f"{text!r} ergibt keinen gültigen Dateinamen.", Level.ERROR)
+            self._changed()
+            return False
+        manual = "" if cleaned == row["pattern"] else cleaned
+        if manual == track.manual_stem:
+            return True
+
+        track.manual_stem = manual
+        # Der Plan bezieht sich auf die alten Namen und ist jetzt hinfällig.
+        self.rename_plan = None
+        if manual:
+            self.say(f"{row['old']}: von Hand benannt: {manual}{row['suffix']}")
+        else:
+            self.say(f"{row['old']}: Name wieder aus dem Muster")
+        self._changed()
+        return True
 
     def set_pattern(self, which: str, value: str) -> bool:
         """Ändert ein Namensmuster oder das Gruppenkürzel.

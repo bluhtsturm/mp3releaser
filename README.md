@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.22.1:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.23.0:
 
 ```bash
-chmod +x mp3releaser-0.22.1-x86_64.AppImage
-./mp3releaser-0.22.1-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.22.1-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.23.0-x86_64.AppImage
+./mp3releaser-0.23.0-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.23.0-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -48,7 +48,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 736 Tests
+python3 -m pytest tests -q          # 769 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -313,7 +313,7 @@ weiterhin nur echte SKL-Tags zeigt.
 einem Namen. Die Konfiguration ist eine lesbare Liste statt Boolescher Flags:
 
 ```
---pipeline inch transliterate forbidden spaces collapse trim
+--pipeline inch transliterate alnum forbidden spaces collapse trim
 ```
 
 | Regel | Wirkung |
@@ -330,6 +330,25 @@ einem Namen. Die Konfiguration ist eine lesbare Liste statt Boolescher Flags:
 Der Rest sind Geltungsbereiche: Verzeichnis, Dateiname, Tag und NFO haben je
 eine eigene Schreibweise, teilen sich aber die Kette. Das ersetzt die vier
 getrennten „Charcase"-Blöcke des Originals.
+
+**Drittens der Name von Hand.** Eine Regelkette trifft nicht jeden Fall:
+`collapse` macht aus „Los Marañones I - Nattern Narren" ein
+`los_maranones_i-nattern_narren`, obwohl dort `_-_` gemeint war. Im Reiter
+„Namen" steht deshalb jeder Dateiname in einem eigenen Eingabefeld —
+vorgefüllt mit dem Namen aus dem Muster, überschreibbar. Ein Name von Hand
+wird wörtlich übernommen: keine Regelkette, keine Schreibweise. Nur was keinen
+gültigen Dateinamen ergäbe, fällt weg (verbotene Zeichen, Punkte am Rand),
+Leerzeichen werden zum eingestellten Trennzeichen, und eine mitgetippte
+Endung wird nicht verdoppelt. Leer lassen oder `↺` nimmt wieder das Muster;
+wer genau den Namen des Musters eintippt, bleibt ebenfalls beim Muster und
+folgt damit späteren Änderungen daran. Kollisionen zwischen Namen von Hand
+meldet die Vorschau wie jede andere.
+
+**`#Source` hat ein eigenes Feld.** Die Quelle in der NFO („CDDA, WEB,
+Vinyl") und die Quelle im Verzeichnisnamen sind zwei Felder: „Quelle" für die
+Vorlage und „Quelle (Name)" für Verzeichnis- und Dateinamen. Vorher war es ein
+Feld, das in beiden Gruppen des Formulars stand — wer es in der einen änderte,
+änderte es in der anderen mit.
 
 ### Plan statt Sofortausführung
 
@@ -660,8 +679,9 @@ Heute speist dasselbe Modell **drei** Abnehmer: die NFO über die Vorlage, die
 Dateinamen über die Namensmuster, die Tags über das Tag-Profil. Ein Feld ohne
 Tag in der Vorlage kann trotzdem gebraucht werden — `#Catnr` landet mit
 `catalog_in_album` im Album-Tag, `#Source` steckt im voreingestellten
-Verzeichnismuster. Ausgrauen würde bedeuten, dass man Werte nicht eingeben
-kann, die das Programm gleich darauf benutzt.
+Verzeichnismuster (als eigenes Feld „Quelle (Name)", siehe
+[Naming-Schema](#naming-schema)). Ausgrauen würde bedeuten, dass man Werte
+nicht eingeben kann, die das Programm gleich darauf benutzt.
 
 `fields.py` behält deshalb die Erkenntnis und lässt die Einschränkung weg:
 alle Felder bleiben da, aber die Vorlage bestimmt, wie sie aussehen.
@@ -676,7 +696,7 @@ in der Vorlage
 
 im Verzeichnisnamen
    Artist              59  ...
-   Quelle              59  ''
+   Quelle (Name)        -  ''
 
 nicht verwendet
    Subgenre             -  ''
@@ -1127,7 +1147,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-736 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+769 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1148,8 +1168,8 @@ prüft jetzt für beide Sprachfassungen, dass jedes erwähnte Kommando existiert
 jedes existierende erwähnt ist, der Modulbaum stimmt und die genannte
 Testzahl aktuell ist.
 
-Die Korrekturen aus der Fehlerdurchsicht zu 0.22.1 stehen mit Ursache und
-Auswirkung in [`CHANGE.md`](CHANGE.md).
+Die Korrekturen aus der Fehlerdurchsicht zu 0.22.1 und die Änderungen zu
+0.23.0 stehen mit Ursache und Auswirkung in [`CHANGE.md`](CHANGE.md).
 
 ### Aus der ersten Erprobung
 
@@ -1426,6 +1446,17 @@ der Oberfläche davon ab, was man zuletzt als Standard gespeichert hatte.
 `tests/conftest.py` leitet jetzt für jeden Test `XDG_STATE_HOME` und
 `XDG_CONFIG_HOME` in ein Wegwerfverzeichnis um. Ein Test prüft, dass die
 Umleitung greift.
+
+### Aus der zwölften Erprobung
+
+* **Dateinamen von Hand.** Aus „Los Marañones I - Nattern Narren" machte die
+  Regelkette `los_maranones_i-nattern_narren` — gemeint war `_-_`. Im Reiter
+  „Namen" lässt sich jetzt jeder Dateiname einzeln überschreiben, im AppImage
+  wie im Web (siehe [Naming-Schema](#naming-schema)).
+* **Zwei Quellen statt einer.** „Quelle" stand unter „in der Vorlage" und
+  unter „im Verzeichnisnamen" — und war dasselbe Feld: Eine Änderung in der
+  einen Gruppe tauchte in der anderen auf. Jetzt sind es zwei eigenständige
+  Felder; `#Source` in den Namensmustern liest „Quelle (Name)".
 
 ### Was offen ist
 

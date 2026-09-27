@@ -557,6 +557,129 @@ def test_unknown_case_is_reported():
 
 
 @needs_ffmpeg
+def test_preview_rows_carry_everything_for_editing(release_dir):
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+
+    rows = state.preview_names()["rows"]
+    assert [row["index"] for row in rows] == [0, 1]
+    first = rows[0]
+    assert first["old"] == "01-x.mp3"
+    assert first["suffix"] == ".mp3"
+    assert first["stem"] == first["pattern"] == "01-der_artist-titel_1"
+    assert first["new"] == "01-der_artist-titel_1.mp3"
+    assert first["manual"] is False and first["collision"] is False
+    assert first["folder"] == ""
+
+
+@needs_ffmpeg
+def test_file_name_can_be_set_by_hand(release_dir):
+    """Das Muster macht aus "I - Teil" ein "i-teil" - von Hand geht es anders."""
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.preview_rename()
+
+    assert state.set_file_name(0, "01-los_maranones_i_-_nattern_narren.mp3")
+    row = state.preview_names()["rows"][0]
+    assert row["stem"] == "01-los_maranones_i_-_nattern_narren"
+    assert row["manual"] is True
+    assert state.release.tracks[0].manual_stem == row["stem"]
+    assert state.rename_plan is None                  # alter Plan hinfaellig
+    assert "von Hand" in state.last_message.text
+
+    assert state.apply_rename() is False              # erst neue Vorschau
+    state.preview_rename()
+    assert state.apply_rename() is True
+    assert (state.root / "01-los_maranones_i_-_nattern_narren.mp3").is_file()
+
+
+@needs_ffmpeg
+def test_empty_file_name_returns_to_the_pattern(release_dir):
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.set_file_name(1, "Eigener Name")
+    assert state.preview_names()["rows"][1]["stem"] == "Eigener_Name"
+
+    assert state.set_file_name(1, "") is True
+    row = state.preview_names()["rows"][1]
+    assert row["manual"] is False
+    assert row["stem"] == row["pattern"]
+    assert state.release.tracks[1].manual_stem == ""
+
+
+@needs_ffmpeg
+def test_file_name_equal_to_the_pattern_stays_with_the_pattern(release_dir):
+    """Sonst folgte die Datei späteren Änderungen am Muster nicht mehr."""
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    pattern = state.preview_names()["rows"][0]["pattern"]
+
+    assert state.set_file_name(0, pattern + ".mp3") is True
+    assert state.release.tracks[0].manual_stem == ""
+    state.set_pattern("file", "#N-#Trk")
+    assert state.preview_names()["rows"][0]["stem"] == "01-titel_1"
+
+
+@needs_ffmpeg
+def test_manual_file_name_survives_pattern_changes(release_dir):
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.set_file_name(0, "Fest")
+    state.set_pattern("file", "#N-#Trk")
+    rows = state.preview_names()["rows"]
+    assert rows[0]["stem"] == "Fest"
+    assert rows[1]["stem"] == "02-titel_2"
+
+
+@needs_ffmpeg
+def test_same_manual_names_are_shown_as_collision(release_dir):
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.set_file_name(0, "gleich")
+    state.set_file_name(1, "gleich")
+
+    preview = state.preview_names()
+    assert preview["rows"][1]["collision"] is True
+    assert preview["collisions"]
+    assert not state.preview_rename().is_safe
+
+
+@needs_ffmpeg
+@pytest.mark.parametrize("index", [-1, 2, 99])
+def test_file_name_for_an_unknown_position_is_reported(release_dir, index):
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    assert state.set_file_name(index, "x") is False
+    assert state.last_message.level is Level.ERROR
+
+
+@needs_ffmpeg
+def test_file_name_of_only_forbidden_characters_is_refused(release_dir):
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    assert state.set_file_name(0, "/:*?") is False
+    assert state.last_message.level is Level.ERROR
+    assert state.release.tracks[0].manual_stem == ""
+
+
+def test_file_name_without_a_release_is_reported():
+    state = AppState()
+    assert state.set_file_name(0, "x") is False
+    assert state.last_message.level is Level.ERROR
+    assert state.preview_names()["rows"] == []
+
+
+@needs_ffmpeg
+def test_reloading_forgets_manual_file_names(release_dir):
+    """Wie bei den Feldern: Neu laden verwirft, was nicht ausgeführt wurde."""
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.set_file_name(0, "Fest")
+    state.load("eingang/Artist-Album-2026-GRP")
+    assert state.preview_names()["rows"][0]["manual"] is False
+
+
+@needs_ffmpeg
 def test_directory_name_can_be_set_by_hand(release_dir):
     """Das Muster ohne Tags liefert genau diesen Namen."""
     state = state_for(release_dir)

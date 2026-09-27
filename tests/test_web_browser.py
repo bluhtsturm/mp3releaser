@@ -86,7 +86,7 @@ def test_page_works_in_a_real_browser_engine(served_tree):
     # aussagen, welche nicht, falls doch.
     failed = [line for line in output.splitlines() if "[FEHLER]" in line]
     assert not failed, "\n".join(failed) + "\n" + result.stderr[-2000:]
-    assert "15 von 15 Pruefungen bestanden" in output, output[-2000:]
+    assert "16 von 16 Pruefungen bestanden" in output, output[-2000:]
 
     # Stichproben aus der Ausgabe, damit der Test nicht nur eine Zahl prueft
     for expected in (

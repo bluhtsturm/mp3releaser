@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.22.1 as an example:
+is `SHA256SUMS` with the checksum. Using 0.23.0 as an example:
 
 ```bash
-chmod +x mp3releaser-0.22.1-x86_64.AppImage
-./mp3releaser-0.22.1-x86_64.AppImage              # graphical interface
-./mp3releaser-0.22.1-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.23.0-x86_64.AppImage
+./mp3releaser-0.23.0-x86_64.AppImage              # graphical interface
+./mp3releaser-0.23.0-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -53,7 +53,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 736 tests
+python3 -m pytest tests -q          # 769 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -337,6 +337,25 @@ name. The configuration is a readable list instead of Boolean flags:
 The rest are scopes: directory, file name, tag and NFO each have their own
 letter case but share the chain. This replaces the original's four separate
 "charcase" blocks.
+
+**Third, the name by hand.** A rule chain does not get every case right:
+`collapse` turns "Los Marañones I - Nattern Narren" into
+`los_maranones_i-nattern_narren`, although `_-_` was meant. The "Namen"
+(names) tab therefore shows every file name in its own input field —
+pre-filled with the name from the pattern, and overwritable. A name typed by
+hand is taken literally: no rule chain, no letter case. Only what would not
+make a valid file name is dropped (forbidden characters, dots at the edges),
+spaces become the configured separator, and an extension typed along is not
+doubled. Leaving the field empty or pressing `↺` goes back to the pattern;
+typing exactly the pattern's name also stays with the pattern and so follows
+later changes to it. Collisions between names typed by hand are reported in
+the preview like any other.
+
+**`#Source` has a field of its own.** The source in the NFO ("CDDA, WEB,
+Vinyl") and the source in the directory name are two fields: "Quelle" for the
+template and "Quelle (Name)" for directory and file names. Before, it was one
+field that appeared in both groups of the form — changing it in one group
+changed it in the other as well.
 
 ### Plan instead of immediate execution
 
@@ -664,8 +683,9 @@ Today the same model feeds **three** consumers: the NFO via the template, the
 file names via the name patterns, the tags via the tag profile. A field
 without a tag in the template may still be needed — `#Catnr` ends up in the
 album tag with `catalog_in_album`, `#Source` is part of the default directory
-pattern. Greying out would mean that you cannot enter values the program uses
-right afterwards.
+pattern (as a field of its own, "Quelle (Name)", see
+[Naming scheme](#naming-scheme)). Greying out would mean that you cannot enter
+values the program uses right afterwards.
 
 `fields.py` therefore keeps the insight and drops the restriction: all fields
 stay, but the template determines how they look. The group headings in the
@@ -681,7 +701,7 @@ in der Vorlage
 
 im Verzeichnisnamen
    Artist              59  ...
-   Quelle              59  ''
+   Quelle (Name)        -  ''
 
 nicht verwendet
    Subgenre             -  ''
@@ -1142,7 +1162,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 736 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 769 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1164,8 +1184,8 @@ for both language versions that every command mentioned exists, every existing
 command is mentioned, the module tree is correct and the stated test count is
 current.
 
-The fixes from the bug review for 0.22.1 are listed with cause and effect in
-[`CHANGE.md`](CHANGE.md) (German).
+The fixes from the bug review for 0.22.1 and the changes for 0.23.0 are
+listed with cause and effect in [`CHANGE.md`](CHANGE.md) (German).
 
 ### From the first trial
 
@@ -1432,6 +1452,17 @@ saved as the default.
 `tests/conftest.py` now redirects `XDG_STATE_HOME` and `XDG_CONFIG_HOME` into a
 throw-away directory for every test. One test checks that the redirection
 takes effect.
+
+### From the twelfth trial
+
+* **File names by hand.** The rule chain turned "Los Marañones I - Nattern
+  Narren" into `los_maranones_i-nattern_narren` — `_-_` was meant. In the
+  "Namen" tab every file name can now be overwritten individually, in the
+  AppImage as well as on the web (see [Naming scheme](#naming-scheme)).
+* **Two sources instead of one.** "Quelle" appeared under "in the template"
+  and under "in the directory name" — and was the same field: a change in one
+  group showed up in the other. Now they are two independent fields; `#Source`
+  in the name patterns reads "Quelle (Name)".
 
 ### What is open
 
