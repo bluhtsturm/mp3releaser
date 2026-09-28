@@ -53,11 +53,13 @@ bereits MIT.
 
 **Was nicht mit hochgeht.** `.gitignore` schließt aus: `build/`, `dist/`,
 `__pycache__/`, `.pytest_cache/`, `*.egg-info/`, `data/` (die Ordner der
-Compose-Datei) und `mp3releaser.toml` (deine gespeicherten Einstellungen,
-die könnten Pfade aus deinem System enthalten).
+Compose-Datei), `mp3releaser.toml` und `config/mp3releaser/config.toml`
+(deine Einstellungen, die könnten Pfade aus deinem System enthalten).
 
 **Was mit hochgeht.** Der Quelltext, die Tests, `packaging/`, `Dockerfile`,
-`docker-compose.yml`, die beiden Vorlagen `templates/standard.skl` und
+`docker-compose.yml` samt dem Ordner `config/mp3releaser/` für die
+Einstellungen des Containers (nur mit seiner Beschreibung), die beiden
+Vorlagen `templates/standard.skl` und
 `templates/example.skl`, der Generator `tools/make_standard_skl.py`, die
 Dokumentation (deutsch und englisch) und der Release-Workflow unter
 `.github/workflows/`. `git ls-files` zeigt die vollständige Liste.
@@ -66,8 +68,8 @@ Dokumentation (deutsch und englisch) und der Release-Workflow unter
 entsteht auf GitHub Actions, sobald ein Versions-Tag gepusht wird:
 
 ```bash
-git tag v0.24.0
-git push origin v0.24.0
+git tag v0.24.1
+git push origin v0.24.1
 ```
 
 **Nicht enthalten** ist das Original — weder `Mp3Releaser.exe` noch dessen

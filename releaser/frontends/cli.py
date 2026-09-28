@@ -393,6 +393,12 @@ def cmd_web(args: argparse.Namespace) -> int:
               file=sys.stderr)
         return 2
     print(f"Sichtbar: {', '.join(source.names)}", file=sys.stderr)
+    # Im Container sieht man sonst nicht, ob die eingehaengte Datei ankam -
+    # jetzt steht es in "docker compose logs".
+    source_file = args._config.source
+    print(f"Konfiguration: {source_file}" if source_file else
+          "Konfiguration: keine gefunden - es gelten die Voreinstellungen",
+          file=sys.stderr)
     from ..service import build_options_from_config
 
     templates = args.templates or os.environ.get("RELEASER_TEMPLATES") or None
@@ -625,20 +631,29 @@ def cmd_dupe(args: argparse.Namespace) -> int:
 
 
 def cmd_config(args: argparse.Namespace) -> int:
-    from ..config import EXAMPLE, find_config, load
+    from ..config import (EXAMPLE, SECTIONS, candidate_paths, find_config,
+                          load, user_config_path)
 
     if args.example:
         sys.stdout.write(EXAMPLE)
         return 0
     found = args.path or find_config()
     if found is None:
-        print("keine Konfiguration gefunden", file=sys.stderr)
+        # Beantwortet gleich mit, wo die Datei hingehoert - "keine
+        # Konfiguration gefunden" allein liess offen, wo gesucht wurde.
+        print("keine Konfiguration gefunden, gesucht in:", file=sys.stderr)
+        for path in candidate_paths():
+            print(f"  {path}", file=sys.stderr)
+        print("Die Desktop-Anwendung legt sie beim ersten Speichern an: "
+              f"{user_config_path()}", file=sys.stderr)
         return 1
     config = load(found)
     print(f"gelesen: {config.source}")
     for warning in config.warnings:
         print(f"  ! {warning}", file=sys.stderr)
-    for section in ("naming", "tags", "build"):
+    # Alle Abschnitte, nicht eine feste Liste - [gui] fehlte hier, obwohl
+    # es in der Datei stand und wirkte.
+    for section in SECTIONS:
         values = config.section(section)
         if values:
             print(f"[{section}]")

@@ -1,3 +1,87 @@
+# Änderungen – 0.24.1: Konfiguration finden, auch im Container
+
+Stand: 28.09.2026 · Version 0.24.0 → **0.24.1**
+
+Anlass war die Frage, wo die Konfigurationsdatei von AppImage und Container
+liegt. Beim Nachsehen fielen zwei Lücken auf. Von den 6 neuen Tests schlagen
+5 gegen 0.24.0 fehl; einer hält den beschriebenen Pfad im Container fest, den
+die Suche schon vorher kannte.
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 806 | 812 |
+| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | alle grün | alle 812 grün, nichts übersprungen |
+| `pyflakes` | sauber | sauber |
+
+## 1. Wo die Konfiguration liegt
+
+| Form | Datei |
+|---|---|
+| AppImage, Desktop | `~/.config/mp3releaser/config.toml` – legt der Speichern-Knopf an |
+| Kommandozeile | dieselbe; eine `mp3releaser.toml` im aktuellen Verzeichnis hat Vorrang |
+| Container | `config/mp3releaser/config.toml` neben `docker-compose.yml` (neu) |
+
+## 2. Container: Konfiguration eingebunden
+
+**Vorher** gab es für den Container keine: Das Image enthielt keine
+Konfigurationsdatei, `docker-compose.yml` hängte keine ein, und die
+Weboberfläche hat keinen Speichern-Knopf. Der Dienst lief immer mit den
+Voreinstellungen.
+
+**Jetzt:**
+* `Dockerfile` setzt `XDG_CONFIG_HOME=/config`; der Container liest
+  `/config/mp3releaser/config.toml`.
+* `docker-compose.yml` hängt `./config` nur lesend unter `/config` ein, für
+  den Dienst `releaser` und für `cli`.
+* Eingehängt wird bewusst der **Ordner**, nicht die Datei: Fehlt eine
+  eingehängte Datei, legt Docker an ihrer Stelle einen leeren Ordner an –
+  als root, den man danach nur mit `sudo` wieder loswird. Der Ordner
+  `config/mp3releaser/` liegt deshalb schon im Repository, mit einer kurzen
+  Beschreibung (`README.md`). Ohne `config.toml` darin gelten die
+  Voreinstellungen, genau wie vorher.
+* `.gitignore` schließt alles in `config/mp3releaser/` außer der
+  Beschreibung aus; `.dockerignore` hält `config/` und `mp3releaser.toml` aus
+  dem Build-Kontext – private Einstellungen gelangen nicht ins Image.
+* Beim Start nennt der Dienst die Datei: `Konfiguration:
+  /config/mp3releaser/config.toml` oder `Konfiguration: keine gefunden - es
+  gelten die Voreinstellungen` – zu sehen mit `docker compose logs releaser`.
+
+Im echten Container geprüft: ohne `config.toml` die Voreinstellungen; mit
+Datei nach `docker compose restart releaser` Gruppe, Schreibweise und
+Datumsformat aus der Datei; `[gui]` und `[build] template` aus einer
+kopierten AppImage-Konfiguration stören nicht; `docker compose run --rm -T cli
+config --example > config/mp3releaser/config.toml` ergibt eine gültige
+Vorlage.
+
+## 3. `releaser config`
+
+* Zeigt alle Abschnitte. `[gui]` fehlte seit 0.24.0 in der Anzeige, obwohl
+  der Abschnitt in der Datei stand und wirkte.
+* Ohne Datei nennt der Befehl die Orte, an denen er gesucht hat, und wohin
+  die Desktop-Anwendung beim ersten Speichern schreibt. Vorher stand dort nur
+  „keine Konfiguration gefunden“.
+* `config --example` nennt im Kopf die drei Ablageorte.
+
+## 4. Dokumentation
+
+* `README.md`, `README.en.md`: Tabelle „wo die Datei je nach Form liegt“ im
+  Abschnitt Konfiguration, neuer Abschnitt „Einstellungen im Container“ bzw.
+  „Settings in the container“, Eintrag unter „Aus der dreizehnten
+  Erprobung“, Testzahl.
+* `EINRICHTUNG.md`: Container-Schritt mit optionaler Konfiguration, Ablageorte.
+* `GITHUB.md`: was mit hochgeht und was nicht.
+
+## Neue Tests
+
+* `tests/test_extras.py`: `config` zeigt alle Abschnitte, ohne Datei die
+  Suchorte; der Start der Weboberfläche nennt die Konfiguration, mit und ohne
+  Datei.
+* `tests/test_packaging.py`: `Dockerfile` und `docker-compose.yml` zeigen auf
+  denselben Ort, für beide Dienste; der Ordner liegt im Repository, die Datei
+  ist von Git und Docker ausgeschlossen; der beschriebene Pfad wird gesucht.
+
+---
+
 # Änderungen – 0.24.0: Standard speichern, Releasedatum, FLAC-Version
 
 Stand: 28.09.2026 · Version 0.23.0 → **0.24.0**

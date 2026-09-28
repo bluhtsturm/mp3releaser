@@ -22,6 +22,10 @@ USER releaser
 # Oberflaeche nichts - das ist Absicht, nicht ein Fehler.
 ENV RELEASER_MOUNTS=""
 ENV RELEASER_TEMPLATES="/app/templates"
+# Einstellungen liegen unter /config/mp3releaser/config.toml - derselbe
+# Aufbau wie ~/.config/mp3releaser/config.toml beim AppImage. docker-compose
+# haengt dort ./config ein; fehlt die Datei, gelten die Voreinstellungen.
+ENV XDG_CONFIG_HOME="/config"
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \

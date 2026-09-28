@@ -496,3 +496,50 @@ def test_bundle_contains_no_host_graphics_libraries():
     leaked = sorted(name for name in bundled
                     if Path(name).name.startswith(prefixes))
     assert not leaked, f"Bibliotheken des Wirts im Bündel: {leaked}"
+
+
+def test_container_reads_its_configuration_from_the_mounted_folder():
+    """Der Container sucht dort, wo docker-compose den Ordner einhaengt -
+    fuer beide Dienste."""
+    import re
+
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    home = re.search(r'ENV XDG_CONFIG_HOME="([^"]+)"', dockerfile).group(1)
+    compose = COMPOSE.read_text(encoding="utf-8")
+    mounts = re.findall(r"^\s+- \./config:([^:\s]+):ro$", compose, re.MULTILINE)
+    assert mounts == [home, home]
+
+
+def test_container_configuration_is_optional_and_private():
+    """Eingehaengt wird ein Ordner, den es im Repository schon gibt - eine
+    fehlende Datei liesse Docker an ihrer Stelle einen Ordner anlegen. Die
+    Datei selbst geht weder ins Repository noch ins Image."""
+    folder = ROOT / "config" / "mp3releaser"
+    assert (folder / "README.md").is_file()
+    assert not (folder / "config.toml").exists() or _ignored_by_git(
+        folder / "config.toml")
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8").splitlines()
+    assert "config/mp3releaser/*" in gitignore
+    assert "!config/mp3releaser/README.md" in gitignore
+    dockerignore = (ROOT / ".dockerignore").read_text(encoding="utf-8")
+    assert "config/" in dockerignore.splitlines()
+
+
+def _ignored_by_git(path: Path) -> bool:
+    result = subprocess.run(["git", "check-ignore", "-q", str(path)],
+                            cwd=ROOT, capture_output=True)
+    return result.returncode == 0
+
+
+def test_the_documented_container_path_is_searched(tmp_path, monkeypatch):
+    """/config/mp3releaser/config.toml - so steht es in der Beschreibung."""
+    from releaser.config import find_config
+
+    target = tmp_path / "config" / "mp3releaser" / "config.toml"
+    target.parent.mkdir(parents=True)
+    target.write_text('[naming]\ngroup = "IMCONTAINER"\n', encoding="utf-8")
+    app = tmp_path / "app"
+    app.mkdir()
+    monkeypatch.chdir(app)                          # WORKDIR /app
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    assert find_config() == target

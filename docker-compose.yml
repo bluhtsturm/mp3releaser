@@ -17,6 +17,13 @@ services:
       - ./data/eingang:/data/eingang
       - ./data/archiv:/data/archiv:ro
       - ./templates:/app/templates:ro
+      # Einstellungen: config/mp3releaser/config.toml neben dieser Datei.
+      # Ein Ordner statt der Datei selbst: Fehlte eine eingehaengte Datei,
+      # legte Docker an ihrer Stelle einen leeren Ordner an - als root. Der
+      # Ordner liegt im Repository; ohne config.toml darin gelten die
+      # Voreinstellungen. Gelesen wird beim Start: nach Aenderungen
+      # "docker compose restart releaser".
+      - ./config:/config:ro
     restart: unless-stopped
     # Der Dienst braucht keine besonderen Rechte.
     read_only: false
@@ -36,5 +43,6 @@ services:
       RELEASER_MOUNTS: "eingang:/data/eingang"
     volumes:
       - ./data/eingang:/data/eingang
+      - ./config:/config:ro
     entrypoint: ["python", "-m", "releaser"]
     command: ["--help"]

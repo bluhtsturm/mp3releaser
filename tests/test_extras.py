@@ -622,3 +622,62 @@ def test_config_with_invalid_utf8_is_a_config_error(tmp_path):
     path.write_bytes(b'[naming]\ngroup = "\xff"\n')
     with pytest.raises(config_module.ConfigError, match="UTF-8"):
         config_module.load(path)
+
+
+# ================================================ config-Befehl
+
+
+def test_config_command_shows_every_section(tmp_path, capsys):
+    """[gui] fehlte in der Anzeige, obwohl es in der Datei stand und wirkte."""
+    from releaser import cli
+
+    path = config_module.save(config_module.Config(
+        naming={"group": "GRP"}, build={"release_date_format": "%d.%m.%Y"},
+        gui={"start": "/musik/eingang"}), tmp_path / "c.toml")
+
+    assert cli.main(["config", str(path)]) == 0
+    out = capsys.readouterr().out
+    assert f"gelesen: {path}" in out
+    for section in config_module.SECTIONS:
+        if section != "tags":                      # leer, wird ausgelassen
+            assert f"[{section}]" in out, section
+    assert "start = '/musik/eingang'" in out
+
+
+def test_config_command_without_a_file_names_where_it_looked(tmp_path,
+                                                             monkeypatch,
+                                                             capsys):
+    from releaser import cli
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+
+    assert cli.main(["config"]) == 1
+    err = capsys.readouterr().err
+    assert "keine Konfiguration gefunden" in err
+    for path in config_module.candidate_paths():
+        assert str(path) in err
+    assert str(tmp_path / "cfg" / "mp3releaser" / "config.toml") in err
+
+
+def test_web_start_names_the_configuration(tmp_path, monkeypatch, capsys):
+    """Im Container sieht man sonst nicht, ob die eingehaengte Datei ankam."""
+    pytest.importorskip("fastapi")
+    from releaser import cli
+    from releaser.frontends import web
+
+    monkeypatch.setattr(web, "run", lambda **_kwargs: 0)
+    (tmp_path / "ein").mkdir()
+    mounts = f"eingang:{tmp_path / 'ein'}"
+    config = config_module.save(config_module.Config(naming={"group": "G"}),
+                                tmp_path / "c.toml")
+
+    assert cli.main(["--config", str(config), "web", "--mounts", mounts]) == 0
+    assert f"Konfiguration: {config}" in capsys.readouterr().err
+
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "leer"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert cli.main(["web", "--mounts", mounts]) == 0
+    assert "Konfiguration: keine gefunden" in capsys.readouterr().err

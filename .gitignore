@@ -6,3 +6,6 @@ dist/
 *.egg-info/
 data/
 mp3releaser.toml
+# Einstellungen des Containers - nur die Beschreibung gehoert ins Repository
+config/mp3releaser/*
+!config/mp3releaser/README.md

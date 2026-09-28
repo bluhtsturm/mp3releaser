@@ -183,7 +183,9 @@ def resolve(config: Config, section: str, key: str,
 
 
 EXAMPLE = '''# mp3releaser - Beispielkonfiguration
-# Ablage: ./mp3releaser.toml oder ~/.config/mp3releaser/config.toml
+# Ablage: ~/.config/mp3releaser/config.toml (AppImage, Kommandozeile),
+#         ./mp3releaser.toml im Startverzeichnis (hat Vorrang) oder
+#         config/mp3releaser/config.toml neben docker-compose.yml (Container)
 
 [naming]
 dir_pattern = "#Artist-#Album-#Source-#Fmt-#Year-#Grp"

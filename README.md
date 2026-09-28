@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.24.0:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.24.1:
 
 ```bash
-chmod +x mp3releaser-0.24.0-x86_64.AppImage
-./mp3releaser-0.24.0-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.24.0-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.24.1-x86_64.AppImage
+./mp3releaser-0.24.1-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.24.1-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -48,7 +48,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 806 Tests
+python3 -m pytest tests -q          # 812 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -559,6 +559,18 @@ Gesucht wird in `./mp3releaser.toml`, `./.mp3releaser.toml`,
 `~/.config/mp3releaser/config.toml`. `config --example` gibt eine
 kommentierte Vorlage aus.
 
+Wo die Datei je nach Form liegt:
+
+| Form | Datei |
+|---|---|
+| AppImage, Desktop | `~/.config/mp3releaser/config.toml` — legt der Speichern-Knopf an ([Als Standard speichern](#als-standard-speichern)) |
+| Kommandozeile | dieselbe; eine `mp3releaser.toml` im aktuellen Verzeichnis hat Vorrang |
+| Container | `config/mp3releaser/config.toml` neben `docker-compose.yml`, im Container `/config/mp3releaser/config.toml` ([Einstellungen im Container](#einstellungen-im-container)) |
+
+`releaser config` sagt, welche Datei gelesen wird, und zeigt ihren Inhalt —
+alle Abschnitte. Gibt es keine, nennt der Befehl die Orte, an denen er
+gesucht hat.
+
 Das ist gleichzeitig die Datenbasis aller Oberflächen: Kommandozeile,
 Desktop-Anwendung und Weboberfläche lesen dieselbe Datei — `[naming]`,
 `[tags]` und `[build]` — und rufen denselben Kern. `[gui]` gilt nur für die
@@ -832,6 +844,27 @@ sagt das auch, in einem Banner über der Auswahl:
 **Kein Hochladen.** Browser können die Originaldateien nicht umbenennen; es
 entstünde eine Kopie im Container und ein ZIP zurück. Voller Funktionsumfang
 geht nur über eingehängte Ordner — deshalb gibt es Drag & Drop bewusst nicht.
+
+### Einstellungen im Container
+
+Die Weboberfläche hat keinen Speichern-Knopf; ihre Einstellungen stehen in
+`config/mp3releaser/config.toml` neben `docker-compose.yml`. Die
+Compose-Datei hängt den Ordner `config/` nur lesend unter `/config` ein, das
+Image setzt `XDG_CONFIG_HOME=/config`. Ohne `config.toml` gelten die
+Voreinstellungen.
+
+```bash
+cp ~/.config/mp3releaser/config.toml config/mp3releaser/config.toml   # die des AppImage
+docker compose restart releaser          # gelesen wird beim Start
+docker compose logs releaser | grep Konfiguration
+```
+
+Eingehängt wird bewusst der Ordner, nicht die Datei: Fehlt eine eingehängte
+Datei, legt Docker an ihrer Stelle einen leeren Ordner an — als root, den man
+danach nur mit `sudo` wieder loswird. Der Ordner `config/mp3releaser/` liegt
+deshalb schon im Repository, die `config.toml` darin schließt `.gitignore`
+aus. Im Container wirken `[naming]`, `[tags]` und `[build]`; `[gui]` gilt nur
+für die Desktop-Anwendung, und die Vorlage wählt man im Web aus `templates/`.
 
 ### In einer echten Browser-Engine geprüft
 
@@ -1179,7 +1212,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-806 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+812 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1200,9 +1233,8 @@ prüft jetzt für beide Sprachfassungen, dass jedes erwähnte Kommando existiert
 jedes existierende erwähnt ist, der Modulbaum stimmt und die genannte
 Testzahl aktuell ist.
 
-Die Korrekturen aus der Fehlerdurchsicht zu 0.22.1 und die Änderungen zu
-0.23.0 und 0.24.0 stehen mit Ursache und Auswirkung in
-[`CHANGE.md`](CHANGE.md).
+Die Korrekturen aus der Fehlerdurchsicht zu 0.22.1 und alle Änderungen
+seitdem stehen mit Ursache und Auswirkung in [`CHANGE.md`](CHANGE.md).
 
 ### Aus der ersten Erprobung
 
@@ -1511,6 +1543,13 @@ Umleitung greift.
   wurde nur ein `ENCODER`-Tag gelesen — den schreibt der Referenz-Encoder
   nicht. Seine Fassung steht im Vendor-String (`reference libFLAC 1.4.3
   20230623`) und erscheint jetzt als `FLAC 1.4.3`.
+* **Wo liegt die Konfiguration?** Für den Container gab es keine Antwort:
+  Das Image enthielt keine, `docker-compose.yml` hängte keine ein. Jetzt
+  liegt sie in `config/mp3releaser/config.toml`, und der Dienst nennt beim
+  Start, welche Datei er liest (siehe
+  [Einstellungen im Container](#einstellungen-im-container)).
+  `releaser config` zeigte außerdem den Abschnitt `[gui]` nicht an und
+  sagte ohne Datei nicht, wo er gesucht hatte.
 
 ### Was offen ist
 

@@ -41,7 +41,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **806 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **812 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash
@@ -82,10 +82,14 @@ Oder im Container — dann zuerst die Ordner in `docker-compose.yml` anpassen:
 ```bash
 mkdir -p data/eingang data/archiv
 cp -r /pfad/zu/einem/release data/eingang/
+# optional: eigene Einstellungen, zum Beispiel die des AppImage
+cp ~/.config/mp3releaser/config.toml config/mp3releaser/config.toml
 docker compose up --build
 ```
 
-Sichtbar ist ausschließlich, was unter `volumes` steht.
+Sichtbar ist ausschließlich, was unter `volumes` steht. Die Einstellungen des
+Containers stehen in `config/mp3releaser/config.toml`; gelesen werden sie beim
+Start (`docker compose restart releaser` nach einer Änderung).
 
 ## 5. Gebündelte Fassung und AppImage
 
@@ -133,8 +137,10 @@ releaser config --example > mp3releaser.toml
 ```
 
 Die Datei wird in `./mp3releaser.toml` und `~/.config/mp3releaser/config.toml`
-gesucht. Kommandozeilenschalter haben Vorrang. Unbekannte Schlüssel werden
-gemeldet, mit Vorschlag.
+gesucht, im Container in `config/mp3releaser/config.toml` neben
+`docker-compose.yml`. `releaser config` zeigt, welche Datei gilt.
+Kommandozeilenschalter haben Vorrang. Unbekannte Schlüssel werden gemeldet,
+mit Vorschlag.
 
 In der Desktop-Anwendung geht es auch ohne Texteditor: Vorlage laden, Gruppe,
 Muster und Schreibweisen einstellen, links in den Eingangsordner wechseln und
