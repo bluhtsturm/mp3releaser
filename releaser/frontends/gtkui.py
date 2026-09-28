@@ -269,7 +269,7 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             outer.append(paned)
             outer.append(self._build_footer())
 
-            self.state.show_roots()
+            self.state.show_start()
             self.refresh()
 
         # ------------------------------------------------------ Aufbau
@@ -288,7 +288,8 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
 
             save_button = Gtk.Button(icon_name="document-save-symbolic")
             save_button.set_tooltip_text(
-                "Vorlage, Muster und Schreibweisen als Standard speichern")
+                "Als Standard speichern: Vorlage, Gruppe, Verzeichnis, "
+                "Muster und Schreibweisen")
             save_button.connect("clicked", self._on_save_defaults)
             header.pack_start(save_button)
 
@@ -883,12 +884,16 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
         def _on_save_defaults(self, *_args) -> None:
             """Speichert die aktuellen Einstellungen als Standard.
 
-            Beim naechsten Start sind Vorlage, Muster, Gruppe und
-            Schreibweisen gesetzt - kein Klicken mehr fuer eine Vorfuehrung.
+            Beim naechsten Start sind Vorlage, Gruppe, Verzeichnis, Muster
+            und Schreibweisen gesetzt. Die Bestaetigung kommt als Fenster:
+            In der eingeklappten Meldungsliste sah man vorher gar nicht,
+            dass etwas passiert war.
             """
             target = save_defaults(self.state)
             self.state.say(f"Standard gespeichert: {target}")
             self.refresh()
+            _inform(self, "Als Standard gespeichert",
+                    defaults_summary(self.state, target))
 
         @guarded
         def _on_load(self, *_args) -> None:
@@ -1034,7 +1039,10 @@ def run(state: Optional[AppState] = None) -> int:
 
     from gi.repository import Gio, Gtk
 
-    app_state = state or AppState(source=LocalSource())
+    # Ohne uebergebenen Zustand - so startet das AppImage per Doppelklick -
+    # gelten dieselben gespeicherten Einstellungen wie bei "releaser gui".
+    # Vorher entstand hier ein leerer Zustand: Gespeichertes kam nie an.
+    app_state = state if state is not None else build_state()
     application = Gtk.Application(application_id=APP_ID,
                                   flags=Gio.ApplicationFlags.FLAGS_NONE)
 
@@ -1068,19 +1076,25 @@ def main(argv: Optional[list[str]] = None) -> int:
 
 
 def save_defaults(state: AppState, path: Optional[Path] = None) -> Path:
-    """Schreibt Vorlage, Muster, Gruppe und Schreibweisen als Standard.
+    """Schreibt Vorlage, Gruppe, Verzeichnis, Muster und Schreibweisen.
 
-    Ergaenzt die vorhandene Benutzerkonfiguration, statt sie zu ersetzen.
-    Frueher entstand die Datei jedes Mal neu - ein von Hand gepflegter
-    Abschnitt ``[tags]`` oder Schluessel wie ``audio_crc`` gingen beim
-    Speichern verloren. Ohne GTK testbar.
+    Ergaenzt die vorhandene Konfiguration, statt sie zu ersetzen. Frueher
+    entstand die Datei jedes Mal neu - ein von Hand gepflegter Abschnitt
+    ``[tags]`` oder Schluessel wie ``audio_crc`` gingen beim Speichern
+    verloren. Ohne GTK testbar.
+
+    Geschrieben wird in die Datei, aus der die Einstellungen beim Start
+    kamen: Laege dort eine ``mp3releaser.toml`` im Arbeitsverzeichnis und
+    ginge das Speichern nach ``~/.config``, gewaenne beim naechsten Start
+    wieder die alte Datei.
 
     Ist die vorhandene Datei nicht lesbar, wird sie nicht ueberschrieben:
     der ``ConfigError`` geht an den Aufrufer, die Oberflaeche zeigt ihn an.
     """
     from ..config import Config, load, save, user_config_path
+    from ..service import template_setting
 
-    target = Path(path) if path else user_config_path()
+    target = Path(path) if path else (state.config_path or user_config_path())
     config = load(target) if target.is_file() else Config()
 
     naming = state.naming
@@ -1101,8 +1115,39 @@ def save_defaults(state: AppState, path: Optional[Path] = None) -> Path:
     config.naming.pop("case", None)
     config.build = dict(config.build)
     if state.template_path:
-        config.build["template"] = str(state.template_path)
+        config.build["template"] = template_setting(state.template_path)
+    # Das Verzeichnis, das die Auswahl zeigt. An der Wurzel gibt es keins -
+    # dann startet auch das naechste Mal an der Wurzel.
+    config.gui = dict(config.gui)
+    if state.listed_path:
+        config.gui["start"] = state.listed_path
+    else:
+        config.gui.pop("start", None)
     return save(config, target)
+
+
+def defaults_summary(state: AppState, target: Path) -> str:
+    """Was gespeichert wurde - fuer die Bestaetigung nach dem Speichern."""
+    naming = state.naming
+    prefix = naming.companion_prefix
+    lines = [
+        f"Gespeichert in {target}",
+        "",
+        f"Vorlage              {state.template_path or '(keine)'}",
+        f"Gruppe               {naming.group or '(keine)'}",
+        f"Verzeichnis          {state.listed_path or '(Wurzel)'}",
+        f"Verzeichnismuster    {naming.dir_pattern}",
+        f"Dateimuster          {naming.file_pattern}",
+        "Schreibweise Ordner  "
+        + naming.charcase.get(Scope.DIRECTORY, CharCase.UNCHANGED).value,
+        "Schreibweise Dateien "
+        + naming.charcase.get(Scope.FILENAME, CharCase.UNCHANGED).value,
+        "Begleitdateien       "
+        + (f"beginnen mit „{prefix}“" if prefix else "ohne Vorsilbe"),
+        "",
+        "Beim nächsten Start ist das wieder eingestellt.",
+    ]
+    return "\n".join(lines)
 
 
 def build_state(start: Optional[str] = None, mounts: Optional[str] = None,
@@ -1116,36 +1161,69 @@ def build_state(start: Optional[str] = None, mounts: Optional[str] = None,
     gespeichert wurde.
     """
     from ..browse import from_environment
-    from ..config import load as load_config
+    from ..config import Config, ConfigError, load as load_config
+    from ..service import (build_options_from_config, bundled_template,
+                           find_template, naming_from_config, tags_from_config)
 
-    settings = config if config is not None else load_config()
+    problems: list[str] = []
+    settings = config
+    if settings is None:
+        try:
+            settings = load_config()
+        except ConfigError as exc:
+            # Das AppImage startet per Doppelklick ohne Terminal - ein
+            # Abbruch waere unsichtbar. Also mit der Voreinstellung starten
+            # und im Fenster sagen, warum.
+            problems.append(f"Gespeicherte Einstellungen nicht lesbar: {exc}")
+            settings = Config()
+    try:
+        profile = naming_from_config(settings, group=group or None)
+        tag_profile = tags_from_config(settings)
+        build_options = build_options_from_config(settings)
+    except ConfigError as exc:
+        problems.append(f"Gespeicherte Einstellungen nicht verwendbar: {exc}")
+        settings = Config(source=settings.source)
+        profile = naming_from_config(settings, group=group or None)
+        tag_profile = tags_from_config(settings)
+        build_options = build_options_from_config(settings)
     naming_cfg = settings.section("naming")
     build_cfg = settings.section("build")
+    gui_cfg = settings.section("gui")
 
-    from ..service import (build_options_from_config, naming_from_config,
-                           tags_from_config)
-
-    source = from_environment(mounts) if mounts else LocalSource(start)
-    profile = naming_from_config(settings, group=group or None)
+    start_dir = start or gui_cfg.get("start") or None
+    source = from_environment(mounts) if mounts else LocalSource(start_dir)
     # [tags] und [build] gelten hier genauso wie auf der Kommandozeile -
     # frueher nahm die Desktop-Anwendung fest die Voreinstellungen.
-    state = AppState(source=source, naming=profile,
-                     tags=tags_from_config(settings),
-                     build_options=build_options_from_config(settings))
+    state = AppState(source=source, naming=profile, tags=tag_profile,
+                     build_options=build_options)
+    state.config_path = settings.source
+    for problem in problems:
+        state.say(problem, Level.ERROR)
+    if start_dir:
+        # Lokal ist der virtuelle Pfad der echte - absolut, damit "Nach
+        # oben" und die Anzeige stimmen. Eingehaengt gilt er wie gespeichert.
+        state.start_path = (str(Path(start_dir).expanduser().absolute())
+                            if isinstance(source, LocalSource)
+                            else str(start_dir))
+
     prefix = naming_cfg.get("companion_prefix", NamingProfile.companion_prefix)
     if prefix:
         state.set_companion_prefix(
             prefix, include_all=naming_cfg.get("prefix_all", True))
 
-    from ..service import bundled_template
-
     # Reihenfolge: ausdruecklich angegeben, gespeichert, mitgeliefert. Ohne
     # die letzte Stufe waere "Vorlage waehlen" der erste Klick jeder
-    # Vorfuehrung.
-    chosen = template or build_cfg.get("template") or bundled_template()
-    if chosen and Path(chosen).is_file():
-        state.load_template(Path(chosen))
-    elif chosen:
-        state.say(f"Gespeicherte Vorlage nicht gefunden: {chosen}",
-                  Level.WARNING)
+    # Vorfuehrung. Fehlt die angegebene Vorlage, wird ebenfalls die
+    # mitgelieferte geladen - mit Hinweis, statt ganz ohne Vorlage.
+    chosen = template or build_cfg.get("template")
+    found = find_template(chosen) if chosen else None
+    if chosen and found is None:
+        found = bundled_template()
+        state.say(f"Vorlage nicht gefunden: {chosen}"
+                  + (" - stattdessen die mitgelieferte geladen"
+                     if found else ""), Level.WARNING)
+    elif not chosen:
+        found = bundled_template()
+    if found is not None:
+        state.load_template(found)
     return state

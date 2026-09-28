@@ -606,3 +606,96 @@ def test_scan_skips_a_broken_file_and_reports_it(tmp_path):
     result = scan_directory(root)
     assert result.release.total_tracks == 1
     assert any("02-kaputt.flac" in w for w in result.warnings)
+
+
+# ------------------------------------------------ FLAC: Encoder-Fassung
+
+
+@pytest.mark.parametrize("vendor, expected", [
+    ("reference libFLAC 1.4.3 20230623", "FLAC 1.4.3"),
+    ("reference libFLAC 1.3.2 20170101", "FLAC 1.3.2"),
+    ("reference libFLAC 1.2.1 20070917", "FLAC 1.2.1"),
+    ("Lavf60.16.100", "Lavf60.16.100"),        # ffmpeg: bleibt, wie es ist
+    ("Mutagen 1.48.1", ""),                    # Tag-Programm, kein Encoder
+    ("", ""),
+    ("   ", ""),
+])
+def test_flac_encoder_from_vendor(vendor, expected):
+    from releaser.audio.flac import encoder_from_vendor
+
+    assert encoder_from_vendor(vendor) == expected
+
+
+def _flac_with_vendor(tmp_path, vendor: str, *metadata: str) -> Path:
+    """Eine FLAC-Datei, deren Kommentarblock ``vendor`` traegt.
+
+    ffmpeg schreibt immer "Lavf…"; den Vendor des Referenz-Encoders setzt
+    mutagen nachtraeglich - so braucht der Test kein ``flac``-Programm.
+    """
+    from mutagen.flac import FLAC
+
+    path = encode(tmp_path, "a.flac",
+                  "-f", "lavfi", "-i", "sine=frequency=440:duration=1",
+                  "-c:a", "flac", *metadata)
+    audio = FLAC(path)
+    audio.tags.vendor = vendor
+    for key in list(audio.tags.keys()):
+        if key.lower() == "encoder":
+            del audio.tags[key]
+    audio.save()
+    return path
+
+
+@needs_ffmpeg
+def test_flac_encoder_version_is_read_from_the_vendor_string(tmp_path):
+    """Wie bei MP3 aus dem LAME-Header - vorher blieb das Feld bei FLAC leer."""
+    from releaser.audio import read_file
+
+    path = _flac_with_vendor(tmp_path, "reference libFLAC 1.4.3 20230623")
+    assert read_file(path).encoder == "FLAC 1.4.3"
+
+
+@needs_ffmpeg
+def test_flac_vendor_beats_an_encoder_tag(tmp_path):
+    from mutagen.flac import FLAC
+
+    from releaser.audio import read_file
+
+    path = _flac_with_vendor(tmp_path, "reference libFLAC 1.3.2 20170101")
+    audio = FLAC(path)
+    audio["ENCODER"] = "irgendein Ripper"
+    audio.save()
+    assert read_file(path).encoder == "FLAC 1.3.2"
+
+
+@needs_ffmpeg
+def test_flac_encoder_tag_is_used_when_the_vendor_says_nothing(tmp_path):
+    from mutagen.flac import FLAC
+
+    from releaser.audio import read_file
+
+    path = _flac_with_vendor(tmp_path, "Mutagen 1.48.1")
+    audio = FLAC(path)
+    audio["ENCODER"] = "Mein Encoder 2.0"
+    audio.save()
+    assert read_file(path).encoder == "Mein Encoder 2.0"
+
+
+@needs_ffmpeg
+@pytest.mark.skipif(shutil.which("flac") is None, reason="flac nicht vorhanden")
+def test_flac_from_the_reference_encoder_without_any_tags(tmp_path):
+    """Der Referenz-Encoder schreibt einen Kommentarblock ohne Eintraege -
+    mutagen meldet ihn als leer (falsy), aber nicht als None."""
+    from releaser.audio import read_file, scan_directory
+
+    root = tmp_path / "rel"
+    root.mkdir()
+    wav = encode(tmp_path, "t.wav",
+                 "-f", "lavfi", "-i", "sine=frequency=440:duration=1")
+    subprocess.run(["flac", "-s", "-f", "-8", str(wav),
+                    "-o", str(root / "01-titel.flac")], check=True)
+    version = subprocess.run(["flac", "--version"], capture_output=True,
+                             text=True, check=True).stdout.split()[-1]
+
+    assert read_file(root / "01-titel.flac").encoder == f"FLAC {version}"
+    assert scan_directory(root).release.encoder == f"FLAC {version}"

@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.23.0:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.24.0:
 
 ```bash
-chmod +x mp3releaser-0.23.0-x86_64.AppImage
-./mp3releaser-0.23.0-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.23.0-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.24.0-x86_64.AppImage
+./mp3releaser-0.24.0-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.24.0-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -48,7 +48,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 769 Tests
+python3 -m pytest tests -q          # 806 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -172,7 +172,7 @@ statt den ganzen Scan abzubrechen (`--strict` bricht bewusst ab).
 | Format | Quelle | Besonderheit |
 |---|---|---|
 | MP3 | mutagen (`ID3`, `MPEGInfo`) | VBR-/ABR-Status, Channel-Mode in Szene-Schreibweise, Encoder aus LAME/Xing |
-| FLAC | mutagen (`FLAC`, Vorbis) | Kompressionsrate für `#FlacC` aus STREAMINFO gegen Dateigröße |
+| FLAC | mutagen (`FLAC`, Vorbis) | Kompressionsrate für `#FlacC` aus STREAMINFO gegen Dateigröße, Encoder aus dem Vendor-String (`FLAC 1.4.3`) |
 | Ogg Vorbis | mutagen | Tag-Abbildung mit FLAC geteilt |
 | Opus | mutagen | Bitrate aus Dateigröße geschätzt (meldet keine) |
 | Musepack | mutagen | APEv2-Tags — **ungetestet**, ffmpeg kann MPC nicht erzeugen |
@@ -544,6 +544,10 @@ write_apev2 = true
 
 [build]
 audio_crc = true
+release_date_format = "%d.%m.%Y"  # Voreinstellung "%Y-%m-%d", "" = nicht vorbelegen
+
+[gui]
+start = "/home/ich/Musik/Eingang" # Verzeichnis, das die Auswahl beim Start zeigt
 ```
 
 Rangfolge: ausdrücklich gesetzter Schalter schlägt Datei, Datei schlägt
@@ -556,8 +560,9 @@ Gesucht wird in `./mp3releaser.toml`, `./.mp3releaser.toml`,
 kommentierte Vorlage aus.
 
 Das ist gleichzeitig die Datenbasis aller Oberflächen: Kommandozeile,
-Desktop-Anwendung und Weboberfläche lesen dieselbe Datei — alle drei
-Abschnitte — und rufen denselben Kern. Die Profile baut die Dienstschicht an
+Desktop-Anwendung und Weboberfläche lesen dieselbe Datei — `[naming]`,
+`[tags]` und `[build]` — und rufen denselben Kern. `[gui]` gilt nur für die
+Desktop-Anwendung. Die Profile baut die Dienstschicht an
 einer Stelle (`naming_from_config`, `tags_from_config`,
 `build_options_from_config`).
 
@@ -886,6 +891,33 @@ Bibliothek da ist, `requirements_hint()` nennt das Paket und einen Weg, der
 ohne Grafikstack funktioniert. Sonst ließe sich das Paket auf einem Server
 nicht einmal einlesen.
 
+### Als Standard speichern
+
+Der Knopf mit dem Speichern-Symbol in der Kopfleiste merkt sich:
+
+| gespeichert | Schlüssel |
+|---|---|
+| die geladene `.skl` | `[build] template` |
+| den Gruppennamen | `[naming] group` |
+| das Verzeichnis, das die Auswahl links gerade zeigt | `[gui] start` |
+| Verzeichnis- und Dateimuster | `[naming] dir_pattern`, `file_pattern` |
+| die Schreibweise von Ordner und Dateien (`upper`, `lower` …) | `[naming] case_dir`, `case_file` |
+| das „00-“ vor den Begleitdateien | `[naming] companion_prefix`, `prefix_all` |
+
+Ein Fenster bestätigt, was wo gespeichert wurde. Beim nächsten Start — auch
+per Doppelklick auf das AppImage — ist alles wieder eingestellt, und die
+Auswahl steht in dem gespeicherten Verzeichnis. Gibt es das nicht mehr,
+beginnt sie an der Wurzel, mit einem Hinweis.
+
+Gespeichert wird in die Datei, aus der die Einstellungen beim Start kamen;
+ohne eine solche nach `~/.config/mp3releaser/config.toml`. Von Hand gepflegte
+Abschnitte wie `[tags]` bleiben erhalten. Die mitgelieferte Vorlage steht dort
+nur mit ihrem Namen (`standard.skl`): Im AppImage liegt sie unter einem Pfad,
+der bei jedem Start anders heißt (`/tmp/.mount_…`). Fehlt eine gespeicherte
+Vorlage, lädt das Programm die mitgelieferte und sagt es. Eine kaputte
+Konfigurationsdatei verhindert den Start nicht: Das Fenster öffnet sich mit
+der Voreinstellung und nennt den Fehler.
+
 ### Gegen echtes GTK geprüft
 
 Die GTK-Aufrufe fallen sonst erst beim ersten Start auf. Die Tests bauen das
@@ -1147,7 +1179,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-769 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+806 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1169,7 +1201,8 @@ jedes existierende erwähnt ist, der Modulbaum stimmt und die genannte
 Testzahl aktuell ist.
 
 Die Korrekturen aus der Fehlerdurchsicht zu 0.22.1 und die Änderungen zu
-0.23.0 stehen mit Ursache und Auswirkung in [`CHANGE.md`](CHANGE.md).
+0.23.0 und 0.24.0 stehen mit Ursache und Auswirkung in
+[`CHANGE.md`](CHANGE.md).
 
 ### Aus der ersten Erprobung
 
@@ -1457,6 +1490,27 @@ Umleitung greift.
   unter „im Verzeichnisnamen" — und war dasselbe Feld: Eine Änderung in der
   einen Gruppe tauchte in der anderen auf. Jetzt sind es zwei eigenständige
   Felder; `#Source` in den Namensmustern liest „Quelle (Name)".
+
+### Aus der dreizehnten Erprobung
+
+* **„Standard speichern" blieb ohne Wirkung.** Gespeichert wurde zwar, aber
+  das AppImage, per Doppelklick ohne Argumente gestartet, las die
+  Konfiguration gar nicht: `run()` baute dann einen leeren Zustand. Nur
+  `releaser gui` lud sie. Dazu landete die Bestätigung in der eingeklappten
+  Meldungsliste — beim Klick sah man nichts. Jetzt starten beide Wege gleich,
+  und ein Fenster bestätigt das Speichern (siehe
+  [Als Standard speichern](#als-standard-speichern)).
+* **Das Verzeichnis wird mitgespeichert.** Die Auswahl öffnet beim Start den
+  zuletzt gespeicherten Ordner.
+* **Releasedatum aus der Systemzeit.** Ein leeres Releasedatum wird beim
+  Einlesen mit dem heutigen Datum vorbelegt (`2026-09-28`, Herkunft „aus der
+  Systemzeit"). Ein vorhandener Wert bleibt; das Format stellt
+  `[build] release_date_format` ein, `""` schaltet es ab. Kommandozeile,
+  Desktop und Web tragen dasselbe Datum ein.
+* **FLAC-Version.** Bei MP3 kam der Encoder aus dem LAME-Header, bei FLAC
+  wurde nur ein `ENCODER`-Tag gelesen — den schreibt der Referenz-Encoder
+  nicht. Seine Fassung steht im Vendor-String (`reference libFLAC 1.4.3
+  20230623`) und erscheint jetzt als `FLAC 1.4.3`.
 
 ### Was offen ist
 

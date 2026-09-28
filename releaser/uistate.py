@@ -80,6 +80,15 @@ class AppState:
     #: linke Seite
     current_path: Optional[str] = None
     entries: list[Entry] = field(default_factory=list)
+    #: das Verzeichnis, dessen Inhalt die Auswahl zeigt. ``current_path``
+    #: zeigt nach dem Einlesen auf das Release selbst; als Startverzeichnis
+    #: gespeichert wird aber der Ordner, in dem man sich bewegt.
+    listed_path: Optional[str] = None
+    #: wird beim Start geöffnet, sofern gesetzt - siehe :meth:`show_start`
+    start_path: Optional[str] = None
+    #: aus welcher Datei die Einstellungen stammen; dorthin speichert die
+    #: Desktop-Anwendung auch wieder
+    config_path: Optional[Path] = None
     #: die angeklickte Zeile - getrennt vom geöffneten Verzeichnis, weil man
     #: einen Ordner auswählen kann, ohne ihn zu öffnen
     selected_path: Optional[str] = None
@@ -167,10 +176,32 @@ class AppState:
 
     def show_roots(self) -> list[Entry]:
         self.current_path = None
+        self.listed_path = None
         self.selected_path = None
         self.entries = self.source.roots()
         self._changed()
         return self.entries
+
+    def show_start(self) -> list[Entry]:
+        """Zeigt beim Start das gespeicherte Verzeichnis, sonst die Wurzeln.
+
+        Fehlt es inzwischen (umbenannt, Laufwerk nicht eingehängt), bleibt
+        es bei den Wurzeln und einem Hinweis - ein Startfehler wäre für ein
+        Verzeichnis, das nur bequem sein soll, zu viel.
+        """
+        if self.start_path:
+            try:
+                entries = self.source.list(self.start_path)
+            except AccessError as exc:
+                self.say(f"Startverzeichnis nicht verfügbar: {exc}",
+                         Level.WARNING)
+            else:
+                self.entries = entries
+                self.current_path = self.listed_path = self.start_path
+                self.selected_path = None
+                self._changed()
+                return self.entries
+        return self.show_roots()
 
     def select(self, path: Optional[str]) -> None:
         """Merkt sich die angeklickte Zeile."""
@@ -183,7 +214,7 @@ class AppState:
             return self.show_roots()
         try:
             self.entries = self.source.list(path)
-            self.current_path = path
+            self.current_path = self.listed_path = path
             self.selected_path = None
         except AccessError as exc:
             self.say(str(exc), Level.ERROR)
@@ -212,7 +243,8 @@ class AppState:
             return False
 
         try:
-            outcome = service.scan(real)
+            outcome = service.scan(
+                real, release_date_format=self.build_options.release_date_format)
         except Exception as exc:               # noqa: BLE001 - Anzeige statt Absturz
             self.say(f"{Path(real).name}: {exc}", Level.ERROR)
             self._changed()

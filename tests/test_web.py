@@ -154,6 +154,16 @@ def test_load_delivers_fields_with_width_and_origin(client):
 
 
 @needs_ffmpeg
+def test_release_date_is_today_in_the_web_form(client):
+    from datetime import date
+
+    state = load_release(client)
+    fields = {f["name"]: f for group in state["groups"] for f in group["fields"]}
+    assert fields["release_date"]["value"] == date.today().strftime("%Y-%m-%d")
+    assert fields["release_date"]["origin"] == "aus der Systemzeit"
+
+
+@needs_ffmpeg
 def test_editing_a_field_reaches_the_model(client):
     load_release(client)
     state = client.post("/api/field",

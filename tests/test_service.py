@@ -663,3 +663,131 @@ def test_overrides_beat_the_config_for_every_key():
                                          companion_pattern="#Artist")
     assert profile.pipeline == ("trim",)
     assert profile.companion_pattern == "#Artist"
+
+
+# ================================================ Releasedatum vorbelegen
+
+
+def test_empty_release_date_becomes_today():
+    from datetime import date
+
+    from releaser.model import Release
+    from releaser.provenance import Origin, OriginMap
+
+    release, origins = Release(), OriginMap()
+    assert service.fill_release_date(release, origins,
+                                     today=date(2026, 9, 28)) is True
+    assert release.release_date == "2026-09-28"
+    assert origins.get("release_date") is Origin.SYSTEM
+    assert Origin.SYSTEM.label == "aus der Systemzeit"
+
+
+def test_existing_release_date_is_kept():
+    from datetime import date
+
+    from releaser.model import Release
+
+    release = Release(release_date="01.01.2020")
+    assert service.fill_release_date(release, today=date(2026, 9, 28)) is False
+    assert release.release_date == "01.01.2020"
+
+
+def test_release_date_format_is_configurable_and_can_be_switched_off():
+    from datetime import date
+
+    from releaser.model import Release
+
+    german = Release()
+    service.fill_release_date(german, fmt="%d.%m.%Y", today=date(2026, 9, 28))
+    assert german.release_date == "28.09.2026"
+
+    off = Release()
+    assert service.fill_release_date(off, fmt="") is False
+    assert off.release_date == ""
+
+
+def test_release_date_format_comes_from_the_build_section():
+    from releaser.config import parse
+
+    assert (service.build_options_from_config(None).release_date_format
+            == "%Y-%m-%d")
+    config = parse('[build]\nrelease_date_format = "%d.%m.%Y"\n')
+    assert (service.build_options_from_config(config).release_date_format
+            == "%d.%m.%Y")
+    off = parse('[build]\nrelease_date_format = ""\n')
+    assert service.build_options_from_config(off).release_date_format == ""
+    assert off.warnings == []                       # bekannter Schluessel
+
+
+@needs_ffmpeg
+def test_scan_fills_the_release_date_with_today(tmp_path):
+    from datetime import date
+
+    from releaser.provenance import Origin
+
+    outcome = service.scan(make_release(tmp_path))
+    assert outcome.release.release_date == date.today().strftime("%Y-%m-%d")
+    assert outcome.origins.get("release_date") is Origin.SYSTEM
+    assert "release_date" not in outcome.origins.uncertain()
+
+
+@needs_ffmpeg
+def test_scan_without_release_date_format_leaves_it_empty(tmp_path):
+    outcome = service.scan(make_release(tmp_path), release_date_format="")
+    assert outcome.release.release_date == ""
+
+
+@needs_ffmpeg
+def test_nfo_carries_the_release_date(tmp_path):
+    """Die .nfo bekommt das Datum - über die Kommandozeile wie im Fenster."""
+    from datetime import date
+
+    from releaser import cli
+
+    def read_nfo(path):
+        return path.read_bytes().decode("cp437")
+
+    root = make_release(tmp_path)
+    template = tmp_path / "d.skl"
+    template.write_bytes("Datum: #Rdate              \n".encode("cp437"))
+    today = date.today()
+
+    assert cli.main(["nfo", str(root), str(template),
+                     "-o", str(tmp_path / "a.nfo")]) == 0
+    assert today.strftime("%Y-%m-%d") in read_nfo(tmp_path / "a.nfo")
+
+    config = tmp_path / "eigen.toml"
+    config.write_text('[build]\nrelease_date_format = "%d.%m.%Y"\n',
+                      encoding="utf-8")
+    assert cli.main(["--config", str(config), "nfo", str(root), str(template),
+                     "-o", str(tmp_path / "b.nfo")]) == 0
+    assert today.strftime("%d.%m.%Y") in read_nfo(tmp_path / "b.nfo")
+
+
+@needs_ffmpeg
+def test_build_uses_the_configured_release_date_format(tmp_path):
+    from datetime import date
+
+    root = make_release(tmp_path)
+    template = tmp_path / "d.skl"
+    template.write_bytes("Datum: #Rdate              \n".encode("cp437"))
+    options = service.BuildOptions(template=template, sfv=False, m3u=False,
+                                   release_date_format="%d.%m.%Y")
+
+    outcome = service.process(root, options)
+    nfo = next(p for p in outcome.created if p.suffix == ".nfo")
+    assert date.today().strftime("%d.%m.%Y") in nfo.read_bytes().decode("cp437")
+
+
+@needs_ffmpeg
+def test_scan_json_carries_the_release_date(tmp_path):
+    """scan -o und render ergeben dieselbe .nfo wie nfo und build."""
+    import json
+    from datetime import date
+
+    from releaser import cli
+
+    out = tmp_path / "r.json"
+    assert cli.main(["scan", str(make_release(tmp_path)), "-o", str(out)]) == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["release_date"] == date.today().strftime("%Y-%m-%d")

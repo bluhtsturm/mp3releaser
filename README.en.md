@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.23.0 as an example:
+is `SHA256SUMS` with the checksum. Using 0.24.0 as an example:
 
 ```bash
-chmod +x mp3releaser-0.23.0-x86_64.AppImage
-./mp3releaser-0.23.0-x86_64.AppImage              # graphical interface
-./mp3releaser-0.23.0-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.24.0-x86_64.AppImage
+./mp3releaser-0.24.0-x86_64.AppImage              # graphical interface
+./mp3releaser-0.24.0-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -53,7 +53,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 769 tests
+python3 -m pytest tests -q          # 806 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -178,7 +178,7 @@ whole scan (`--strict` aborts on purpose).
 | Format | Source | Particularity |
 |---|---|---|
 | MP3 | mutagen (`ID3`, `MPEGInfo`) | VBR/ABR status, channel mode in scene spelling, encoder from LAME/Xing |
-| FLAC | mutagen (`FLAC`, Vorbis) | compression ratio for `#FlacC` from STREAMINFO vs. file size |
+| FLAC | mutagen (`FLAC`, Vorbis) | compression ratio for `#FlacC` from STREAMINFO vs. file size, encoder from the vendor string (`FLAC 1.4.3`) |
 | Ogg Vorbis | mutagen | tag mapping shared with FLAC |
 | Opus | mutagen | bitrate estimated from file size (Opus reports none) |
 | Musepack | mutagen | APEv2 tags — **untested**, ffmpeg cannot create MPC |
@@ -549,6 +549,10 @@ write_apev2 = true
 
 [build]
 audio_crc = true
+release_date_format = "%d.%m.%Y"  # default "%Y-%m-%d", "" = do not pre-fill
+
+[gui]
+start = "/home/me/Music/Incoming" # folder the file list shows at start
 ```
 
 Precedence: an explicitly set switch beats the file, the file beats the
@@ -561,8 +565,9 @@ The file is looked up in `./mp3releaser.toml`, `./.mp3releaser.toml`,
 template.
 
 This is also the data basis of all interfaces: command line, desktop
-application and web interface read the same file — all three sections — and
-call the same core. The service layer builds the profiles in one place
+application and web interface read the same file — `[naming]`, `[tags]` and
+`[build]` — and call the same core. `[gui]` applies to the desktop application
+only. The service layer builds the profiles in one place
 (`naming_from_config`, `tags_from_config`, `build_options_from_config`).
 
 ## CUE sheets
@@ -899,6 +904,32 @@ library is present; `requirements_hint()` names the package and a way that
 works without a graphics stack. Otherwise the package could not even be
 loaded on a server.
 
+### Save as default
+
+The button with the save icon in the header bar remembers:
+
+| saved | key |
+|---|---|
+| the loaded `.skl` | `[build] template` |
+| the group name | `[naming] group` |
+| the folder the file list on the left currently shows | `[gui] start` |
+| directory and file patterns | `[naming] dir_pattern`, `file_pattern` |
+| the letter case of folder and files (`upper`, `lower` …) | `[naming] case_dir`, `case_file` |
+| the "00-" in front of the companion files | `[naming] companion_prefix`, `prefix_all` |
+
+A window confirms what was saved where. On the next start — including a
+double click on the AppImage — everything is set again, and the file list
+opens the saved folder. If it no longer exists, the list starts at the root,
+with a notice.
+
+Settings are saved to the file they were read from at start; without one, to
+`~/.config/mp3releaser/config.toml`. Hand-maintained sections such as `[tags]`
+are kept. The bundled template is stored by name only (`standard.skl`): in the
+AppImage it lives under a path that changes on every start
+(`/tmp/.mount_…`). If a saved template is missing, the program loads the
+bundled one and says so. A broken configuration file does not prevent the
+start: the window opens with the defaults and names the error.
+
 ### Tested against real GTK
 
 GTK calls would otherwise only fail on first start. The tests therefore really
@@ -1162,7 +1193,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 769 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 806 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1184,8 +1215,8 @@ for both language versions that every command mentioned exists, every existing
 command is mentioned, the module tree is correct and the stated test count is
 current.
 
-The fixes from the bug review for 0.22.1 and the changes for 0.23.0 are
-listed with cause and effect in [`CHANGE.md`](CHANGE.md) (German).
+The fixes from the bug review for 0.22.1 and the changes for 0.23.0 and
+0.24.0 are listed with cause and effect in [`CHANGE.md`](CHANGE.md) (German).
 
 ### From the first trial
 
@@ -1463,6 +1494,26 @@ takes effect.
   and under "in the directory name" — and was the same field: a change in one
   group showed up in the other. Now they are two independent fields; `#Source`
   in the name patterns reads "Quelle (Name)".
+
+### From the thirteenth trial
+
+* **"Save as default" had no effect.** The settings were written, but the
+  AppImage, started by double click without arguments, never read the
+  configuration: `run()` then built an empty state. Only `releaser gui` loaded
+  it. On top of that, the confirmation went into the collapsed message list —
+  a click showed nothing. Now both ways start the same, and a window confirms
+  the save (see [Save as default](#save-as-default)).
+* **The folder is saved as well.** The file list opens the last saved folder
+  at start.
+* **Release date from the system clock.** An empty release date is pre-filled
+  with today's date when a release is read (`2026-09-28`, origin "aus der
+  Systemzeit"). An existing value is kept; `[build] release_date_format` sets
+  the format, `""` turns it off. Command line, desktop and web enter the same
+  date.
+* **FLAC version.** For MP3 the encoder came from the LAME header; for FLAC
+  only an `ENCODER` tag was read — which the reference encoder does not
+  write. Its version is in the vendor string (`reference libFLAC 1.4.3
+  20230623`) and now shows as `FLAC 1.4.3`.
 
 ### What is open
 

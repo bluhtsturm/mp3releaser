@@ -1,3 +1,151 @@
+# Änderungen – 0.24.0: Standard speichern, Releasedatum, FLAC-Version
+
+Stand: 28.09.2026 · Version 0.23.0 → **0.24.0**
+
+Rückmeldungen aus dem Test des AppImage 0.23.0. Jeder Fehler wurde vor der
+Korrektur nachgestellt. Von den 37 neuen Tests schlagen 36 gegen 0.23.0 fehl
+und laufen jetzt durch; einer sichert einen Nachbarfall ab, der schon vorher
+funktionierte (ein `ENCODER`-Tag bei FLAC ohne brauchbaren Vendor-String).
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 769 | 806 |
+| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | alle grün | alle 806 grün, nichts übersprungen |
+| `pyflakes` | sauber | sauber |
+
+## 1. „Als Standard speichern“ blieb ohne Wirkung *(schwer)*
+
+**Nachgestellt.** Vorlage laden, Gruppe und Schreibweisen einstellen, auf
+das Speichern-Symbol klicken, das AppImage neu starten: nichts davon war
+eingestellt.
+
+**Ursachen – drei, die sich gegenseitig verdeckten:**
+
+1. **Das AppImage las die Konfiguration nicht.** Ohne Argumente gestartet
+   (Doppelklick) ruft `packaging/entrypoint.py` die Oberfläche über `run()`
+   auf. `run()` baute dann einen leeren Zustand
+   (`AppState(source=LocalSource())`) – ohne Konfiguration, ohne gespeicherte
+   Vorlage, ohne Gruppe, ohne Schreibweisen, sogar ohne die mitgelieferte
+   Standardvorlage. Gespeichert wurde also, aber nie wieder geladen. Nur
+   `releaser gui` ging über `build_state()` und lud alles.
+   *Jetzt:* `run()` ohne Zustand nimmt `build_state()` – beide Wege starten
+   gleich.
+2. **Die Bestätigung war unsichtbar.** „Standard gespeichert“ stand nur in
+   der Meldungsliste, und die ist eingeklappt. Beim Klick passierte sichtbar
+   nichts. *Jetzt:* Ein Fenster zeigt, was wohin gespeichert wurde.
+3. **Die mitgelieferte Vorlage wurde mit ihrem AppImage-Pfad gespeichert.**
+   Das AppImage hängt sich bei jedem Start unter einem neuen Namen ein
+   (`/tmp/.mount_XXXXXX`). Ein gespeicherter Pfad dorthin zeigte beim
+   nächsten Start ins Leere, und die Oberfläche lud dann **gar keine**
+   Vorlage. *Jetzt:* Mitgelieferte Vorlagen stehen nur mit ihrem Namen in der
+   Konfiguration (`template = "standard.skl"`) und werden darüber wieder
+   gefunden. Fehlt eine gespeicherte Vorlage, lädt das Programm die
+   mitgelieferte und meldet es.
+
+**Außerdem:**
+* Gespeichert wird in die Datei, aus der die Einstellungen beim Start kamen.
+  Lag eine `mp3releaser.toml` im Arbeitsverzeichnis, gewann die beim Start –
+  das Speichern ging aber nach `~/.config` und war beim nächsten Start
+  wieder verdeckt.
+* Eine eigene Vorlage wird mit absolutem Pfad gespeichert; ein relativer
+  hinge vom Startverzeichnis ab.
+* Eine kaputte Konfigurationsdatei (oder ein unbrauchbarer Wert wie
+  `case_dir = "schraeg"`) verhindert den Start nicht mehr: Das Fenster
+  öffnet sich mit der Voreinstellung und nennt den Fehler. Per Doppelklick
+  gestartet gäbe es sonst keinerlei Rückmeldung. Überschrieben wird eine
+  kaputte Datei beim Speichern weiterhin nicht.
+* `releaser --config DATEI gui` reicht die angegebene Datei jetzt an die
+  Oberfläche weiter; die las vorher selbst nach und übersah `--config`.
+
+## 2. Das ausgewählte Verzeichnis wird mitgespeichert
+
+Gespeichert wird jetzt auch das Verzeichnis, das die Auswahl links zeigt
+(`[gui] start`). Beim Start öffnet die Auswahl genau diesen Ordner – bisher
+begann sie immer an der Wurzel. Ist ein Release eingelesen, zählt der Ordner,
+in dem es liegt, nicht das Release selbst: Beim nächsten Start sieht man so
+den Eingangsordner mit dem nächsten Release darin. Gibt es das Verzeichnis
+nicht mehr, beginnt die Auswahl an der Wurzel, mit einem Hinweis. Wer an der
+Wurzel speichert, startet auch wieder dort. `--start` hat Vorrang und öffnet
+das angegebene Verzeichnis jetzt ebenfalls direkt.
+
+Was „Als Standard speichern“ insgesamt festhält:
+
+| | Schlüssel |
+|---|---|
+| die geladene `.skl` | `[build] template` |
+| Gruppenname | `[naming] group` |
+| Verzeichnis der Auswahl | `[gui] start` (neu) |
+| Verzeichnis- und Dateimuster | `[naming] dir_pattern`, `file_pattern` |
+| Schreibweise Ordner / Dateien | `[naming] case_dir`, `case_file` |
+| „00-“ vor den Begleitdateien | `[naming] companion_prefix`, `prefix_all` |
+
+## 3. Releasedatum aus der Systemzeit
+
+Ein leeres Releasedatum (`#Rdate`) wird beim Einlesen mit dem heutigen Datum
+vorbelegt, als `2026-09-28`. Am Feld steht die Herkunft „aus der
+Systemzeit“. Ein vorhandener Wert bleibt unangetastet, von Hand
+überschreiben geht wie bei jedem Feld.
+
+Das Format ist einstellbar, ein leerer Wert schaltet das Vorbelegen ab:
+
+```toml
+[build]
+release_date_format = "%d.%m.%Y"    # 28.09.2026
+```
+
+Es gilt überall gleich: Desktop, Web, geführter Modus und die Kommandos
+`nfo`, `build`, `scan`, `rename`, `check` und `fields`
+(`service.fill_release_date`).
+
+## 4. FLAC: Encoder-Fassung erkannt
+
+Bei MP3 kommt der Encoder aus dem LAME-Header (`LAME 3.100`). Bei FLAC las
+das Programm nur ein `ENCODER`-Tag – das schreibt der Referenz-Encoder aber
+nicht, das Feld blieb leer. Seine Fassung steht im Vendor-String des
+Kommentarblocks: `reference libFLAC 1.4.3 20230623`. Daraus wird jetzt
+`FLAC 1.4.3`.
+
+* Wie der LAME-Header bei MP3 geht der Vendor-String einem `ENCODER`-Tag
+  vor: Er stammt vom Encoder selbst.
+* Andere Encoder bleiben, wie sie sich nennen (ffmpeg: `Lavf60.16.100`).
+* `Mutagen …` im Vendor-String ist kein Encoder, sondern das Tag-Programm,
+  das einen fehlenden Kommentarblock angelegt hat – dann gilt das
+  `ENCODER`-Tag.
+* Der Referenz-Encoder schreibt einen Kommentarblock ohne Einträge. mutagen
+  meldet ihn als leer, aber nicht als fehlend – die Prüfung unterscheidet
+  beides.
+
+## 5. Dokumentation
+
+* `README.md`, `README.en.md`: neuer Abschnitt „Als Standard speichern“ bzw.
+  „Save as default“, `[gui]` und `release_date_format` im
+  Konfigurationsbeispiel, FLAC in der Formattabelle, Abschnitt „Aus der
+  dreizehnten Erprobung“, Testzahl.
+* `EINRICHTUNG.md`: Speichern in der Desktop-Anwendung, Testzahl.
+* `releaser config --example` nennt `release_date_format` und `[gui] start`.
+
+## Neue Tests
+
+* `tests/test_gtkui.py`: Start ohne Argumente im echten GTK-Fenster (wie
+  beim Doppelklick auf das AppImage) mit gespeicherter Gruppe, Vorlage und
+  Verzeichnis; kompletter Rundlauf speichern → neu starten; Verzeichnis
+  öffnen, fehlendes Verzeichnis, `--start` vor dem Gespeicherten, Speichern
+  an der Wurzel; eingelesenes Release speichert seinen Ordner; mitgelieferte
+  Vorlage über zwei verschiedene AppImage-Einhängepunkte; kaputte und
+  unbrauchbare Konfiguration; Speichern in die gelesene Datei; `--config`
+  bei `gui`; Bestätigungsfenster und Zusammenfassung.
+* `tests/test_service.py`: Releasedatum vorbelegen, vorhandenes behalten,
+  Format und Abschalten, `[build] release_date_format`, über `scan`, `nfo`
+  (mit `--config`), `build` und `scan -o`.
+* `tests/test_web.py`: Releasedatum samt Herkunft im Webformular.
+* `tests/test_audio.py`: Vendor-String → Encoder (Referenz-Encoder, ffmpeg,
+  mutagen, leer), Vorrang vor dem `ENCODER`-Tag, Rückfall auf das Tag, eine
+  echte Datei aus dem `flac`-Programm ohne jedes Tag.
+* Geändert: `test_missing_saved_template_is_reported` erwartet jetzt die
+  mitgelieferte Vorlage statt gar keiner.
+
+---
+
 # Änderungen – 0.23.0: Dateinamen von Hand, zwei Quellen
 
 Stand: 27.09.2026 · Version 0.22.1 → **0.23.0**

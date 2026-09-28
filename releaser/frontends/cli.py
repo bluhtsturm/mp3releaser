@@ -92,10 +92,26 @@ def _print_warnings(warnings: list[str]) -> None:
         print(f"  ! {w}", file=sys.stderr)
 
 
+def _release_date_format(args: argparse.Namespace) -> str:
+    """Format des vorbelegten Releasedatums aus ``[build]`` - leer heisst aus.
+
+    Alle Kommandos lesen dasselbe, damit ``nfo``, ``build`` und die
+    Oberflaechen dieselbe .nfo erzeugen.
+    """
+    from ..service import RELEASE_DATE_FORMAT
+
+    config = getattr(args, "_config", None)
+    if config is None:
+        return RELEASE_DATE_FORMAT
+    return str(config.get("build", "release_date_format", RELEASE_DATE_FORMAT))
+
+
 def cmd_scan(args: argparse.Namespace) -> int:
     from ..audio import scan_directory
+    from ..service import fill_release_date
 
     result = scan_directory(args.directory, strict=args.strict)
+    fill_release_date(result.release, result.origins, _release_date_format(args))
     if result.warnings:
         print(f"{len(result.warnings)} Hinweis(e):", file=sys.stderr)
         _print_warnings(result.warnings)
@@ -112,8 +128,10 @@ def cmd_scan(args: argparse.Namespace) -> int:
 
 def cmd_nfo(args: argparse.Namespace) -> int:
     from ..audio import scan_directory
+    from ..service import fill_release_date
 
     result = scan_directory(args.directory, strict=args.strict)
+    fill_release_date(result.release, result.origins, _release_date_format(args))
     if result.warnings:
         _print_warnings(result.warnings)
 
@@ -276,7 +294,8 @@ def cmd_rename(args: argparse.Namespace) -> int:
 
     # Ueber die Dienstschicht, nicht an ihr vorbei: dort wird auch das
     # Rueckgaengig-Protokoll geschrieben.
-    scanned = scan(args.directory, strict=args.strict)
+    scanned = scan(args.directory, strict=args.strict,
+                   release_date_format=_release_date_format(args))
     _print_warnings(scanned.warnings)
 
     profile = _profile_from_args(args)
@@ -320,6 +339,7 @@ def cmd_build(args: argparse.Namespace) -> int:
         codepage=args.codepage,
         m3u_windows_paths=build_pick_bool("m3u_windows_paths",
                                           args.m3u_windows_paths),
+        release_date_format=_release_date_format(args),
     )
 
     outcome = process(
@@ -353,6 +373,7 @@ def cmd_wizard(args: argparse.Namespace) -> int:
         tags=_tag_profile_from_args(args),
         strict=args.strict,
         batch=args.batch,
+        release_date_format=_release_date_format(args),
     )
 
 
@@ -388,8 +409,12 @@ def cmd_gui(args: argparse.Namespace) -> int:
     if not is_available():
         print(requirements_hint(), file=sys.stderr)
         return 3
+    # Dieselbe Konfiguration, die main() schon gelesen hat - auch die mit
+    # --config angegebene. Vorher las die Oberflaeche selbst nach und
+    # uebersah --config.
     state = build_state(start=args.start, mounts=args.mounts,
-                        template=args.template, group=args.group)
+                        template=args.template, group=args.group,
+                        config=args._config)
     return run(state)
 
 
@@ -398,7 +423,8 @@ def cmd_fields(args: argparse.Namespace) -> int:
     from ..fields import build_views, group_views, overflow_warnings
     from ..service import scan
 
-    scanned = scan(args.directory, strict=args.strict)
+    scanned = scan(args.directory, strict=args.strict,
+                   release_date_format=_release_date_format(args))
     template = (Template.from_file(args.template, codepage=args.codepage)
                 if args.template else None)
 
@@ -504,7 +530,8 @@ def cmd_check(args: argparse.Namespace) -> int:
     target = Path(args.path)
     if target.is_dir():
         try:
-            scanned = scan(target, strict=args.strict)
+            scanned = scan(target, strict=args.strict,
+                           release_date_format=_release_date_format(args))
         except AudioError as exc:
             # Ein unlesbares Verzeichnis ist ein Befund ueber das Release,
             # kein Fehler des Programms.

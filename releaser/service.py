@@ -22,7 +22,7 @@ from typing import Iterable, Optional
 
 from .config import ConfigError
 from .model import Release
-from .provenance import OriginMap
+from .provenance import Origin, OriginMap
 from .naming import (
     NamingProfile,
     RenamePlan,
@@ -45,6 +45,11 @@ from .text import write_nfo
 #: "klein fuer beides", damit eingebettete Aufrufe sich nicht unbemerkt
 #: aendern; wer die Anwendung startet, bekommt diese Voreinstellung.
 PRESET_CASE: dict[str, str] = {"directory": "capitalize", "file": "lower"}
+
+#: Format des vorbelegten Releasedatums (``strftime``). Ein leeres Format
+#: schaltet das Vorbelegen ab - einstellbar unter ``[build]
+#: release_date_format``.
+RELEASE_DATE_FORMAT = "%Y-%m-%d"
 
 
 def naming_from_config(config=None, group: Optional[str] = None,
@@ -169,6 +174,8 @@ def build_options_from_config(config=None) -> "BuildOptions":
         clean=bool(section.get("clean", False)),
         use_catalog_no=bool(section.get("catalog_no", False)),
         m3u_windows_paths=bool(section.get("m3u_windows_paths", False)),
+        release_date_format=str(section.get("release_date_format",
+                                            RELEASE_DATE_FORMAT)),
     )
 
 
@@ -199,6 +206,45 @@ def bundled_template() -> Optional[Path]:
     return None
 
 
+def template_setting(path: str | Path) -> str:
+    """Wie eine Vorlage in der Konfiguration abgelegt wird.
+
+    Die mitgelieferten Vorlagen liegen im AppImage unter einem Pfad, der bei
+    jedem Start anders heisst (``/tmp/.mount_…``). Gespeichert, zeigte er beim
+    naechsten Start ins Leere. Fuer sie steht deshalb nur der Dateiname in der
+    Konfiguration; :func:`find_template` findet sie darueber wieder. Alle
+    anderen Vorlagen bekommen einen absoluten Pfad, damit es nicht darauf
+    ankommt, aus welchem Verzeichnis das Programm gestartet wird.
+    """
+    path = Path(path).expanduser()
+    bundled = bundled_template()
+    if bundled is not None:
+        try:
+            if path.resolve().parent == bundled.resolve().parent:
+                return path.name
+        except OSError:
+            pass
+    return str(path.absolute())
+
+
+def find_template(value: str | Path) -> Optional[Path]:
+    """Sucht eine Vorlage, wie sie in Konfiguration oder Aufruf steht.
+
+    Ein Pfad gilt wie angegeben. Ein blosser Dateiname, den es hier nicht
+    gibt, wird bei den mitgelieferten Vorlagen gesucht - so legt
+    :func:`template_setting` sie ab.
+    """
+    path = Path(value).expanduser()
+    if path.is_file():
+        return path
+    bundled = bundled_template()
+    if bundled is not None and len(path.parts) == 1:
+        candidate = bundled.parent / path.name
+        if candidate.is_file():
+            return candidate
+    return None
+
+
 @dataclass
 class BuildOptions:
     """Was beim Erzeugen der Begleitdateien entsteht und wie."""
@@ -215,6 +261,9 @@ class BuildOptions:
     codepage: str = "cp437"
     #: Rueckwaerts-Schraegstriche in der M3U wie beim Original
     m3u_windows_paths: bool = False
+    #: leeres Releasedatum beim Einlesen mit dem heutigen Datum fuellen -
+    #: in diesem Format; leer = nicht vorbelegen
+    release_date_format: str = RELEASE_DATE_FORMAT
 
 
 @dataclass
@@ -243,14 +292,35 @@ class BuildOutcome:
 # ---------------------------------------------------------------- Einlesen
 
 
-def scan(directory: str | Path, strict: bool = False) -> ScanOutcome:
+def scan(directory: str | Path, strict: bool = False,
+         release_date_format: str = RELEASE_DATE_FORMAT) -> ScanOutcome:
     """Verzeichnis einlesen. Der Audio-Layer wird erst hier geladen."""
     from .audio import scan_directory
 
     root = Path(directory)
     result = scan_directory(root, strict=strict)
+    fill_release_date(result.release, result.origins, release_date_format)
     return ScanOutcome(release=result.release, root=root,
                        warnings=list(result.warnings), origins=result.origins)
+
+
+def fill_release_date(release: Release, origins: Optional[OriginMap] = None,
+                      fmt: str = RELEASE_DATE_FORMAT, today=None) -> bool:
+    """Belegt ein leeres Releasedatum mit dem heutigen Datum vor.
+
+    Das Releasedatum einer NFO ist der Tag, an dem das Release entsteht -
+    fast immer also heute. Bisher blieb das Feld leer, bis man es von Hand
+    ausfuellte. Ein vorhandener Wert bleibt unangetastet, ebenso alles bei
+    leerem ``fmt``. ``today`` ist fuer Tests da.
+    """
+    if release.release_date or not fmt:
+        return False
+    from datetime import date
+
+    release.release_date = (today or date.today()).strftime(fmt)
+    if origins is not None:
+        origins.set("release_date", Origin.SYSTEM)
+    return True
 
 
 # ------------------------------------------------------------------ Tags
@@ -402,7 +472,8 @@ def process(directory: str | Path, options: BuildOptions,
     die Begleitdateien. Entstünde das SFV vor dem Tag-Lauf, wären sämtliche
     Prüfsummen sofort falsch.
     """
-    scanned = scan(directory, strict=strict)
+    scanned = scan(directory, strict=strict,
+                   release_date_format=options.release_date_format)
     release, root = scanned.release, scanned.root
     outcome = BuildOutcome(root=root, warnings=list(scanned.warnings))
 

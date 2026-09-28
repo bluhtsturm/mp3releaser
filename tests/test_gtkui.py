@@ -616,15 +616,18 @@ def test_explicit_arguments_beat_the_saved_defaults(tmp_path, monkeypatch):
 
 
 def test_missing_saved_template_is_reported(tmp_path, monkeypatch):
+    """Gemeldet - und statt gar keiner die mitgelieferte Vorlage geladen."""
     from releaser.config import Config, save
+    from releaser.service import bundled_template
     from releaser.uistate import Level
 
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     save(Config(build={"template": str(tmp_path / "weg.skl")}))
 
     state = gtkui.build_state()
-    assert state.template is None
-    assert state.last_message.level is Level.WARNING
+    warnings = [m.text for m in state.messages if m.level is Level.WARNING]
+    assert any("weg.skl" in text for text in warnings), warnings
+    assert state.template_path == bundled_template()
 
 
 @needs_gtk
@@ -691,8 +694,13 @@ def test_saving_defaults_writes_a_config(release_tree, tmp_path):
             state.set_pattern("case_dir", "upper")
             state.set_pattern("case_file", "lower")
             state.set_companion_prefix("00-", include_all=True)
+            state.navigate("eingang")
             window._on_save_defaults()
             print("MSG", state.messages[-1].text)
+            # Die Bestaetigung ist ein Fenster - in der eingeklappten
+            # Meldungsliste sah man sie vorher nicht
+            titles = [w.get_title() for w in Gtk.Window.list_toplevels()]
+            print("DIALOG", "Als Standard gespeichert" in titles)
             a.quit()
 
         app.connect("activate", activate)
@@ -711,6 +719,8 @@ def test_saving_defaults_writes_a_config(release_tree, tmp_path):
     assert config.naming["case_file"] == "lower"
     assert config.naming["prefix_all"] is True
     assert config.build["template"].endswith("vorlage.skl")
+    assert config.gui["start"] == "eingang"
+    assert "DIALOG True" in result.stdout
 
 
 def test_desktop_preset_is_capitalized_directory_and_lowercase_files(monkeypatch,
@@ -921,3 +931,290 @@ def test_save_defaults_does_not_overwrite_a_broken_config(tmp_path, monkeypatch)
     with pytest.raises(ConfigError):
         gtkui.save_defaults(state)
     assert target.read_text(encoding="utf-8") == "[naming\nkaputt"
+
+
+# ------------------------------------------ Standard speichern und laden
+
+
+def _write_skl(path: Path) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes("#Artist   \n".encode("cp437"))
+    return path
+
+
+def test_saved_directory_is_opened_at_start(tmp_path, monkeypatch):
+    from releaser.config import Config, save
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    eingang = tmp_path / "Musik" / "Eingang"
+    (eingang / "Artist-Album-2026-GRP").mkdir(parents=True)
+    save(Config(gui={"start": str(eingang)}))
+
+    state = gtkui.build_state()
+    state.show_start()
+    assert state.listed_path == state.current_path == str(eingang)
+    assert [e.name for e in state.entries] == ["Artist-Album-2026-GRP"]
+    # "Nach oben" fuehrt aus dem Startverzeichnis heraus
+    state.go_up()
+    assert state.listed_path == str(eingang.parent)
+
+
+def test_missing_saved_directory_falls_back_to_the_roots(tmp_path, monkeypatch):
+    from releaser.config import Config, save
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    save(Config(gui={"start": str(tmp_path / "weg")}))
+
+    state = gtkui.build_state()
+    state.show_start()
+    assert state.listed_path is None and state.current_path is None
+    assert state.entries                                   # die Wurzeln
+    assert any("Startverzeichnis" in m.text for m in state.messages
+               if m.level is Level.WARNING)
+
+
+def test_explicit_start_beats_the_saved_directory(tmp_path, monkeypatch):
+    from releaser.config import Config, save
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    saved, given = tmp_path / "gespeichert", tmp_path / "angegeben"
+    saved.mkdir()
+    given.mkdir()
+    save(Config(gui={"start": str(saved)}))
+
+    state = gtkui.build_state(start=str(given))
+    state.show_start()
+    assert state.listed_path == str(given)
+
+
+def test_without_a_saved_directory_the_roots_are_shown(tmp_path, monkeypatch):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    state = gtkui.build_state()
+    assert state.start_path is None
+    state.show_start()
+    assert state.listed_path is None and state.entries
+
+
+def test_saving_at_the_roots_forgets_the_directory(tmp_path):
+    from releaser.config import Config, load, save
+
+    target = save(Config(gui={"start": str(tmp_path)}), tmp_path / "c.toml")
+    state = gtkui.build_state(config=Config())
+    state.show_roots()
+    gtkui.save_defaults(state, target)
+    assert "start" not in load(target).gui
+
+
+@needs_ffmpeg
+def test_saving_remembers_the_listed_directory_not_the_loaded_release(
+        release_tree, tmp_path):
+    """Nach dem Einlesen zeigt current_path auf das Release selbst. Beim
+    naechsten Start soll aber der Ordner offen sein, in dem die Releases
+    liegen - mit dem naechsten darin."""
+    from releaser.config import Config, load
+
+    eingang = release_tree / "eingang"
+    state = gtkui.build_state(config=Config())
+    state.navigate(str(eingang))
+    assert state.load(str(eingang / "Artist-Album-2026-GRP"))
+    assert state.current_path.endswith("Artist-Album-2026-GRP")
+
+    target = gtkui.save_defaults(state, tmp_path / "c.toml")
+    assert load(target).gui["start"] == str(eingang)
+
+
+def test_saved_settings_survive_a_restart(tmp_path, monkeypatch):
+    """Der ganze Weg: speichern, neu starten - alles wieder eingestellt."""
+    from releaser.naming import Scope
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    own = _write_skl(tmp_path / "vorlagen" / "meine.skl")
+    eingang = tmp_path / "Eingang"
+    eingang.mkdir()
+
+    state = gtkui.build_state()
+    assert state.load_template(own)
+    state.set_pattern("group", "MEINE")
+    state.set_pattern("case_dir", "upper")
+    state.set_pattern("case_file", "lower")
+    state.set_pattern("dir", "#Artist-#Album-#Year-#Grp")
+    state.navigate(str(eingang))
+    gtkui.save_defaults(state)
+
+    again = gtkui.build_state()
+    again.show_start()
+    assert again.template_path == own
+    assert again.naming.group == "MEINE"
+    assert again.naming.charcase[Scope.DIRECTORY].value == "upper"
+    assert again.naming.charcase[Scope.FILENAME].value == "lower"
+    assert again.naming.dir_pattern == "#Artist-#Album-#Year-#Grp"
+    assert again.listed_path == str(eingang)
+    assert not [m for m in again.messages if m.level is not Level.INFO]
+
+
+def test_the_bundled_template_is_saved_by_name(tmp_path, monkeypatch):
+    from releaser.config import load
+    from releaser.service import bundled_template
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    state = gtkui.build_state()
+    assert state.template_path == bundled_template()
+
+    target = gtkui.save_defaults(state)
+    assert load(target).build["template"] == "standard.skl"
+    assert gtkui.build_state().template_path == bundled_template()
+
+
+def test_the_bundled_template_is_found_in_the_next_appimage_mount(tmp_path,
+                                                                  monkeypatch):
+    """Das AppImage haengt sich bei jedem Start unter einem neuen Namen ein
+    (/tmp/.mount_…). Ein gespeicherter Pfad dorthin zeigte beim naechsten
+    Start ins Leere - die Vorlage fehlte."""
+    import shutil as sh
+
+    from releaser.service import bundled_template
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    standard = bundled_template()
+    mounts = []
+    for name in (".mount_abc", ".mount_xyz"):
+        share = tmp_path / name / "usr" / "share" / "mp3releaser"
+        share.mkdir(parents=True)
+        sh.copy(standard, share / "standard.skl")
+        mounts.append(tmp_path / name)
+
+    monkeypatch.setenv("APPDIR", str(mounts[0]))
+    state = gtkui.build_state()
+    assert mounts[0] in state.template_path.parents
+    gtkui.save_defaults(state)
+
+    monkeypatch.setenv("APPDIR", str(mounts[1]))
+    again = gtkui.build_state()
+    assert mounts[1] in again.template_path.parents
+    assert not [m for m in again.messages if m.level is Level.WARNING]
+
+
+def test_own_template_is_saved_with_an_absolute_path(tmp_path, monkeypatch):
+    from releaser.service import find_template, template_setting
+
+    monkeypatch.chdir(tmp_path)
+    _write_skl(tmp_path / "v.skl")
+    assert template_setting("v.skl") == str(tmp_path / "v.skl")
+    assert find_template(str(tmp_path / "v.skl")) == tmp_path / "v.skl"
+    assert find_template(str(tmp_path / "fehlt.skl")) is None
+
+
+def test_a_broken_config_does_not_prevent_the_start(tmp_path, monkeypatch):
+    """Per Doppelklick gestartet gibt es kein Terminal fuer eine Meldung."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    target = tmp_path / "mp3releaser" / "config.toml"
+    target.parent.mkdir(parents=True)
+    target.write_text("[naming\nkaputt", encoding="utf-8")
+
+    state = gtkui.build_state()
+    errors = [m.text for m in state.messages if m.level is Level.ERROR]
+    assert errors and "nicht lesbar" in errors[0]
+    assert state.template is not None             # trotzdem arbeitsfaehig
+
+
+def test_an_unusable_config_value_does_not_prevent_the_start(tmp_path,
+                                                             monkeypatch):
+    from releaser.config import Config, save
+
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    save(Config(naming={"case_dir": "schraeg"}))
+
+    state = gtkui.build_state()
+    errors = [m.text for m in state.messages if m.level is Level.ERROR]
+    assert errors and "schraeg" in errors[0]
+
+
+def test_saving_goes_back_to_the_file_the_settings_came_from(tmp_path,
+                                                             monkeypatch):
+    """Eine mp3releaser.toml im Arbeitsverzeichnis gewinnt beim Start. Ging
+    das Speichern nach ~/.config, war es beim naechsten Start verdeckt."""
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "cfg"))
+    work = tmp_path / "arbeit"
+    work.mkdir()
+    monkeypatch.chdir(work)
+    (work / "mp3releaser.toml").write_text('[naming]\ngroup = "ALT"\n',
+                                           encoding="utf-8")
+
+    state = gtkui.build_state()
+    assert state.config_path == work / "mp3releaser.toml"
+    state.set_pattern("group", "NEU")
+    assert gtkui.save_defaults(state) == work / "mp3releaser.toml"
+    assert gtkui.build_state().naming.group == "NEU"
+    assert not (tmp_path / "cfg" / "mp3releaser" / "config.toml").exists()
+
+
+def test_cli_gui_hands_over_the_config_it_read(tmp_path, monkeypatch):
+    """--config erreichte die Oberflaeche nicht - sie las selbst nach."""
+    from releaser import cli
+
+    captured = {}
+
+    def fake_run(state=None):
+        captured["state"] = state
+        return 0
+
+    monkeypatch.setattr(gtkui, "is_available", lambda: True)
+    monkeypatch.setattr(gtkui, "run", fake_run)
+    config = tmp_path / "eigen.toml"
+    config.write_text('[naming]\ngroup = "AUSDATEI"\n', encoding="utf-8")
+
+    assert cli.main(["--config", str(config), "gui"]) == 0
+    assert captured["state"].naming.group == "AUSDATEI"
+    assert captured["state"].config_path == config
+
+
+def test_summary_names_everything_that_was_saved(tmp_path):
+    from releaser.config import Config
+
+    state = gtkui.build_state(config=Config())
+    state.navigate(str(tmp_path))
+    state.set_pattern("group", "GRP")
+    text = gtkui.defaults_summary(state, tmp_path / "c.toml")
+    for part in (str(tmp_path / "c.toml"), "GRP", str(tmp_path),
+                 "standard.skl", "capitalize", "lower", "„00-“"):
+        assert part in text, part
+
+
+@needs_gtk
+def test_start_without_arguments_uses_the_saved_settings(tmp_path):
+    """So startet das AppImage per Doppelklick. Vorher entstand dabei ein
+    leerer Zustand - Gespeichertes kam nie an."""
+    from releaser.config import Config, save
+
+    own = _write_skl(tmp_path / "vorlagen" / "meine.skl")
+    eingang = tmp_path / "Eingang"
+    eingang.mkdir()
+    save(Config(naming={"group": "GESPEICHERT", "case_dir": "upper"},
+                build={"template": str(own)},
+                gui={"start": str(eingang)}),
+         tmp_path / "cfg" / "mp3releaser" / "config.toml")
+
+    result = run_in_display(f"""
+        import os, sys
+        sys.path.insert(0, {str(ROOT)!r})
+        sys.path.insert(0, {str(ROOT / 'packaging')!r})
+        os.environ["XDG_CONFIG_HOME"] = {str(tmp_path / 'cfg')!r}
+        sys.argv = ["mp3releaser"]                 # ohne Argumente
+        from releaser.frontends import gtkui
+
+        class Probe(gtkui.ReleaserWindow):
+            def __init__(self, app, state):
+                super().__init__(app, state)
+                print("GROUP", state.naming.group)
+                print("TEMPLATE", state.template_path)
+                print("LABEL", self.path_label.get_text())
+                app.quit()
+
+        gtkui.ReleaserWindow = Probe
+        import entrypoint
+        raise SystemExit(entrypoint.main())
+    """)
+    assert result.returncode == 0, result.stderr
+    assert "GROUP GESPEICHERT" in result.stdout
+    assert f"TEMPLATE {own}" in result.stdout
+    assert f"LABEL {eingang}" in result.stdout

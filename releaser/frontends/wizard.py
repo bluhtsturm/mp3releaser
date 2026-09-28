@@ -22,8 +22,8 @@ from typing import Callable, Optional, Sequence
 
 from ..model import Release
 from ..naming import NamingProfile, format_plan as format_rename_plan
-from ..service import (BuildOptions, build, perform_rename, preview_rename,
-                       refresh_sizes, scan)
+from ..service import (RELEASE_DATE_FORMAT, BuildOptions, build,
+                       perform_rename, preview_rename, refresh_sizes, scan)
 from ..tagwriter import TagProfile, apply_tags
 from ..tagwriter import format_plan as format_tag_plan
 from ..tagwriter import plan_tags
@@ -98,7 +98,8 @@ def run(directory: str | Path,
         tags: Optional[TagProfile] = None,
         console: Optional[Console] = None,
         strict: bool = False,
-        batch: bool = False) -> int:
+        batch: bool = False,
+        release_date_format: str = RELEASE_DATE_FORMAT) -> int:
     """Führt durch den Ablauf. Rückgabe ist der Exit-Code.
 
     ``batch`` liest die Antworten auch dann von der Standardeingabe, wenn kein
@@ -114,7 +115,8 @@ def run(directory: str | Path,
     tags = tags or TagProfile()
 
     try:
-        return _run(directory, template, naming, tags, console, strict)
+        return _run(directory, template, naming, tags, console, strict,
+                    release_date_format)
     except Aborted as exc:
         console.say(f"\nAbgebrochen: {exc}" if str(exc) else "\nAbgebrochen.")
         return 1
@@ -123,9 +125,11 @@ def run(directory: str | Path,
         return 130
 
 
-def _run(directory, template, naming, tags, console, strict) -> int:
+def _run(directory, template, naming, tags, console, strict,
+         release_date_format=RELEASE_DATE_FORMAT) -> int:
     console.say("Schritt 1 von 4: einlesen")
-    scanned = scan(directory, strict=strict)
+    scanned = scan(directory, strict=strict,
+                   release_date_format=release_date_format)
     release, root = scanned.release, scanned.root
     console.say()
     for line in _summary(release, root):

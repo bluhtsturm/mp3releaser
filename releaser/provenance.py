@@ -25,6 +25,8 @@ class Origin(Enum):
     DIRECTORY = "directory"
     #: aus mehreren Dateien zusammengeführt oder sonst abgeleitet
     DERIVED = "derived"
+    #: aus der Uhr des Rechners - das Releasedatum ist fast immer heute
+    SYSTEM = "system"
     MANUAL = "manual"
     UNKNOWN = "unknown"
 
@@ -36,6 +38,7 @@ class Origin(Enum):
             Origin.CUE: "aus dem CUE",
             Origin.DIRECTORY: "aus dem Verzeichnisnamen",
             Origin.DERIVED: "abgeleitet",
+            Origin.SYSTEM: "aus der Systemzeit",
             Origin.MANUAL: "von Hand",
             Origin.UNKNOWN: "unbekannt",
         }[self]
@@ -43,7 +46,7 @@ class Origin(Enum):
     @property
     def trustworthy(self) -> bool:
         """Ob der Wert ohne Nachsehen übernommen werden kann."""
-        return self in (Origin.TAG, Origin.CUE, Origin.MANUAL)
+        return self in (Origin.TAG, Origin.CUE, Origin.SYSTEM, Origin.MANUAL)
 
 
 @dataclass

@@ -41,7 +41,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **769 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **806 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash
@@ -135,6 +135,11 @@ releaser config --example > mp3releaser.toml
 Die Datei wird in `./mp3releaser.toml` und `~/.config/mp3releaser/config.toml`
 gesucht. Kommandozeilenschalter haben Vorrang. Unbekannte Schlüssel werden
 gemeldet, mit Vorschlag.
+
+In der Desktop-Anwendung geht es auch ohne Texteditor: Vorlage laden, Gruppe,
+Muster und Schreibweisen einstellen, links in den Eingangsordner wechseln und
+auf das Speichern-Symbol in der Kopfleiste klicken. Beim nächsten Start — auch
+per Doppelklick auf das AppImage — ist alles wieder eingestellt.
 
 ## Falls etwas klemmt
 

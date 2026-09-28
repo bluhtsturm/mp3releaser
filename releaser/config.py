@@ -19,6 +19,9 @@ TOML-Datei - lesbar, versionierbar und für alle Oberflächen dieselbe Quelle::
     audio_crc = true
     sfv_include = ["log", "pdf"]
 
+    [gui]
+    start = "/home/ich/Musik/Eingang"
+
 Rangfolge: ausdrücklich gesetzter Kommandozeilenschalter schlägt
 Konfigurationsdatei, diese schlägt die eingebaute Voreinstellung.
 
@@ -41,7 +44,7 @@ except ModuleNotFoundError:            # pragma: no cover
     tomllib = None                     # type: ignore[assignment]
 
 CONFIG_NAME = "mp3releaser.toml"
-SECTIONS = ("naming", "tags", "build")
+SECTIONS = ("naming", "tags", "build", "gui")
 
 #: Erlaubte Schluessel je Abschnitt. Ein Tippfehler bliebe sonst wirkungslos
 #: und unbemerkt - das ist schlimmer als eine Meldung.
@@ -59,8 +62,10 @@ KNOWN_KEYS: dict[str, frozenset[str]] = {
     }),
     "build": frozenset({
         "audio_crc", "sfv_include", "sfv_comment", "clean", "catalog_no",
-        "template", "m3u_windows_paths",
+        "template", "m3u_windows_paths", "release_date_format",
     }),
+    # Nur die Desktop-Anwendung: wo die Auswahl beim Start steht
+    "gui": frozenset({"start"}),
 }
 
 
@@ -80,6 +85,7 @@ class Config:
     naming: dict[str, Any] = field(default_factory=dict)
     tags: dict[str, Any] = field(default_factory=dict)
     build: dict[str, Any] = field(default_factory=dict)
+    gui: dict[str, Any] = field(default_factory=dict)
     source: Optional[Path] = None
     #: unbekannte Schluessel, die wirkungslos bleiben
     warnings: list[str] = field(default_factory=list)
@@ -208,6 +214,10 @@ audio_crc = true
 sfv_include = ["log"]
 clean = false
 catalog_no = false
+release_date_format = "%Y-%m-%d"   # leeres Releasedatum = heute; "" schaltet es ab
+
+[gui]
+start = "~/Musik/Eingang"      # Verzeichnis, das die Auswahl beim Start zeigt
 '''
 
 
