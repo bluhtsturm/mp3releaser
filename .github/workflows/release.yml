@@ -2,8 +2,8 @@
 #
 # Ausgeloest durch ein Versions-Tag, das zu releaser.__version__ passt:
 #
-#     git tag v0.25.0
-#     git push origin v0.25.0
+#     git tag v0.25.1
+#     git push origin v0.25.1
 #
 # Von Hand gestartet (Actions -> Release -> Run workflow) entsteht nur ein
 # Artefakt zum Herunterladen, kein Release - zum Ausprobieren vor dem Tag.
@@ -109,6 +109,19 @@ jobs:
           app="$PWD/build/mp3releaser-x86_64.AppImage"
           env -i APPIMAGE_EXTRACT_AND_RUN=1 PATH=/nonexistent HOME=/tmp "$app" --version
           env -i APPIMAGE_EXTRACT_AND_RUN=1 PATH=/nonexistent HOME=/tmp "$app" metrics
+
+      - name: Oberflaeche auf Debian 13 starten
+        # Gebaut wird hier, laufen soll es auch auf neueren Systemen. Deren
+        # GTK nimmt das Buendel vom Wirt; was es selbst mitbringt, muss dazu
+        # passen. 0.25.0 brachte Pango mit und brach auf Debian 13 beim Start
+        # ab - auf Ubuntu 24.04 fiel das nicht auf.
+        run: |
+          docker run --rm -v "$PWD:/src:ro" debian:trixie sh -c '
+            apt-get update -qq &&
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+              --no-install-recommends libgtk-4-1 gir1.2-gtk-4.0 \
+              xvfb xauth fonts-dejavu-core >/dev/null &&
+            /src/packaging/check-start.sh /src/build/mp3releaser-x86_64.AppImage'
 
       - name: Umbenennen und Pruefsumme
         id: dist

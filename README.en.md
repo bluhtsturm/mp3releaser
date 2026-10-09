@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.25.0 as an example:
+is `SHA256SUMS` with the checksum. Using 0.25.1 as an example:
 
 ```bash
-chmod +x mp3releaser-0.25.0-x86_64.AppImage
-./mp3releaser-0.25.0-x86_64.AppImage              # graphical interface
-./mp3releaser-0.25.0-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.25.1-x86_64.AppImage
+./mp3releaser-0.25.1-x86_64.AppImage              # graphical interface
+./mp3releaser-0.25.1-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -54,7 +54,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 859 tests
+python3 -m pytest tests -q          # 860 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -776,8 +776,13 @@ when its GTK 3 hook kicked in; on a machine with GTK 4 only they were missing,
 and the interface crashed on start-up. They are now listed explicitly in the
 spec. Conversely, graphics libraries that GTK brings along on the host anyway
 (X11, xcb, cairo, fontconfig, freetype …) are left out — the same names are on
-the AppImage community's exclude list. A test starts the interface from the
-AppDir under `xvfb-run`.
+the AppImage community's exclude list. So are text layout (Pango, HarfBuzz,
+Graphene) and GTK itself, each with its typelibs (`HOST_PROVIDED`,
+`HOST_TYPELIBS` in `pyinstaller.spec`): since the NFO preview uses Pango
+directly, PyInstaller would pull them in otherwise, and an older Pango from
+the bundle next to the host's newer GTK broke the start (0.25.0 on Debian
+13). A test starts the interface from the AppDir under `xvfb-run`; a second
+one checks the built bundle for any of these libraries.
 
 The interface only makes it into the bundle if the building interpreter can
 import PyGObject and GTK 4; otherwise `build.sh` warns. The finished AppImage
@@ -799,8 +804,9 @@ git push origin v0.22.2
 The workflow builds on Ubuntu 24.04 with the same setup as above, runs the
 complete test suite first (under `xvfb` with GTK 4 and WebKitGTK), then the
 bundle tests including starting the interface, starts the AppImage without
-Python and without `PATH` — and only then creates the release with the
-AppImage and `SHA256SUMS`. If the tag does not match the version in the code,
+Python and without `PATH`, opens the interface in a fresh Debian 13
+(`packaging/check-start.sh`, with a newer GTK than the build system's) — and
+only then creates the release with the AppImage and `SHA256SUMS`. If the tag does not match the version in the code,
 it aborts. `appimagetool` is pinned to one version with a checksum. Started by
 hand (*Actions → Release → Run workflow*) it only produces an artifact for
 trying out, no release.
@@ -1280,7 +1286,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 859 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 860 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1619,6 +1625,13 @@ takes effect.
 * **NFO preview with block graphics.** If the font lacked the block
   characters, lines shifted; gaps remained between lines. The preview now
   draws on a fixed grid (see [NFO preview](#nfo-preview)).
+* **0.25.0 did not start on Debian 13.** With the new NFO preview,
+  PyInstaller put Pango, HarfBuzz and Graphene from the build system (Ubuntu
+  24.04) into the bundle. On Debian 13 the system's GTK then loaded the old
+  Pango from the bundle, and the start aborted with `undefined symbol:
+  pango_font_description_set_features`. 0.25.1 leaves GTK's text layout and
+  its typelibs out; the release workflow now also starts the AppImage in a
+  fresh Debian 13 (see [Delivery as a bundle](#delivery-as-a-bundle)).
 
 ### What is open
 

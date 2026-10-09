@@ -1,3 +1,116 @@
+# Änderungen – 0.25.1: AppImage startet wieder auf Debian 13
+
+Stand: 09.10.2026 · Version 0.25.0 → **0.25.1**
+
+Rückmeldung aus der Erprobung: Das AppImage 0.25.0 brach auf Debian 13 beim
+Start ab, noch bevor ein Fenster erschien.
+
+```
+Failed to load shared library 'libgtk-4.so.1' referenced by the typelib:
+/lib/x86_64-linux-gnu/libpangoft2-1.0.so.0: undefined symbol: pango_font_description_set_features
+  File "gi/overrides/Gdk.py", line 428, in <module>
+AssertionError
+[PYI-…:ERROR] Failed to execute script 'entrypoint' due to unhandled exception!
+```
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 859 | 860 |
+| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | alle grün | alle 860 grün, nichts übersprungen |
+| AppImage auf Debian 13 (GTK 4.18, Pango 1.56) | bricht beim Start ab | Fenster und NFO-Vorschau laufen |
+| `pyflakes` | sauber | sauber |
+
+## 1. Ursache
+
+Seit 0.25.0 zeichnet die NFO-Vorschau selbst und bindet dafür
+`gi.repository.Pango` und `Graphene` ein. Für jedes so eingebundene Modul
+packt PyInstaller die Bibliotheken und Typelibs **des Bausystems** ins
+Bündel: `libpango-1.0`, `libharfbuzz`, `libgraphene-1.0`, `libfribidi`,
+`libthai`, `libdatrie`, `libgraphite2` aus Ubuntu 24.04 (Pango 1.52).
+
+Beim Start setzt das Bündel seinen eigenen Ordner vor die Bibliotheken des
+Systems. Auf Debian 13 lud das GTK des Systems (4.18) deshalb die
+`libpangoft2` des Systems (1.56) zusammen mit der **alten** `libpango` aus dem
+Bündel – der fehlt die Funktion `pango_font_description_set_features`. GTK
+ließ sich nicht laden, die GTK-Overrides von PyGObject brachen ab.
+
+Auf Ubuntu 24.04, wo gebaut und geprüft wird, sind die Fassungen im Bündel
+und im System dieselben – dort fiel nichts auf. 0.24.1 war nicht betroffen:
+Sein Bündel enthielt kein Pango.
+
+Nachgestellt in einem frischen Debian 13 mit `libgtk-4-1`: 0.24.1 startet,
+0.25.0 bricht mit genau der gemeldeten Ausgabe ab.
+
+## 2. Behebung
+
+`packaging/pyinstaller.spec`: Die Liste der Bibliotheken, die vom Wirt kommen
+(`HOST_PROVIDED`), umfasst jetzt auch den Textsatz und GTK selbst – `libpango*`,
+`libharfbuzz*`, `libgraphene`, `libfribidi`, `libthai`, `libdatrie`,
+`libgraphite2`, `libgtk*`, `libgdk*`, `libepoxy`. Neu ist `HOST_TYPELIBS`: Die
+Typelibs zu diesen Bibliotheken (Pango, PangoCairo, PangoFT2, HarfBuzz,
+Graphene, Gtk, Gdk, GdkPixbuf, Gsk, cairo, freetype2, fontconfig) bleiben
+ebenfalls draußen; PyGObject findet die des Systems, passend zu dessen
+Bibliotheken.
+
+Im Bündel liegen jetzt nur noch die Typelibs von GLib, GObject, Gio und
+GModule. Das AppImage ist rund 1 MB kleiner.
+
+Geprüft in Debian 13: Das AppImage startet per Doppelklick-Weg (ohne
+Argumente), öffnet den gespeicherten Startordner, liest ein Release ein und
+zeigt die NFO-Vorschau mit Block- und Rahmenzeichen – gezeichnet mit Pango und
+Graphene des Systems. Auf Ubuntu 24.04 laufen alle Tests weiter, einschließlich
+Start der Oberfläche aus dem AppDir.
+
+## 3. Startprüfung auf Debian 13 im Release-Workflow
+
+Damit so etwas nicht erst beim Nutzer auffällt:
+
+* `packaging/check-start.sh` (neu) startet die Oberfläche eines AppImage
+  unter `xvfb-run` und verlangt, dass sie nach 15 Sekunden noch läuft und
+  weder `Traceback` noch `undefined symbol` noch `Failed to load shared
+  library` ausgibt. Lokal aufrufbar:
+  `packaging/check-start.sh build/mp3releaser-x86_64.AppImage`.
+* `.github/workflows/release.yml`: neuer Schritt „Oberflaeche auf Debian 13
+  starten“ nach „AppImage pruefen“ und vor dem Release. Er startet das
+  AppImage in einem frischen `debian:trixie` mit nur `libgtk-4-1`,
+  `gir1.2-gtk-4.0`, `xvfb`, `xauth` und einer Schrift.
+
+Gegengeprüft: Mit dem AppImage 0.25.0 schlägt das Skript in Debian 13 fehl
+(Status 1, Ausgabe wie oben), mit 0.25.1 meldet es „Oberflaeche laeuft“.
+
+## 4. Dokumentation
+
+* `README.md`, `README.en.md`: Abschnitt „Auslieferung als Bündel“ bzw.
+  „Delivery as a bundle“ (was draußen bleibt und warum, der neue Schritt im
+  Workflow), Eintrag unter „Aus der vierzehnten Erprobung“, Testzahl,
+  Versionsbeispiele.
+* `EINRICHTUNG.md`: Testzahl. `GITHUB.md`, Kopf von `release.yml`: Tag-Beispiel.
+
+## Neue und geänderte Tests
+
+* `tests/test_packaging.py`:
+  * `test_spec_leaves_host_graphics_libraries_out` verlangt auch `libpango`,
+    `libharfbuzz`, `libgraphene` und die Typelibs `Pango-`, `HarfBuzz-`,
+    `Graphene-`, `Gtk-`.
+  * `test_bundle_contains_no_host_graphics_libraries` prüft am gebauten
+    Bündel zusätzlich die Typelibs. Mit dem Spec von 0.25.0 gebaut, schlägt
+    er fehl und nennt `libpango-1.0.so.0`, `libharfbuzz.so.0`,
+    `libgraphene-1.0.so.0`, `libfribidi.so.0`, `libthai.so.0`,
+    `libdatrie.so.1`, `libgraphite2.so.3`, `libharfbuzz-gobject.so.0`. Der
+    Test liest die Listen jetzt bis zur schließenden Klammer am Zeilenanfang;
+    die Klammer im neuen Kommentar („(0.25.0)“) hätte sie sonst zu früh
+    beendet.
+  * `test_bundled_gui_starts_without_errors` lehnt auch „Failed to load shared
+    library“ ab.
+  * Neu: `test_start_check_is_executable`; `test_packaging_files_exist` und
+    `test_release_workflow_builds_and_checks_before_publishing` verlangen
+    `check-start.sh` und den Schritt mit `debian:trixie`.
+
+Gegen den Code von 0.25.0 laufen gelassen, schlagen 4 dieser Tests fehl, mit
+einem unter 0.25.0 gebauten Bündel 5 (dazu die drei Testzahlen).
+
+---
+
 # Änderungen – 0.25.0: Gruppe wörtlich, ein Knopf, NFO im Raster
 
 Stand: 09.10.2026 · Version 0.24.1 → **0.25.0**

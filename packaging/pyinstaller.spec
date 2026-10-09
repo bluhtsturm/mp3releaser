@@ -44,9 +44,30 @@ HOST_PROVIDED = (
     "libX11.", "libXau.", "libXdmcp.", "libXext.", "libXrender.", "libxcb",
     "libcairo", "libpixman-", "libfontconfig.", "libfreetype.", "libpng16.",
     "libexpat.", "libbrotli", "libgcc_s.",
+    # Der Textsatz von GTK. Seit die NFO-Ansicht Pango und Graphene selbst
+    # einbindet (0.25.0), zog PyInstaller sie aus dem Bausystem mit herein.
+    # Im Buendel geladen, verdraengten sie die neueren des Wirts: Auf Debian
+    # 13 fand dessen libpangoft2 die Funktion
+    # pango_font_description_set_features in der alten libpango nicht, und
+    # GTK liess sich gar nicht laden.
+    "libpango", "libharfbuzz", "libgraphene", "libfribidi.", "libthai.",
+    "libdatrie.", "libgraphite2.", "libgtk", "libgdk", "libepoxy.",
 )
 a.binaries = [entry for entry in a.binaries
               if not Path(entry[0]).name.startswith(HOST_PROVIDED)]
+
+# Die Typelibs dazu ebenso: Sie beschreiben die Bibliotheken des Wirts und
+# muessen zu deren Fassung passen. Ohne Kopie im Buendel findet
+# GObject-Introspection die des Wirts in seinem Standardpfad - so kommt auch
+# Gtk-4.0.typelib schon immer vom System.
+HOST_TYPELIBS = (
+    "Pango-", "PangoCairo-", "PangoFT2-", "PangoOT-", "PangoFc-",
+    "HarfBuzz-", "Graphene-", "Gtk-", "Gdk-", "GdkPixbuf-", "Gsk-",
+    "cairo-", "freetype2-", "fontconfig-",
+)
+a.datas = [entry for entry in a.datas
+           if not (entry[0].startswith("gi_typelibs/")
+                   and Path(entry[0]).name.startswith(HOST_TYPELIBS))]
 
 pyz = PYZ(a.pure)
 

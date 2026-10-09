@@ -68,8 +68,8 @@ Dokumentation (deutsch und englisch) und der Release-Workflow unter
 entsteht auf GitHub Actions, sobald ein Versions-Tag gepusht wird:
 
 ```bash
-git tag v0.25.0
-git push origin v0.25.0
+git tag v0.25.1
+git push origin v0.25.1
 ```
 
 **Nicht enthalten** ist das Original — weder `Mp3Releaser.exe` noch dessen

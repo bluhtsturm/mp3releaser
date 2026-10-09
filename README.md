@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.25.0:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.25.1:
 
 ```bash
-chmod +x mp3releaser-0.25.0-x86_64.AppImage
-./mp3releaser-0.25.0-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.25.0-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.25.1-x86_64.AppImage
+./mp3releaser-0.25.1-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.25.1-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -49,7 +49,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 859 Tests
+python3 -m pytest tests -q          # 860 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -773,7 +773,13 @@ GTK 4 fehlten sie, und die Oberfläche brach beim Start ab. Sie stehen jetzt
 ausdrücklich im Spec. Umgekehrt bleiben Grafikbibliotheken, die GTK auf dem
 Wirt ohnehin mitbringt (X11, xcb, cairo, fontconfig, freetype …), draußen –
 dieselben Namen stehen auf der Ausschlussliste der AppImage-Gemeinschaft.
-Ein Test startet die Oberfläche aus dem AppDir unter `xvfb-run`.
+Ebenso der Textsatz (Pango, HarfBuzz, Graphene) und GTK selbst, jeweils mit
+ihren Typelibs (`HOST_PROVIDED`, `HOST_TYPELIBS` in `pyinstaller.spec`):
+Seit die NFO-Vorschau Pango direkt einbindet, zog PyInstaller sie sonst
+herein, und eine ältere Pango aus dem Bündel neben dem neueren GTK des
+Wirts brach den Start ab (0.25.0 auf Debian 13). Ein Test startet die
+Oberfläche aus dem AppDir unter `xvfb-run`, ein zweiter prüft das gebaute
+Bündel darauf, dass keine dieser Bibliotheken darin liegt.
 
 Die Oberfläche kommt nur ins Bündel, wenn der bauende Interpreter PyGObject
 und GTK 4 importieren kann; `build.sh` warnt sonst. Das fertige AppImage
@@ -794,8 +800,10 @@ git push origin v0.22.2
 Der Workflow baut auf Ubuntu 24.04 mit demselben Aufbau wie oben, lässt
 vorher die komplette Testsuite laufen (unter `xvfb` mit GTK 4 und WebKitGTK),
 danach die Bündeltests samt Start der Oberfläche, startet das AppImage ohne
-Python und ohne `PATH` — und erst dann legt er das Release mit AppImage und
-`SHA256SUMS` an. Passt das Tag nicht zur Version im Code, bricht er ab.
+Python und ohne `PATH`, öffnet die Oberfläche in einem frischen Debian 13
+(`packaging/check-start.sh`, mit einem neueren GTK als dem des Bausystems)
+— und erst dann legt er das Release mit AppImage und `SHA256SUMS` an.
+Passt das Tag nicht zur Version im Code, bricht er ab.
 `appimagetool` ist auf eine Fassung mit Prüfsumme festgelegt. Von Hand
 gestartet (*Actions → Release → Run workflow*) entsteht nur ein Artefakt zum
 Ausprobieren, kein Release.
@@ -1268,7 +1276,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-859 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+860 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1619,6 +1627,14 @@ Umleitung greift.
 * **NFO-Vorschau mit Block-Grafik.** Fehlten der Schrift die Blockzeichen,
   verrutschten die Zeilen; zwischen den Zeilen blieben Fugen. Die Vorschau
   zeichnet jetzt im festen Raster (siehe [NFO-Vorschau](#nfo-vorschau)).
+* **0.25.0 startete auf Debian 13 nicht.** Mit der neuen NFO-Vorschau nahm
+  PyInstaller Pango, HarfBuzz und Graphene vom Bausystem (Ubuntu 24.04) ins
+  Bündel. Auf Debian 13 lud das GTK des Systems dann die alte Pango aus dem
+  Bündel, und der Start brach mit `undefined symbol:
+  pango_font_description_set_features` ab. 0.25.1 lässt den Textsatz von
+  GTK samt Typelibs draußen; der Release-Workflow startet das AppImage
+  jetzt zusätzlich in einem frischen Debian 13 (siehe
+  [Auslieferung als Bündel](#auslieferung-als-bündel)).
 
 ### Was offen ist
 

@@ -42,7 +42,7 @@ def run_isolated(*args: str) -> subprocess.CompletedProcess:
 
 
 def test_packaging_files_exist():
-    for name in ("build.sh", "pyinstaller.spec", "entrypoint.py"):
+    for name in ("build.sh", "pyinstaller.spec", "entrypoint.py", "check-start.sh"):
         assert (PACKAGING / name).is_file(), name
     for name in ("AppRun", "mp3releaser.desktop", "mp3releaser.svg"):
         assert (APPIMAGE / name).is_file(), name
@@ -54,6 +54,10 @@ def test_apprun_is_executable():
 
 def test_build_script_is_executable():
     assert os.access(PACKAGING / "build.sh", os.X_OK)
+
+
+def test_start_check_is_executable():
+    assert os.access(PACKAGING / "check-start.sh", os.X_OK)
 
 
 def test_desktop_entry_has_the_required_keys():
@@ -409,7 +413,11 @@ def test_spec_leaves_host_graphics_libraries_out():
     zweiten Fassung aus dem Bündel daneben geladen werden."""
     text = (PACKAGING / "pyinstaller.spec").read_text(encoding="utf-8")
     assert "HOST_PROVIDED" in text
-    for name in ("libX11.", "libxcb", "libcairo", "libfontconfig."):
+    for name in ("libX11.", "libxcb", "libcairo", "libfontconfig.",
+                 "libpango", "libharfbuzz", "libgraphene"):
+        assert f'"{name}"' in text, name
+    assert "HOST_TYPELIBS" in text
+    for name in ("Pango-", "HarfBuzz-", "Graphene-", "Gtk-"):
         assert f'"{name}"' in text, name
 
 
@@ -437,6 +445,7 @@ def test_bundled_gui_starts_without_errors(tmp_path):
         pytest.fail("xvfb-run hing")
     output = result.stdout + result.stderr
     assert "Traceback" not in output, output[-2000:]
+    assert "Failed to load shared library" not in output, output[-2000:]
     assert "nicht zur Verfügung" not in output, output[-2000:]
     assert result.returncode == 124, output[-2000:]      # von timeout beendet
 
@@ -463,6 +472,10 @@ def test_release_workflow_builds_and_checks_before_publishing():
     assert "pytest tests" in runs
     assert "tests/test_packaging.py" in runs          # nach dem Bau erneut
     assert "GITHUB_REF_NAME" in runs                  # Tag passt zur Version
+    # Start auf einem neueren System als dem Bausystem: Was das Bündel
+    # mitbringt, muss zum GTK dort passen (0.25.0 brach auf Debian 13 ab)
+    assert "debian:trixie" in runs
+    assert "packaging/check-start.sh" in runs
 
     digest = build["env"]["APPIMAGETOOL_SHA256"]
     assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
@@ -489,13 +502,23 @@ def test_bundle_contains_no_host_graphics_libraries():
 
     spec = (PACKAGING / "pyinstaller.spec").read_text(encoding="utf-8")
     prefixes = ast.literal_eval(
-        re.search(r"HOST_PROVIDED = (\(.*?\))", spec, re.S).group(1))
+        re.search(r"^HOST_PROVIDED = (\(.*?^\))", spec, re.S | re.M).group(1))
     bundled = re.findall(r"\('([^']+)',\s*'[^']*',\s*'BINARY'\)",
                          PKG_TOC.read_text(encoding="utf-8"))
     assert bundled, "keine Bibliotheken im Bauprotokoll gefunden"
     leaked = sorted(name for name in bundled
                     if Path(name).name.startswith(prefixes))
     assert not leaked, f"Bibliotheken des Wirts im Bündel: {leaked}"
+
+    # Die Typelibs dazu ebenso - eine alte Pango-1.0.typelib im Bündel
+    # passte nicht zur Bibliothek des Wirts
+    typelibs = ast.literal_eval(
+        re.search(r"^HOST_TYPELIBS = (\(.*?^\))", spec, re.S | re.M).group(1))
+    packed = re.findall(r"'gi_typelibs/([^']+)'",
+                        PKG_TOC.read_text(encoding="utf-8"))
+    assert packed, "keine Typelibs im Bauprotokoll gefunden"
+    leaked = sorted(name for name in packed if name.startswith(typelibs))
+    assert not leaked, f"Typelibs des Wirts im Bündel: {leaked}"
 
 
 def test_container_reads_its_configuration_from_the_mounted_folder():
