@@ -476,6 +476,17 @@ def process(directory: str | Path, options: BuildOptions,
                    release_date_format=options.release_date_format)
     release, root = scanned.release, scanned.root
     outcome = BuildOutcome(root=root, warnings=list(scanned.warnings))
+    naming = naming or naming_from_config()
+
+    if do_rename:
+        # Erst pruefen, dann anfassen: Frueher waren die Tags schon
+        # geschrieben, wenn das Umbenennen danach an einer Kollision
+        # scheiterte - ein halb fertiges Release.
+        preview = plan_rename(release, root, naming)
+        if not preview.is_safe:
+            outcome.warnings += preview.warnings
+            outcome.collisions = list(preview.collisions)
+            return outcome
 
     if do_tag:
         profile = tags or TagProfile()
@@ -485,8 +496,7 @@ def process(directory: str | Path, options: BuildOptions,
         refresh_sizes(release)
 
     if do_rename:
-        plan, root = perform_rename(release, root,
-                                    naming or naming_from_config())
+        plan, root = perform_rename(release, root, naming)
         outcome.warnings += plan.warnings
         if not plan.is_safe:
             outcome.collisions = list(plan.collisions)

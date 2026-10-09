@@ -114,7 +114,7 @@ def test_perform_rename_reports_the_new_root(tmp_path):
     plan, new_root = service.perform_rename(release, root,
                                             NamingProfile(group="GRP"))
     assert plan.is_safe
-    assert new_root.name == "der_artist-das_album-2026-grp"
+    assert new_root.name == "der_artist-das_album-2026-GRP"
     assert new_root.is_dir()
     assert not root.exists()
 
@@ -149,7 +149,7 @@ def test_process_runs_tag_rename_and_build_in_order(tmp_path):
     )
 
     assert outcome.ok
-    assert outcome.root.name == "der_artist-das_album-2026-grp"
+    assert outcome.root.name == "der_artist-das_album-2026-GRP"
     sfv = next(p for p in outcome.created if p.suffix == ".sfv")
     assert verify_sfv(sfv).success          # Pruefsummen passen zum Endzustand
 
@@ -791,3 +791,61 @@ def test_scan_json_carries_the_release_date(tmp_path):
     assert cli.main(["scan", str(make_release(tmp_path)), "-o", str(out)]) == 0
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["release_date"] == date.today().strftime("%Y-%m-%d")
+
+
+# ================================================ alles in einem Schritt
+
+
+@needs_ffmpeg
+def test_process_writes_no_tags_when_the_rename_would_collide(tmp_path):
+    """Erst pruefen, dann anfassen. Vorher standen die Tags schon in den
+    Dateien, wenn das Umbenennen danach an einer Kollision scheiterte."""
+    from mutagen.id3 import ID3
+
+    root = make_release(tmp_path)
+    track = sorted(root.glob("*.mp3"))[0]
+    before = track.read_bytes()
+    outcome = service.process(
+        root, service.BuildOptions(template=make_template(tmp_path)),
+        naming=NamingProfile(file_pattern="#Album"),
+        tags=service.TagProfile(comment="geaendert"),
+        do_tag=True, do_rename=True)
+    assert outcome.collisions and not outcome.ok
+    assert track.read_bytes() == before                # Datei unveraendert
+    assert not [frame for frame in ID3(track).values()
+                if "geaendert" in str(frame)]
+
+
+@needs_ffmpeg
+def test_cli_release_does_everything_with_the_saved_template(tmp_path,
+                                                             monkeypatch,
+                                                             capsys):
+    """Eine Eingabe fuer das fertige Release - ohne Vorlage auf der
+    Kommandozeile nimmt sie die gespeicherte bzw. mitgelieferte."""
+    from releaser import cli
+
+    root = make_release(tmp_path)
+    monkeypatch.chdir(tmp_path)
+    assert cli.main(["release", str(root), "--group", "GrP"]) == 0
+    err = capsys.readouterr().err
+    assert "standard.skl" in err and "Release erstellt" in err
+
+    target = tmp_path / "Der_Artist-Das_Album-2026-GrP"
+    assert f"Ordner: {target}" in err
+    assert target.is_dir(), sorted(p.name for p in tmp_path.iterdir())
+    names = sorted(p.name for p in target.iterdir())
+    assert "00-der_artist-das_album-2026-grp.nfo" in names
+    assert "00-der_artist-das_album-2026-grp.sfv" in names
+    assert "01-der_artist-titel_1.mp3" in names
+
+
+@needs_ffmpeg
+def test_cli_release_without_any_template_is_an_error(tmp_path, monkeypatch,
+                                                      capsys):
+    from releaser import cli
+
+    monkeypatch.setattr(service, "bundled_template", lambda: None)
+    root = make_release(tmp_path)
+    assert cli.main(["release", str(root)]) == 2
+    assert "keine Vorlage" in capsys.readouterr().err
+    assert root.is_dir()

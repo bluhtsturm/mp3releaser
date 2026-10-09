@@ -30,6 +30,15 @@
   button:hover:not(:disabled) { border-color: var(--accent); }
   button:disabled { opacity: .38; cursor: not-allowed; }
   button.primary { background: var(--accent); color: #10161c; font-weight: 600; }
+  /* Einzelschritte im Menü neben "Release erstellen" */
+  #steps { position: relative; }
+  #steps .menu.hidden { display: none; }
+  #steps .menu {
+    position: absolute; right: 0; top: calc(100% + 4px); z-index: 20;
+    display: flex; flex-direction: column; gap: 4px; min-width: 180px;
+    padding: 6px; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px;
+  }
   main { flex: 1; display: flex; min-height: 0; }
   #browser {
     width: 340px; border-right: 1px solid var(--line); display: flex;
@@ -78,10 +87,14 @@
   #filenames button { padding: 2px 8px; }
   #collisions { color: var(--error); }
   /* Kein Umbruch: die Vorlage ist spaltengenau */
-  #nfotext { font-family: ui-monospace, monospace; font-size: 12px;
-             white-space: pre; overflow-x: auto; background: var(--panel);
-             border: 1px solid var(--line); border-radius: 8px; padding: 12px;
-             line-height: 1.25; }
+  /* Die .nfo im festen Raster: Block- und Rahmenzeichen kommen als Flaechen
+     vom Server, nicht aus der Schrift - siehe drawNfo */
+  #nfoframe { overflow: auto; background: var(--panel);
+              border: 1px solid var(--line); border-radius: 8px; }
+  #nfocanvas { display: block; color: var(--text); }
+  #nfotext { display: none; }
+  #nfobar { display: flex; gap: 10px; align-items: center; }
+  #nfobar .hint { flex: 1; }
   details { margin-bottom: 14px; border: 1px solid var(--line);
             border-radius: 8px; background: var(--panel); }
   summary { padding: 9px 12px; cursor: pointer; font-weight: 600; }
@@ -127,9 +140,19 @@
   <span class="spacer"></span>
   <button id="undo" title="Letzte Umbenennung oder letzten Tag-Lauf zurücknehmen">↶</button>
   <button id="check">Prüfen</button>
-  <button id="tags">Tags …</button>
-  <button id="rename">Umbenennen …</button>
-  <button id="build" class="primary">Dateien erzeugen</button>
+  <button id="produce" class="primary"
+          title="Tags schreiben, umbenennen und .nfo, .sfv, .m3u erzeugen – in einem Schritt">Release erstellen</button>
+  <!-- die Einzelschritte, mit Vorschau - für wer nur einen davon will -->
+  <!-- kein <details>: so heissen auf dieser Seite die Feldgruppen -->
+  <span id="steps">
+    <button id="stepsToggle" title="Einzelschritte: Tags, Umbenennen, Dateien erzeugen"
+            aria-haspopup="true" aria-expanded="false">⋯</button>
+    <span class="menu hidden" id="stepsMenu">
+      <button id="tags">Tags …</button>
+      <button id="rename">Umbenennen …</button>
+      <button id="build">Dateien erzeugen</button>
+    </span>
+  </span>
 </header>
 
 <div class="banner" id="banner"></div>
@@ -168,8 +191,14 @@
       <p class="hint" id="collisions"></p>
     </div>
     <div id="nfo" class="panel hidden">
+      <div id="nfoframe"><canvas id="nfocanvas" role="img"
+           aria-label="Vorschau der .nfo"></canvas></div>
+      <!-- der Text selbst: fuer "Text kopieren" und Bildschirmleser -->
       <pre id="nfotext"></pre>
-      <p class="hint" id="nfostatus"></p>
+      <div id="nfobar">
+        <p class="hint" id="nfostatus"></p>
+        <button id="nfocopy">Text kopieren</button>
+      </div>
     </div>
   </section>
 </main>
@@ -304,10 +333,65 @@ function render(state) {
   document.getElementById("tags").disabled = !enabled.preview_tags;
   document.getElementById("rename").disabled = !enabled.preview_rename;
   document.getElementById("build").disabled = !enabled.build;
+  document.getElementById("produce").disabled = !enabled.produce;
   document.getElementById("up").disabled = !state.current_path;
 }
 
 let nfoPending = false;
+// Zeichnet die .nfo im festen Raster, wie ein NFO-Betrachter. In einem
+// <pre> verrutschten Zeilen mit Blockzeichen, sobald die Schrift sie nicht
+// hatte (Ersatzschrift mit anderer Breite), und zwischen den Zeilen blieb
+// eine Fuge. Block- und Rahmenzeichen sind hier Rechtecke vom Server, die
+// ihre Zelle bis zum Rand fuellen; alle anderen Zeichen stehen einzeln in
+// ihrer Zelle, notfalls auf deren Breite gestaucht.
+function drawNfo(text, cell, shapes) {
+  const [cw, ch] = cell;
+  const pad = 10;
+  const lines = text.split("\n").map(line => [...line]);
+  const cols = lines.reduce((most, line) => Math.max(most, line.length), 0);
+  const canvas = document.getElementById("nfocanvas");
+  const width = cols * cw + 2 * pad, height = lines.length * ch + 2 * pad;
+  const ratio = window.devicePixelRatio || 1;
+  canvas.style.width = width + "px";
+  canvas.style.height = height + "px";
+  canvas.width = Math.round(width * ratio);
+  canvas.height = Math.round(height * ratio);
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+  ctx.fillStyle = getComputedStyle(canvas).color;
+  ctx.font = `${Math.round(ch * 0.8)}px "DejaVu Sans Mono", "Liberation Mono", ui-monospace, monospace`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  lines.forEach((line, row) => {
+    const top = pad + row * ch;
+    line.forEach((char, column) => {
+      if (char === " ") return;
+      const left = pad + column * cw;
+      const rects = shapes[char];
+      if (rects) {
+        for (const [x, y, w, h, alpha] of rects) {
+          ctx.globalAlpha = alpha;
+          ctx.fillRect(left + x, top + y, w, h);
+        }
+        ctx.globalAlpha = 1;
+      } else {
+        ctx.fillText(char, left + cw / 2, top + ch / 2, cw);
+      }
+    });
+  });
+}
+
+document.getElementById("nfocopy").onclick = async () => {
+  const text = document.getElementById("nfotext").textContent;
+  try {
+    await navigator.clipboard.writeText(text);
+    note("info", "NFO-Text in die Zwischenablage kopiert");
+  } catch (error) {
+    note("error", "Kopieren nicht möglich: " + error);
+  }
+};
+
 async function refreshNfo() {
   // Nur laden, wenn der Reiter sichtbar ist - die Datei ist einige Kilobyte
   if (document.getElementById("nfo").classList.contains("hidden")) return;
@@ -316,6 +400,7 @@ async function refreshNfo() {
   const data = await call("/api/nfo").finally(() => { nfoPending = false; });
   if (!data) return;
   document.getElementById("nfotext").textContent = data.text;
+  drawNfo(data.text, data.cell, data.shapes);
   const status = document.getElementById("nfostatus");
   status.textContent = data.template
     ? `${data.lines} Zeilen, breiteste ${data.width} Zeichen · Vorlage: `
@@ -477,6 +562,33 @@ document.getElementById("tags").onclick = () =>
   call("/api/plan/tags", {}).then(p => showPlan(p, "tags"));
 document.getElementById("rename").onclick = () =>
   call("/api/plan/rename", {}).then(p => showPlan(p, "rename"));
+// Ein Klick, das fertige Release: Tags, Umbenennen, Begleitdateien. Kein
+// Zwischendialog - was entsteht, zeigen die Reiter "Namen" und "NFO" vorher,
+// und alles Riskante prueft der Server, bevor er etwas anfasst.
+document.getElementById("produce").onclick = () =>
+  call("/api/produce", {}).then(payload => {
+    if (!payload) return;
+    render(payload);
+    pendingPlan = null;
+    document.getElementById("planTitle").textContent =
+      payload.done ? "Release erstellt" : "Release nicht erstellt";
+    document.getElementById("planText").textContent = payload.done
+      ? payload.done.join("\n")
+        + "\n\nZurücknehmen mit ↶ – erst die Umbenennung, dann die Tags."
+      : (payload.messages || []).filter(m => m.level !== "info")
+          .map(m => (m.level === "error" ? "x " : "! ") + m.text).join("\n");
+    document.getElementById("planApply").style.display = "none";
+    document.getElementById("plan").showModal();
+  });
+function showSteps(open) {
+  document.getElementById("stepsMenu").classList.toggle("hidden", !open);
+  document.getElementById("stepsToggle").setAttribute("aria-expanded", String(open));
+}
+document.getElementById("stepsToggle").onclick = event => {
+  event.stopPropagation();
+  showSteps(document.getElementById("stepsMenu").classList.contains("hidden"));
+};
+document.addEventListener("click", () => showSteps(false));
 document.getElementById("build").onclick = () =>
   call("/api/build", {}).then(payload => {
     if (!payload) return;

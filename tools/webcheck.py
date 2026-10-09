@@ -301,18 +301,36 @@ def build_steps(checker: Checker) -> None:
                        c.next())))))
 
     def step_nfo_tab():
+        # Die .nfo steht im Raster auf einem Canvas. Gemessen wird die erste
+        # Zeile der Standardvorlage (╔ + 76 × ═ + ╗): Ihre obere Linie muss
+        # ohne Luecke durchlaufen - in einem <pre> brach sie an jeder
+        # Zellgrenze, sobald die Schrift die Rahmenzeichen nicht hatte.
+        # Dafuer die Standardvorlage - sie hat Rahmenzeichen.
         c.js("""
+             const select = document.getElementById('template');
+             select.value = 'standard.skl';
+             select.dispatchEvent(new Event('change'));
              [...document.querySelectorAll('.tab')]
                .find(t => t.dataset.tab === 'nfo').click();
              JSON.stringify('ok')
              """, lambda _: None)
         c.wait("JSON.stringify(document.getElementById('nfotext')"
-               ".textContent.length > 50)",
-               lambda _: c.js(
-                   "JSON.stringify(document.getElementById('nfostatus').textContent)",
-                   lambda text: (
-                       c.report("Zeilen" in (text or ""),
-                                f"NFO-Vorschau gefüllt ({text})"),
+               ".textContent.startsWith('╔'))",
+               lambda _: c.js("""
+                   const canvas = document.getElementById('nfocanvas');
+                   const ratio = window.devicePixelRatio || 1;
+                   const y = Math.round((10 + 6) * ratio);
+                   const row = canvas.getContext('2d')
+                       .getImageData(0, y, canvas.width, 1).data;
+                   let solid = 0;
+                   for (let i = 3; i < row.length; i += 4) if (row[i] > 200) solid++;
+                   JSON.stringify({
+                     status: document.getElementById('nfostatus').textContent,
+                     solid: solid, needed: Math.round(76 * 8 * ratio)})
+                   """, lambda got: (
+                       c.report("Zeilen" in (got.get("status") or "")
+                                and got.get("solid", 0) >= got.get("needed", 1),
+                                f"NFO im Raster, Rahmen ohne Luecke ({got})"),
                        c.next())))
 
     def step_status():
@@ -321,13 +339,29 @@ def build_steps(checker: Checker) -> None:
                                     f"Statuszeile: {text}"),
                            c.next()))
 
+    def step_produce():
+        # Zuletzt, weil es die Dateien wirklich umbenennt: ein Klick auf
+        # "Release erstellen", danach das Ergebnisfenster.
+        c.js("document.getElementById('produce').click(); 'ok'",
+             lambda _: None)
+        c.wait("JSON.stringify(document.getElementById('plan').open)",
+               lambda _: c.js("""
+                   JSON.stringify({
+                     title: document.getElementById('planTitle').textContent,
+                     text: document.getElementById('planText').textContent})
+                   """, lambda got: (
+                       c.report(got.get("title") == "Release erstellt"
+                                and "Erzeugt:" in (got.get("text") or ""),
+                                f"Ein Klick erstellt das Release ({got})"),
+                       c.next())))
+
     c.steps = [step_loaded, step_banner, step_buttons_disabled, step_select,
                step_open_and_select_release, step_template,
                step_load_release, step_groups,
                step_unused_collapsed, step_field_value,
                step_counter_turns_red, step_plan_dialog,
                step_cancel_changes_nothing, step_file_name_by_hand,
-               step_nfo_tab, step_status]
+               step_nfo_tab, step_status, step_produce]
 
 
 def main() -> int:

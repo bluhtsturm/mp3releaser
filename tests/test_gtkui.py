@@ -352,7 +352,7 @@ def test_names_tab_shows_and_accepts_patterns(release_tree):
     """)
     assert result.returncode == 0, result.stderr
     assert "HASARROW True" in result.stdout
-    assert "DIRENTRY der_artist-das_album-2026-grp" in result.stdout
+    assert "DIRENTRY der_artist-das_album-2026-GRP" in result.stdout
     assert "SHORTNAME True" in result.stdout
     assert "MANUAL von_hand" in result.stdout
 
@@ -794,9 +794,7 @@ def test_nfo_preview_follows_the_fields(release_tree):
                               flags=Gio.ApplicationFlags.FLAGS_NONE)
 
         def text_of(window):
-            buffer = window.nfo_view.get_buffer()
-            return buffer.get_text(buffer.get_start_iter(),
-                                   buffer.get_end_iter(), False)
+            return window.nfo_view.text
 
         def activate(a):
             window = ReleaserWindow(a, state)
@@ -838,9 +836,7 @@ def test_nfo_preview_without_a_template_explains_itself(release_tree):
         def activate(a):
             window = ReleaserWindow(a, state)
             state.load("eingang/Artist-Album-2026-GRP")
-            buffer = window.nfo_view.get_buffer()
-            print("TEXT", buffer.get_text(buffer.get_start_iter(),
-                                          buffer.get_end_iter(), False)[:30])
+            print("TEXT", window.nfo_view.text[:30])
             a.quit()
 
         app.connect("activate", activate)
@@ -1218,3 +1214,151 @@ def test_start_without_arguments_uses_the_saved_settings(tmp_path):
     assert "GROUP GESPEICHERT" in result.stdout
     assert f"TEMPLATE {own}" in result.stdout
     assert f"LABEL {eingang}" in result.stdout
+
+
+# ------------------------------------------------- NFO im festen Raster
+
+
+@needs_gtk
+def test_nfo_view_draws_blocks_without_gaps_on_a_fixed_grid():
+    """Blockzeichen als Flaechen: zwei mal zwei Vollbloecke ergeben eine
+    lueckenlose Flaeche, die Grafik ist so breit wie Spalten mal Zelle -
+    gleich, welche Schrift eingestellt ist. Vorher verrutschten Zeilen mit
+    Blockzeichen, wenn die Schrift sie nicht hatte."""
+    result = run_in_display(f"""
+        import sys; sys.path.insert(0, {str(ROOT)!r})
+        import gi
+        gi.require_version("Gtk", "4.0"); gi.require_version("Gsk", "4.0")
+        from gi.repository import Gsk, Gtk
+        from releaser.frontends.gtkui import NfoView
+
+        def color_rects(node, out):
+            kind = node.get_node_type()
+            if kind == Gsk.RenderNodeType.COLOR_NODE:
+                b = node.get_bounds()
+                out.append((round(b.get_x()), round(b.get_y()),
+                            round(b.get_width()), round(b.get_height())))
+            elif kind == Gsk.RenderNodeType.CONTAINER_NODE:
+                for i in range(node.get_n_children()):
+                    color_rects(node.get_child(i), out)
+            return out
+
+        for font in ("DejaVu Sans Mono 10", "Noto Mono 10", "Monospace 13"):
+            NfoView.FONT = font
+            view = NfoView()
+            window = Gtk.Window()
+            window.set_child(view)
+            view.set_text("\\u2588\\u2588 abc\\n\\u2588\\u2588\\n\\u2554\\u2550\\u2557")
+            width, height, _base = view.cell()
+            snapshot = Gtk.Snapshot()
+            view.do_snapshot(snapshot)
+            rects = color_rects(snapshot.to_node(), [])
+            pad = NfoView.PAD
+            pixels = set()
+            for x, y, w, h in rects:
+                pixels |= {{(px, py) for px in range(x, x + w)
+                            for py in range(y, y + h)}}
+            block = {{(px, py) for px in range(pad, pad + 2 * width)
+                      for py in range(pad, pad + 2 * height)}}
+            print("SOLID", font, block <= pixels)
+            measured = view.measure(Gtk.Orientation.HORIZONTAL, -1)[0]
+            print("WIDTH", font, measured == 6 * width + 2 * pad)
+            # die obere Rahmenlinie in Zeile 3 laeuft ueber alle drei Zellen
+            top = pad + 2 * height
+            line_rows = {{py for px, py in pixels
+                          if py >= top and px == pad + width + width // 2}}
+            print("FRAME", font, any(all((px, py) in pixels
+                  for px in range(pad + width // 2, pad + 3 * width - width // 2))
+                  for py in line_rows))
+    """)
+    assert result.returncode == 0, result.stderr
+    for line in result.stdout.splitlines():
+        if line.startswith(("SOLID", "WIDTH", "FRAME")):
+            assert line.endswith("True"), line
+    assert result.stdout.count("True") == 9, result.stdout
+
+
+@needs_gtk
+@needs_ffmpeg
+def test_nfo_text_can_be_copied(release_tree):
+    result = run_in_display(f"""
+        import sys; sys.path.insert(0, {str(ROOT)!r})
+        import gi; gi.require_version("Gtk", "4.0")
+        from gi.repository import Gio, Gtk
+        from releaser.browse import Mount, MountedSource
+        from releaser.frontends.gtkui import ReleaserWindow
+        from releaser.uistate import AppState
+
+        state = AppState(
+            source=MountedSource([Mount("eingang", {str(release_tree / 'eingang')!r})]))
+        state.load_template({str(release_tree / 'vorlage.skl')!r})
+        app = Gtk.Application(application_id="de.test.copy",
+                              flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+        def activate(a):
+            window = ReleaserWindow(a, state)
+            window._on_copy_nfo()
+            print("MSG", state.messages[-1].text)
+            a.quit()
+
+        app.connect("activate", activate)
+        raise SystemExit(app.run([]))
+    """)
+    assert result.returncode == 0, result.stderr
+    assert "MSG NFO-Text in die Zwischenablage kopiert" in result.stdout
+
+
+# ------------------------------------------------- Ein Knopf
+
+
+@needs_gtk
+@needs_ffmpeg
+def test_one_button_makes_the_release(release_tree):
+    """"Release erstellen" ersetzt die drei Knoepfe Tags, Umbenennen und
+    Dateien erzeugen; die Einzelschritte stehen im Menue daneben."""
+    result = run_in_display(f"""
+        import sys; sys.path.insert(0, {str(ROOT)!r})
+        import gi; gi.require_version("Gtk", "4.0")
+        from gi.repository import Gio, Gtk
+        from releaser.browse import Mount, MountedSource
+        from releaser.frontends.gtkui import ReleaserWindow
+        from releaser.naming import NamingProfile
+        from releaser.uistate import Action, AppState
+
+        state = AppState(
+            source=MountedSource([Mount("eingang", {str(release_tree / 'eingang')!r})]),
+            naming=NamingProfile(group="GRP"))
+        state.load_template({str(release_tree / 'vorlage.skl')!r})
+        app = Gtk.Application(application_id="de.test.produce",
+                              flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+        def activate(a):
+            window = ReleaserWindow(a, state)
+            button = window.buttons[Action.PRODUCE]
+            print("BEFORE", button.get_sensitive())
+            state.load("eingang/Artist-Album-2026-GRP")
+            print("AFTER_LOAD", button.get_sensitive())
+            print("LABEL", button.get_label())
+            # die Einzelschritte sind noch da, nur nicht mehr in der Leiste
+            print("STEPS", all(window.buttons[x].get_parent() is not None
+                               for x in (Action.PREVIEW_TAGS,
+                                         Action.PREVIEW_RENAME, Action.BUILD)))
+            button.emit("clicked")
+            titles = [w.get_title() for w in Gtk.Window.list_toplevels()]
+            print("DIALOG", "Release erstellt" in titles)
+            print("ROOT", state.root.name)
+            a.quit()
+
+        app.connect("activate", activate)
+        raise SystemExit(app.run([]))
+    """)
+    assert result.returncode == 0, result.stderr
+    assert "BEFORE False" in result.stdout
+    assert "AFTER_LOAD True" in result.stdout
+    assert "LABEL Release erstellen" in result.stdout
+    assert "STEPS True" in result.stdout
+    assert "DIALOG True" in result.stdout
+    assert "ROOT der_artist-das_album-2026-GRP" in result.stdout
+    target = release_tree / "eingang" / "der_artist-das_album-2026-GRP"
+    assert sorted(p.suffix for p in target.iterdir()) == [
+        ".m3u", ".mp3", ".mp3", ".nfo", ".sfv"]

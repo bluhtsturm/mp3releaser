@@ -310,10 +310,17 @@ def create_app(source: Optional[MountedSource] = None,
         Eigener Endpunkt statt im Zustand: die Datei ist mehrere Kilobyte
         gross und wird nicht bei jedem Klick gebraucht.
         """
+        from ...nfoview import WEB_CELL, shapes_for
+
         state = session(response, releaser_session)
         lines, width = state.nfo_dimensions()
+        text = state.nfo_preview()
         return JSONResponse({
-            "text": state.nfo_preview(),
+            "text": text,
+            # Block- und Rahmenzeichen als Flaechen fuer das Raster der Seite -
+            # dieselbe Geometrie wie im Desktop, siehe releaser.nfoview
+            "cell": list(WEB_CELL),
+            "shapes": shapes_for(text, *WEB_CELL),
             "lines": lines,
             "width": width,
             "template": state.template_path.name if state.template_path else None,
@@ -446,6 +453,17 @@ def create_app(source: Optional[MountedSource] = None,
         created = state.build()
         payload = state_json(state)
         payload["created"] = [p.name for p in created]
+        state.clear_messages()
+        return JSONResponse(payload, headers=dict(response.headers))
+
+    @app.post("/api/produce")
+    def produce(response: Response,
+                releaser_session: Optional[str] = Cookie(default=None)):
+        """Das fertige Release in einem Schritt - siehe AppState.produce."""
+        state = session(response, releaser_session)
+        done = state.produce()
+        payload = state_json(state)
+        payload["done"] = done
         state.clear_messages()
         return JSONResponse(payload, headers=dict(response.headers))
 

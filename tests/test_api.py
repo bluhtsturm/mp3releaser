@@ -60,7 +60,7 @@ def test_renderer_works_without_the_audio_layer():
 
     release = Release(artist="X", album="Y", year=2026)
     assert Template.parse("#Artist  ").render(release).strip() == "X"
-    assert release_dirname(release, NamingProfile(group="GRP")) == "x-y-2026-grp"
+    assert release_dirname(release, NamingProfile(group="GRP")) == "x-y-2026-GRP"
 
 
 # ------------------------------------------------------------- CLI-Verhalten

@@ -426,7 +426,7 @@ def test_cover_is_renamed_with_the_release(tmp_path):
     profile = NamingProfile(group="GRP", companion_prefix="00-")
     apply_plan(plan_rename(release, root, profile), release)
 
-    new_root = tmp_path / "der_artist-das_album-2026-grp"
+    new_root = tmp_path / "der_artist-das_album-2026-GRP"
     assert (new_root / "00-der_artist-das_album-2026-grp.jpg").is_file()
     assert not (new_root / "folder.jpg").exists()
 
@@ -446,7 +446,7 @@ def test_several_covers_get_numbered(tmp_path):
     release = scan_directory(root).release
     apply_plan(plan_rename(release, root, NamingProfile(group="GRP")), release)
 
-    new_root = tmp_path / "der_artist-das_album-2026-grp"
+    new_root = tmp_path / "der_artist-das_album-2026-GRP"
     covers = sorted(p.name for p in new_root.glob("*.jpg"))
     assert covers == ["00-der_artist-das_album-2026-grp-01.jpg",
                       "00-der_artist-das_album-2026-grp-02.jpg"]

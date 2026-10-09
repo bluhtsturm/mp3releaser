@@ -1,3 +1,134 @@
+# Änderungen – 0.25.0: Gruppe wörtlich, ein Knopf, NFO im Raster
+
+Stand: 09.10.2026 · Version 0.24.1 → **0.25.0**
+
+Drei Rückmeldungen aus der Erprobung, für Kommandozeile, Docker (Web) und
+Desktop. Gegen 0.24.1 laufen gelassen, schlagen 66 der jetzigen Tests fehl:
+die 47 neuen und die bestehenden, deren Erwartung sich mit der Gruppe
+geändert hat.
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 812 | 859 |
+| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | alle grün | alle 859 grün, nichts übersprungen |
+| Prüfungen im echten Browser (`tools/webcheck.py`) | 16 | 17 |
+| `pyflakes` | sauber | sauber |
+
+## 1. Gruppe im Verzeichnisnamen, wie sie eingegeben ist
+
+**Vorher** lief die Gruppe mit durch Regelkette und Schreibweise: Mit
+„Schreibweise Verzeichnis: lower“ wurde aus „GRP“ ein „grp“.
+
+**Jetzt** steht die Gruppe im **Verzeichnisnamen** genau so, wie sie im Feld
+steht; die Schreibweise des Verzeichnisses gilt für alles davor. Nur Zeichen,
+die kein Ordnername enthalten darf, fallen weg, Leerzeichen werden zum
+Trenner. Das gilt nur für das Verzeichnis: Die Dateien darin – Begleitdateien
+eingeschlossen – folgen weiter ganz der Schreibweise der Dateien. Ein von Hand
+gesetzter Verzeichnisname (ein Muster ohne Tags) behält die Gruppe ebenfalls.
+
+| Schreibweise Verzeichnis | Gruppe | Verzeichnis | Begleitdatei (Dateien: lower) |
+|---|---|---|---|
+| lower | GrP | `der_artist-das_album-2026-GrP` | `00-der_artist-das_album-2026-grp.nfo` |
+| upper | GrP | `DER_ARTIST-DAS_ALBUM-2026-GrP` | `00-der_artist-das_album-2026-grp.nfo` |
+| capitalize | GRP | `Der_Artist-Das_Album-2026-GRP` | `00-der_artist-das_album-2026-grp.nfo` |
+
+**Umsetzung:** `NamingProfile.render_name()` in `releaser/naming.py`. Beim
+Verzeichnisnamen steht während Regelkette und Schreibweise ein Platzhalter an
+der Stelle der Gruppe – nur Buchstaben und Ziffern, die jede Regel unverändert
+lässt –, danach die Gruppe selbst. Fehlt sie, verschwindet ihr Trenner wie bei
+jedem leeren Tag.
+
+## 2. Ein Knopf: „Release erstellen“
+
+**Vorher** waren es drei Knöpfe – „Tags …“, „Umbenennen …“, „Dateien
+erzeugen“ – mit je eigener Vorschau und Bestätigung.
+
+**Jetzt** macht ein Knopf aus dem eingelesenen Ordner das fertige Release:
+Tags schreiben, umbenennen, `.nfo`, `.sfv` und `.m3u` erzeugen, in dieser
+Reihenfolge. Die Einzelschritte gibt es weiter, im Menü `⋯` daneben.
+
+* **Desktop:** Knopf „Release erstellen“ in der Kopfleiste, danach ein
+  Fenster mit dem, was getan wurde.
+* **Web/Docker:** derselbe Knopf, `POST /api/produce`.
+* **Kommandozeile:** `releaser release /pfad --group GRP` – eine Eingabe.
+  Ohne Vorlage nimmt der Befehl die gespeicherte, sonst die mitgelieferte.
+  `release` und `build --rename` nennen danach den neuen Ordner.
+
+Kein Zwischendialog: Was entsteht, zeigen die Reiter „Namen“ und „NFO“ schon
+vorher. Dafür prüft `AppState.produce()`, **bevor** es etwas anfasst, ob alles
+gehen kann – Vorlage geladen, Ordner beschreibbar, keine Namenskollision.
+Sonst ändert sich nichts, und ein Fenster nennt den Grund. Zurückgenommen wird
+mit `↶`: erst die Umbenennung, dann die Tags.
+
+**Nebenbei behoben:** `build --tag --rename` (`service.process`) schrieb die
+Tags, bevor es merkte, dass das Umbenennen an einer Kollision scheitert –
+zurück blieb ein halb fertiges Release. Jetzt wird der Umbenennungsplan vorher
+geprüft.
+
+## 3. NFO-Vorschau im festen Raster
+
+**Nachgestellt.** Die Vorschau war ein Textfeld. Fehlten der eingestellten
+Schrift die Blockzeichen der Codepage 437 (`█ ▄ ▀ ▌ ▐ ░ ▒ ▓`), holte GTK sie
+aus einer Ersatzschrift mit anderer Breite: Jede Zeile mit Block-Grafik
+verrutschte gegenüber den anderen und sah eingerückt aus (mit „Noto Mono“
+nachgestellt). Außerdem blieb zwischen den Zeilen eine Fuge, weil der
+Zeilenabstand einer Schrift größer ist als ihre Zeichen – übereinanderliegende
+Blöcke hatten Lücken, senkrechte Rahmenlinien waren gestrichelt. Im Web
+(`<pre>`) gilt dasselbe.
+
+**Jetzt** zeichnen beide Oberflächen wie ein NFO-Betrachter: Jedes Zeichen hat
+seine Zelle.
+* `releaser/nfoview.py` (neu) beschreibt alle 48 Grafikzeichen von `0xB0`
+  bis `0xDF` – Blöcke, Schattierungen, alle einfachen, doppelten und
+  gemischten Rahmenzeichen – als Rechtecke, die ihre Zelle bis zum Rand
+  füllen. Doppellinien biegen an Ecken außen um und halten innen an; Halb-
+  und Achtelblöcke teilen die Zelle auch bei ungerader Höhe ohne Fuge.
+* **Desktop:** `NfoView` zeichnet über `Gtk.Snapshot` (ohne pycairo, das im
+  AppImage nicht dabei ist). Gewöhnliche Zeichen kommen aus der Schrift, jedes
+  einzeln an seinem Platz; ein breiteres Ersatzzeichen wird in die Zelle
+  gestaucht statt die Nachbarn zu verschieben.
+* **Web:** Canvas; die Rechtecke liefert der Server mit (`/api/nfo`: `cell`,
+  `shapes`), also dieselbe Geometrie wie im Desktop.
+* „Text kopieren“ legt die `.nfo` als Text in die Zwischenablage (in beiden
+  Oberflächen) – das Textfeld erlaubte vorher das Markieren.
+
+## 4. Dokumentation
+
+* `README.md`, `README.en.md`: Gruppe im Abschnitt „Naming-Schema“, neuer
+  Abschnitt „Ein Knopf: Release erstellen“, NFO-Vorschau im Raster, Modulbaum
+  (`nfoview.py`), Schnellstart mit `releaser release`, Abschnitt „Aus der
+  vierzehnten Erprobung“, Testzahl.
+* `EINRICHTUNG.md`: `releaser release` statt `build --tag --rename`, Testzahl.
+
+## Neue und geänderte Tests
+
+* `tests/test_nfoview.py` (neu): Vollblock bis zum Rand, Halb-, Achtel- und
+  Viertelblöcke ohne Lücke und Überlappung (fünf Zellgrößen, auch ungerade),
+  Schattierungen, alle 40 Rahmenzeichen treffen ihre Ränder an der richtigen
+  Stelle, Ecken und Kreuzungen der Doppellinien, alle 48 Grafikzeichen
+  werden als Fläche gezeichnet.
+* `tests/test_gtkui.py`: Die Desktop-Vorschau zeichnet mit drei Schriften
+  dieselbe lückenlose Fläche (gemessen an den Render-Knoten), „Text
+  kopieren“, der Knopf „Release erstellen“ im echten Fenster.
+* `tests/test_uistate.py`: alles in einem Schritt, Kollision ändert nichts
+  (Dateien und Tags gleich), ohne Vorlage, nur lesend eingehängt, zweiter
+  Lauf auf einem fertigen Release.
+* `tests/test_service.py`: keine Tags vor einer Kollision, `releaser release`
+  mit gespeicherter und ohne jede Vorlage.
+* `tests/test_web.py`: `/api/produce` mit Erfolg und mit Begründung,
+  `/api/nfo` liefert die Flächen.
+* `tests/test_naming.py`: Gruppe wörtlich in jeder Schreibweise, ohne
+  Regelkette, leere Gruppe, Dateien in Dateischreibweise, von Hand gesetzter
+  Name, kein Titelwort wird für die Gruppe gehalten.
+* `tools/webcheck.py`: misst im echten Browser die Rahmenlinie der
+  Standardvorlage Pixel für Pixel und erstellt ein Release mit einem Klick.
+* Geändert: Erwartungen an Verzeichnisnamen mit Gruppe (`…-grp` → `…-GRP`) in
+  `test_api`, `test_extras`, `test_naming`, `test_service`, `test_uistate`,
+  `test_gtkui`. `test_apply_leaves_no_temporary_files` prüfte einen Ordner,
+  den es nicht gab, und lief deshalb leer durch – jetzt prüft er den echten.
+
+---
+
 # Änderungen – 0.24.1: Konfiguration finden, auch im Container
 
 Stand: 28.09.2026 · Version 0.24.0 → **0.24.1**

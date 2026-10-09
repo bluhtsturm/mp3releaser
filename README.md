@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.24.1:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.25.0:
 
 ```bash
-chmod +x mp3releaser-0.24.1-x86_64.AppImage
-./mp3releaser-0.24.1-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.24.1-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.25.0-x86_64.AppImage
+./mp3releaser-0.25.0-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.25.0-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -33,6 +33,7 @@ startet es mit `--appimage-extract-and-run`.
 
 ```bash
 # Kommandozeile
+python3 -m releaser release /pfad/zur/release --group GRP     # alles in einem Schritt
 python3 -m releaser wizard /pfad/zur/release templates/standard.skl
 python3 -m releaser build  /pfad/zur/release vorlage.skl --tag --rename --group GRP
 python3 -m releaser verify /pfad/zur/release/xyz.sfv
@@ -48,7 +49,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 812 Tests
+python3 -m pytest tests -q          # 859 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -62,6 +63,7 @@ releaser/
   text.py         CP437-I/O, Schreibweisen, ASCII-Konvertierung, Formate
   tags.py         Tag-Registry: Name, Scope, Ausrichtung, Resolver
   skl.py          Parser (Feldererkennung) und Renderer (Blöcke, Replikation)
+  nfoview.py      .nfo im festen Raster: Block- und Rahmenzeichen als Flächen
   checksums.py    CRC32 über Datei und über reine Audiodaten
   sfv.py          SFV schreiben, lesen, prüfen
   playlist.py     M3U je CD plus Super-M3U
@@ -343,6 +345,14 @@ Endung wird nicht verdoppelt. Leer lassen oder `↺` nimmt wieder das Muster;
 wer genau den Namen des Musters eintippt, bleibt ebenfalls beim Muster und
 folgt damit späteren Änderungen daran. Kollisionen zwischen Namen von Hand
 meldet die Vorschau wie jede andere.
+
+**Die Gruppe steht im Verzeichnisnamen, wie sie eingegeben ist.** Aus
+„GrP" wird nicht „grp" oder „GRP": Die Schreibweise des Verzeichnisses gilt
+für alles vor dem Gruppennamen, nicht für ihn. Nur Zeichen, die kein Ordnername
+enthalten darf, fallen weg, Leerzeichen werden zum Trenner. Das gilt nur für
+das Verzeichnis — die Dateien darin, Begleitdateien eingeschlossen, folgen
+ganz der Schreibweise der Dateien. Ein von Hand gesetzter Verzeichnisname
+behält die Gruppe ebenfalls so, wie sie im Feld steht.
 
 **`#Source` hat ein eigenes Feld.** Die Quelle in der NFO („CDDA, WEB,
 Vinyl") und die Quelle im Verzeichnisnamen sind zwei Felder: „Quelle" für die
@@ -906,7 +916,7 @@ existiert.
 
 ```
 +----------------------------------------------------------+
-| Kopfleiste: Einlesen  Vorlage  |  Tags  Umbenennen  Erzeugen|
+| Kopfleiste: Einlesen  Vorlage  |  Release erstellen  ⋯   |
 +--------------------+-------------------------------------+
 | Auswahl            | Felder, nach Verwendung gruppiert     |
 | (Baum links)       | mit Breite, Zeichenzaehler, Herkunft  |
@@ -918,6 +928,32 @@ existiert.
 `gtkui.py` ist reine Darstellung — jede Entscheidung steht in `uistate.py`.
 Die Eingabefelder sind so breit wie ihr Platz in der Vorlage, daneben steht
 ein Zähler `29/9`, der rot wird, bevor etwas abgeschnitten wird.
+
+### Ein Knopf: Release erstellen
+
+„Release erstellen" macht aus dem eingelesenen Ordner das fertige Release:
+Tags schreiben, umbenennen, `.nfo`, `.sfv` und `.m3u` erzeugen — in dieser
+Reihenfolge, mit einem Klick. Vorher waren das drei Knöpfe mit je eigener
+Vorschau. Die Einzelschritte gibt es weiter, im Menü `⋯` daneben.
+
+Ein Zwischendialog fehlt mit Absicht: Was entsteht, zeigen die Reiter
+„Namen" und „NFO" schon vorher. Und bevor etwas angefasst wird, prüft
+`AppState.produce`, ob alles gehen kann — eine Vorlage ist geladen, der
+Ordner ist beschreibbar, beim Umbenennen gibt es keine Kollision. Sonst ändert
+sich nichts, und ein Fenster sagt, warum. Danach zeigt ein Fenster, was getan
+wurde. Zurückgenommen wird mit `↶`: erst die Umbenennung, dann die Tags.
+
+Dasselbe gibt es im Web (Knopf „Release erstellen", `POST /api/produce`) und
+auf der Kommandozeile als eine Eingabe:
+
+```bash
+releaser release /pfad/zur/release --group GRP
+```
+
+Ohne Vorlage auf der Kommandozeile nimmt `release` die gespeicherte, sonst die
+mitgelieferte. Auch hier gilt: Kollidiert das Umbenennen, wird nichts
+geschrieben — `build --tag --rename` hatte bis dahin die Tags schon in die
+Dateien geschrieben.
 
 Das Modul lässt sich **ohne GTK importieren**. `is_available()` sagt, ob die
 Bibliothek da ist, `requirements_hint()` nennt das Paket und einen Weg, der
@@ -1105,6 +1141,26 @@ verloren. Fehlt sie, wird er abgeschnitten — und *das* wird gemeldet.
 Kein Zeilenumbruch: Die Vorlage ist spaltengenau, ein Umbruch würde den
 Rahmen zerreißen. Die Anzeige scrollt stattdessen waagerecht.
 
+**Im festen Raster, nicht als Text.** Zuerst stand die Vorschau in einem
+Textfeld. Fehlten der Schrift die Blockzeichen der Codepage 437 (`█ ▄ ▀ ▌ ▐
+░ ▒ ▓`), nahm die Textdarstellung sie aus einer Ersatzschrift — mit anderer
+Breite. Jede Zeile mit Block-Grafik verrutschte gegenüber den anderen und sah
+eingerückt aus; nachgestellt mit „Noto Mono". Und weil der Zeilenabstand
+einer Schrift größer ist als ihre Zeichen, blieb zwischen übereinanderliegenden
+Blöcken eine Fuge, senkrechte Rahmenlinien waren gestrichelt.
+
+Jetzt hat jedes Zeichen seine Zelle, wie in einem NFO-Betrachter.
+`nfoview.py` beschreibt die 48 Grafikzeichen von `0xB0` bis `0xDF` — Blöcke,
+Schattierungen, alle einfachen, doppelten und gemischten Rahmenzeichen — als
+Rechtecke, die ihre Zelle bis zum Rand füllen; Doppellinien biegen an Ecken
+außen um und halten innen an. Der Desktop zeichnet sie über `Gtk.Snapshot`,
+die Webseite auf einem Canvas — nach derselben Geometrie, die der Server
+mitliefert. Nur gewöhnliche Zeichen kommen noch aus der Schrift, jedes einzeln
+an seinem Platz. Ein Test zeichnet dieselbe Grafik mit verschiedenen Schriften
+und misst nach, dass Blöcke lückenlos sind; die Prüfung im Browser misst die
+Rahmenlinie der Standardvorlage Pixel für Pixel. „Text kopieren" legt die
+`.nfo` als Text in die Zwischenablage.
+
 Beide Oberflächen haben sie, aus derselben Quelle. Im Web ist es ein eigener
 Endpunkt statt eines Feldes im Zustand — die Datei ist einige Kilobyte groß
 und wird nur geladen, wenn der Reiter offen ist.
@@ -1212,7 +1268,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-812 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+859 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1550,6 +1606,19 @@ Umleitung greift.
   [Einstellungen im Container](#einstellungen-im-container)).
   `releaser config` zeigte außerdem den Abschnitt `[gui]` nicht an und
   sagte ohne Datei nicht, wo er gesucht hatte.
+
+### Aus der vierzehnten Erprobung
+
+* **Gruppe wörtlich.** Die Schreibweise des Verzeichnisses machte aus der
+  Gruppe „GRP" ein „grp". Jetzt steht sie im Verzeichnisnamen so, wie sie
+  eingegeben ist; die Dateien darin bleiben bei ihrer Schreibweise (siehe
+  [Naming-Schema](#naming-schema)).
+* **Ein Knopf für das fertige Release** statt „Tags", „Umbenennen" und
+  „Dateien erzeugen" — im Desktop, im Web und auf der Kommandozeile als
+  `releaser release` (siehe [Ein Knopf](#ein-knopf-release-erstellen)).
+* **NFO-Vorschau mit Block-Grafik.** Fehlten der Schrift die Blockzeichen,
+  verrutschten die Zeilen; zwischen den Zeilen blieben Fugen. Die Vorschau
+  zeichnet jetzt im festen Raster (siehe [NFO-Vorschau](#nfo-vorschau)).
 
 ### Was offen ist
 

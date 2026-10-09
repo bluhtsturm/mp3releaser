@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.24.1 as an example:
+is `SHA256SUMS` with the checksum. Using 0.25.0 as an example:
 
 ```bash
-chmod +x mp3releaser-0.24.1-x86_64.AppImage
-./mp3releaser-0.24.1-x86_64.AppImage              # graphical interface
-./mp3releaser-0.24.1-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.25.0-x86_64.AppImage
+./mp3releaser-0.25.0-x86_64.AppImage              # graphical interface
+./mp3releaser-0.25.0-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -38,6 +38,7 @@ with `--appimage-extract-and-run`.
 
 ```bash
 # command line
+python3 -m releaser release /path/to/release --group GRP     # everything in one step
 python3 -m releaser wizard /path/to/release templates/standard.skl
 python3 -m releaser build  /path/to/release template.skl --tag --rename --group GRP
 python3 -m releaser verify /path/to/release/xyz.sfv
@@ -53,7 +54,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 812 tests
+python3 -m pytest tests -q          # 859 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -67,6 +68,7 @@ releaser/
   text.py         CP437 I/O, letter case, ASCII conversion, formats
   tags.py         tag registry: name, scope, alignment, resolver
   skl.py          parser (field detection) and renderer (blocks, replication)
+  nfoview.py      .nfo on a fixed grid: block and box characters as surfaces
   checksums.py    CRC32 over the whole file and over the audio data only
   sfv.py          write, read and verify SFV
   playlist.py     one M3U per disc plus the super M3U
@@ -350,6 +352,14 @@ doubled. Leaving the field empty or pressing `↺` goes back to the pattern;
 typing exactly the pattern's name also stays with the pattern and so follows
 later changes to it. Collisions between names typed by hand are reported in
 the preview like any other.
+
+**The group appears in the directory name exactly as typed.** "GrP" does
+not become "grp" or "GRP": the directory's letter case applies to everything
+before the group name, not to it. Only characters a folder name may not
+contain are dropped, spaces become the separator. This applies to the
+directory only — the files inside it, companion files included, follow the
+files' letter case entirely. A directory name set by hand also keeps the
+group as written in the field.
 
 **`#Source` has a field of its own.** The source in the NFO ("CDDA, WEB,
 Vinyl") and the source in the directory name are two fields: "Quelle" for the
@@ -913,12 +923,13 @@ without a volume would be a folder that does not exist.
 
 ## Desktop application (GTK 4)
 
-The labels are German: *Einlesen* (read in), *Vorlage* (template), *Tags*,
-*Umbenennen* (rename), *Erzeugen* (create files).
+The labels are German: *Einlesen* (read in), *Vorlage* (template),
+*Release erstellen* (make the release); `⋯` holds the single steps *Tags*,
+*Umbenennen* (rename) and *Dateien erzeugen* (create files).
 
 ```
 +----------------------------------------------------------+
-| Header bar: Einlesen  Vorlage  |  Tags  Umbenennen  Erzeugen|
+| Header bar: Einlesen  Vorlage  |  Release erstellen  ⋯   |
 +--------------------+-------------------------------------+
 | Browser            | Fields, grouped by usage              |
 | (tree on the left) | with width, character counter, origin |
@@ -930,6 +941,31 @@ The labels are German: *Einlesen* (read in), *Vorlage* (template), *Tags*,
 `gtkui.py` is pure presentation — every decision lives in `uistate.py`. The
 input fields are as wide as their space in the template; next to them a
 counter `29/9` turns red before anything gets cut off.
+
+### One button: make the release
+
+"Release erstellen" turns the loaded folder into the finished release: write
+the tags, rename, create `.nfo`, `.sfv` and `.m3u` — in this order, with one
+click. Before, these were three buttons, each with its own preview. The
+single steps are still there, in the `⋯` menu next to it.
+
+There is deliberately no intermediate dialog: the "Namen" and "NFO" tabs show
+beforehand what will be created. And before anything is touched,
+`AppState.produce` checks that everything can work — a template is loaded,
+the folder is writable, renaming has no collision. Otherwise nothing changes,
+and a window says why. Afterwards a window shows what was done. Undo with
+`↶`: first the rename, then the tags.
+
+The same exists on the web ("Release erstellen" button, `POST /api/produce`)
+and on the command line as a single input:
+
+```bash
+releaser release /path/to/release --group GRP
+```
+
+Without a template on the command line, `release` uses the saved one,
+otherwise the bundled one. Here too: if renaming would collide, nothing is
+written — `build --tag --rename` used to have written the tags already.
 
 The module can be **imported without GTK**. `is_available()` says whether the
 library is present; `requirements_hint()` names the package and a way that
@@ -1115,6 +1151,25 @@ title is cut off — and *that* is reported.
 No line wrapping: the template is exact to the column; wrapping would tear the
 frame apart. The view scrolls horizontally instead.
 
+**On a fixed grid, not as text.** At first the preview was a text field. If
+the font lacked the block characters of code page 437 (`█ ▄ ▀ ▌ ▐ ░ ▒ ▓`),
+text rendering took them from a fallback font — with a different width. Every
+line with block graphics shifted against the others and looked indented;
+reproduced with "Noto Mono". And since a font's line height is larger than its
+characters, a gap remained between blocks stacked on top of each other, and
+vertical frame lines were dashed.
+
+Now every character has its cell, as in an NFO viewer. `nfoview.py` describes
+the 48 graphics characters from `0xB0` to `0xDF` — blocks, shades, all single,
+double and mixed box characters — as rectangles filling their cell to the
+edge; double lines bend outside at corners and stop inside. The desktop draws
+them via `Gtk.Snapshot`, the web page on a canvas — with the same geometry,
+which the server sends along. Only ordinary characters still come from the
+font, each one placed in its cell. A test draws the same graphics with
+different fonts and measures that blocks have no gaps; the browser check
+measures the frame line of the standard template pixel by pixel. "Text
+kopieren" (copy text) puts the `.nfo` on the clipboard as text.
+
 Both interfaces have it, from the same source. On the web it is an endpoint of
 its own instead of a field in the state — the file is a few kilobytes and is
 only loaded when the tab is open.
@@ -1225,7 +1280,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 812 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 859 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1552,6 +1607,18 @@ takes effect.
   at start (see [Settings in the container](#settings-in-the-container)).
   `releaser config` also left out the `[gui]` section and, without a file,
   did not say where it had looked.
+
+### From the fourteenth trial
+
+* **Group as typed.** The directory's letter case turned the group "GRP" into
+  "grp". Now it appears in the directory name as typed; the files inside keep
+  their letter case (see [Naming scheme](#naming-scheme)).
+* **One button for the finished release** instead of "Tags", "Umbenennen"
+  and "Dateien erzeugen" — on the desktop, on the web and on the command line
+  as `releaser release` (see [One button](#one-button-make-the-release)).
+* **NFO preview with block graphics.** If the font lacked the block
+  characters, lines shifted; gaps remained between lines. The preview now
+  draws on a fixed grid (see [NFO preview](#nfo-preview)).
 
 ### What is open
 

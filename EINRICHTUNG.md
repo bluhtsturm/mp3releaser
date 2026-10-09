@@ -26,13 +26,17 @@ releaser wizard /tmp/probe templates/standard.skl
 `rename`, `tag` und der geführte Modus zeigen immer erst einen Plan. Erst
 `--apply` beziehungsweise die Rückfrage führt etwas aus.
 
-Alles auf einmal:
+Alles auf einmal – Tags, Umbenennen, `.nfo`/`.sfv`/`.m3u`, wie der Knopf
+„Release erstellen“ in den Oberflächen:
 
 ```bash
-releaser build /tmp/probe templates/standard.skl \
-    --tag --rename --group GRP --audio-crc
+releaser release /tmp/probe --group GRP --audio-crc
 releaser verify /tmp/probe/*.sfv
 ```
+
+Ohne Vorlage nimmt `release` die gespeicherte, sonst die mitgelieferte. Der
+Ordner heißt danach anders – `verify` braucht den neuen Namen, den `release`
+ausgibt. `build … --tag --rename` geht weiterhin.
 
 ## 2. Tests
 
@@ -41,7 +45,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **812 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **859 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash

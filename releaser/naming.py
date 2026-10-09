@@ -308,6 +308,63 @@ class NamingProfile:
             charcase = self.charcase.get(scope, CharCase.UNCHANGED)
         return charcase.apply(value)
 
+    def render_name(self, pattern: "Pattern", ctx: "NameContext",
+                    scope: Scope) -> str:
+        """Muster auswerten, dann Regelkette und Schreibweise.
+
+        Im **Verzeichnisnamen** bleibt das Gruppenkuerzel dabei aussen vor:
+        Es steht dort genau so, wie es im Feld eingegeben ist - "GrP" bleibt
+        "GrP", die Schreibweise des Verzeichnisses gilt nur fuer den Rest.
+        Dateien und Begleitdateien im Verzeichnis folgen weiter ganz der
+        Schreibweise der Dateien.
+
+        Umgesetzt mit einem Platzhalter an der Stelle der Gruppe, solange
+        Regelkette und Schreibweise laufen - nur aus Buchstaben und Ziffern,
+        die jede Regel unveraendert laesst -, und erst danach der Gruppe
+        selbst. Fehlt sie, verschwindet ihr Trenner wie bei jedem leeren Tag.
+        """
+        group = clean_group(ctx.group, self.space_char)
+        if scope is not Scope.DIRECTORY or not group:
+            return self.sanitize(pattern.render(ctx), scope)
+        raw = pattern.render(dc_replace(ctx, group=_GROUP_MARK))
+        if not pattern.tags():
+            # Ein von Hand gesetzter Name ist ein Muster ohne Tags - die
+            # Gruppe darin ist das letzte Wort, das ihr entspricht.
+            raw = _mark_group(raw, group)
+        value = self.sanitize(raw, scope)
+        return _GROUP_MARK_RE.sub(lambda _match: group, value)
+
+
+#: Platzhalter fuer das Gruppenkuerzel, siehe ``NamingProfile.render_name``
+_GROUP_MARK = "qx7grpmark7xq"
+_GROUP_MARK_RE = re.compile(re.escape(_GROUP_MARK), re.IGNORECASE)
+#: Zeichen, die ein Wort im Namen begrenzen
+_BOUNDARY = "-_. "
+
+
+def clean_group(group: str, space_char: str = "_") -> str:
+    """Das Gruppenkuerzel fuer Namen: wie eingegeben, nur gueltig gemacht.
+
+    Weder Regelkette noch Schreibweise - nur, was kein Dateiname enthalten
+    darf, faellt weg, und Leerzeichen werden zum eingestellten Trenner.
+    """
+    value = rule_spaces(rule_forbidden(group.strip()), space_char)
+    return value.strip(_BOUNDARY)
+
+
+def _mark_group(text: str, group: str) -> str:
+    """Ersetzt das letzte Vorkommen der Gruppe als eigenes Wort durch den
+    Platzhalter - ohne Ruecksicht auf Gross und Klein, damit auch ein
+    frueher klein geschriebenes "-grp" wieder zu "-GRP" wird."""
+    pattern = re.compile(
+        rf"(?:(?<=^)|(?<=[{re.escape(_BOUNDARY)}])){re.escape(group)}"
+        rf"(?=$|[{re.escape(_BOUNDARY)}])", re.IGNORECASE)
+    matches = list(pattern.finditer(text))
+    if not matches:
+        return text
+    last = matches[-1]
+    return text[:last.start()] + _GROUP_MARK + text[last.end():]
+
 
 # ================================================================ Planung
 
@@ -392,7 +449,7 @@ def pattern_stem(release: Release, track: Track, disc: Disc,
         patched = dc_replace(track, title=f"{release.artist}-{track.title}")
     ctx = NameContext(release=release, track=patched, disc=disc,
                       group=profile.group)
-    return profile.sanitize(pattern.render(ctx), Scope.FILENAME)
+    return profile.render_name(pattern, ctx, Scope.FILENAME)
 
 
 _UNKNOWN_TAG = re.compile(r"#\w+")
@@ -421,7 +478,7 @@ def companion_stem(release: Release, profile: NamingProfile) -> str:
     """
     pattern = profile.companion_pattern or profile.dir_pattern
     ctx = NameContext(release=release, group=profile.group)
-    return profile.sanitize(compile_pattern(pattern).render(ctx), Scope.FILENAME)
+    return profile.render_name(compile_pattern(pattern), ctx, Scope.FILENAME)
 
 
 def companion_name(release: Release, suffix: str, profile: NamingProfile,
@@ -446,19 +503,19 @@ def future_companion_stem(release: Release, profile: NamingProfile) -> str:
     if pattern == "#Fullrelease":
         pattern = profile.dir_pattern
     ctx = NameContext(release=release, group=profile.group)
-    return profile.sanitize(compile_pattern(pattern).render(ctx), Scope.FILENAME)
+    return profile.render_name(compile_pattern(pattern), ctx, Scope.FILENAME)
 
 
 def release_dirname(release: Release, profile: NamingProfile) -> str:
     ctx = NameContext(release=release, group=profile.group)
-    return profile.sanitize(compile_pattern(profile.dir_pattern).render(ctx),
-                            Scope.DIRECTORY)
+    return profile.render_name(compile_pattern(profile.dir_pattern), ctx,
+                               Scope.DIRECTORY)
 
 
 def disc_dirname(release: Release, disc: Disc, profile: NamingProfile) -> str:
     ctx = NameContext(release=release, disc=disc, group=profile.group)
-    return profile.sanitize(compile_pattern(profile.disc_dir_pattern).render(ctx),
-                            Scope.DIRECTORY)
+    return profile.render_name(compile_pattern(profile.disc_dir_pattern), ctx,
+                               Scope.DIRECTORY)
 
 
 def plan_rename(release: Release, root: str | Path,

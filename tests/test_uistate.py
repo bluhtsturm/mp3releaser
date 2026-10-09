@@ -288,8 +288,8 @@ def test_rename_preview_then_apply(release_dir):
     assert release_dir.is_dir()                # noch nichts passiert
 
     assert state.apply_rename() is True
-    assert state.root.name == "der_artist-das_album-2026-grp"
-    assert state.current_path == "eingang/der_artist-das_album-2026-grp"
+    assert state.root.name == "der_artist-das_album-2026-GRP"
+    assert state.current_path == "eingang/der_artist-das_album-2026-GRP"
 
 
 @needs_ffmpeg
@@ -493,7 +493,7 @@ def test_preview_names_shows_old_and_new(release_dir):
 
     preview = state.preview_names()
     assert preview["directory"] == ("Artist-Album-2026-GRP",
-                                    "der_artist-das_album-2026-grp")
+                                    "der_artist-das_album-2026-GRP")
     assert len(preview["files"]) == 2
     old, new = preview["files"][0]
     assert old.endswith(".mp3") and new.endswith(".mp3")
@@ -519,7 +519,7 @@ def test_changing_a_pattern_changes_the_preview(release_dir):
     assert state.preview_names()["files"][0][1].startswith("01-titel")
 
     assert state.set_pattern("group", "ANDERE") is True
-    assert state.preview_names()["directory"][1].endswith("-andere")
+    assert state.preview_names()["directory"][1].endswith("-ANDERE")
 
 
 @needs_ffmpeg
@@ -538,10 +538,11 @@ def test_case_can_be_switched(release_dir):
     state = state_for(release_dir)
     state.load("eingang/Artist-Album-2026-GRP")
 
+    state.set_pattern("group", "GrP")
     state.set_pattern("case", "upper")
-    assert state.preview_names()["directory"][1].isupper()
+    assert state.preview_names()["directory"][1] == "DER_ARTIST-DAS_ALBUM-2026-GrP"
     state.set_pattern("case", "lower")
-    assert state.preview_names()["directory"][1].islower()
+    assert state.preview_names()["directory"][1] == "der_artist-das_album-2026-GrP"
 
 
 def test_unknown_pattern_is_reported():
@@ -1160,3 +1161,98 @@ def test_tag_writing_updates_the_sizes_in_the_model(release_dir):
 
     actual = sum(p.stat().st_size for p in release_dir.glob("*.mp3"))
     assert state.release.size_bytes == actual
+
+
+# ================================================ Ein Knopf: Release erstellen
+
+
+def _tags_of(path):
+    from mutagen.id3 import ID3
+
+    return {key: str(value) for key, value in ID3(path).items()
+            if key in ("TIT2", "TPE1")}
+
+
+@needs_ffmpeg
+def test_produce_does_everything_in_one_step(release_dir, template_file):
+    """Tags, Umbenennen und Begleitdateien - vorher drei Knöpfe."""
+    state = state_for(release_dir)
+    state.load_template(template_file)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.set_field("artist", "Neuer Artist")
+    assert state.enabled()[Action.PRODUCE]
+
+    done = state.produce()
+    assert done is not None, [m.text for m in state.messages]
+    assert done[0].startswith("Tags geschrieben: 2")
+    assert done[1].startswith("Umbenannt:")
+    assert done[2].startswith("Erzeugt:")
+
+    root = state.root
+    assert root.name == "neuer_artist-das_album-2026-GRP"
+    assert not release_dir.exists()
+    suffixes = sorted(p.suffix for p in root.iterdir())
+    assert suffixes == [".m3u", ".mp3", ".mp3", ".nfo", ".sfv"]
+    track = next(p for p in root.iterdir() if p.suffix == ".mp3")
+    assert _tags_of(track)["TPE1"] == "Neuer Artist"
+    # Die .nfo kennt schon die neuen Tags und den neuen Ordner
+    nfo = next(p for p in root.iterdir() if p.suffix == ".nfo")
+    assert "Neuer Artist" in nfo.read_bytes().decode("cp437")
+    # zwei Einträge zum Zurücknehmen: Tags und Umbenennung
+    kinds = [entry.kind.value for entry in state.undo_entries()]
+    assert kinds[-2:] == ["tags", "rename"]
+
+
+@needs_ffmpeg
+def test_produce_touches_nothing_when_the_rename_would_collide(release_dir,
+                                                               template_file):
+    """Vorher geprüft: keine halb geschriebenen Tags vor einer Kollision."""
+    state = state_for(release_dir)
+    state.naming = NamingProfile(group="GRP", file_pattern="#Album")
+    state.load_template(template_file)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.set_field("artist", "Neuer Artist")
+    track = sorted(release_dir.glob("*.mp3"))[0]
+    before = (sorted(p.name for p in release_dir.iterdir()), _tags_of(track))
+
+    assert state.produce() is None
+    assert (sorted(p.name for p in release_dir.iterdir()),
+            _tags_of(track)) == before
+    errors = [m.text for m in state.messages if m.level is Level.ERROR]
+    assert any("Nichts geändert" in text for text in errors)
+
+
+@needs_ffmpeg
+def test_produce_needs_a_template_for_the_nfo(release_dir):
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    assert not state.enabled()[Action.PRODUCE]
+    before = sorted(p.name for p in release_dir.iterdir())
+    assert state.produce() is None
+    assert sorted(p.name for p in release_dir.iterdir()) == before
+    assert "Vorlage" in state.last_message.text
+
+
+@needs_ffmpeg
+def test_produce_is_refused_on_a_readonly_mount(readonly_state, release_dir,
+                                                template_file):
+    state = readonly_state
+    state.load_template(template_file)
+    state.load("eingang/Artist-Album-2026-GRP")
+    assert not state.enabled()[Action.PRODUCE]
+    before = sorted(p.name for p in release_dir.iterdir())
+    assert state.produce() is None
+    assert sorted(p.name for p in release_dir.iterdir()) == before
+
+
+@needs_ffmpeg
+def test_produce_when_everything_is_already_in_place(release_dir, template_file):
+    state = state_for(release_dir)
+    state.load_template(template_file)
+    state.load("eingang/Artist-Album-2026-GRP")
+    assert state.produce() is not None
+    state.reload()
+    again = state.produce()
+    assert again is not None
+    assert again[0].startswith("Tags: waren schon")
+    assert again[1] == "Namen: passten bereits"

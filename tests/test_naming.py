@@ -156,7 +156,7 @@ def test_release_dirname_uses_pattern_and_group():
     name = release_dirname(release, NamingProfile(group="GRP"))
     # Klammern und andere Sonderzeichen gehoeren nicht in Dateinamen - der
     # Trennstrich des Musters bleibt aber erhalten
-    assert name == "die_aerzte-ein_album_12inch_mix-cdda-2026-grp"
+    assert name == "die_aerzte-ein_album_12inch_mix-cdda-2026-GRP"
 
 
 def test_disc_dirname():
@@ -223,7 +223,7 @@ def test_plan_warns_about_tracks_without_path(tmp_path):
 
 def test_plan_detects_existing_target_directory(tmp_path):
     release, root = make_release(tmp_path)
-    (tmp_path / "der_artist-das_album-cdda-2026-grp").mkdir()
+    (tmp_path / "der_artist-das_album-cdda-2026-GRP").mkdir()
     plan = plan_rename(release, root, NamingProfile(group="GRP"))
     assert any("existiert bereits" in c for c in plan.collisions)
 
@@ -254,7 +254,7 @@ def test_apply_renames_files_and_root(tmp_path):
     profile = NamingProfile(group="GRP")
     apply_plan(plan_rename(release, root, profile), release)
 
-    new_root = tmp_path / "der_artist-das_album-cdda-2026-grp"
+    new_root = tmp_path / "der_artist-das_album-cdda-2026-GRP"
     assert new_root.is_dir()
     assert not root.exists()
     assert sorted(p.name for p in new_root.glob("*.mp3")) == [
@@ -267,7 +267,7 @@ def test_apply_updates_paths_in_the_model(tmp_path):
 
     for track in release.tracks:
         assert Path(track.path).is_file()
-    assert release.dirname == "der_artist-das_album-cdda-2026-grp"
+    assert release.dirname == "der_artist-das_album-cdda-2026-GRP"
     assert Path(release.tracks[1].path).parent.name == "cd2"
 
 
@@ -275,7 +275,7 @@ def test_apply_handles_multi_disc_directories(tmp_path):
     release, root = make_release(tmp_path, multi=True)
     apply_plan(plan_rename(release, root, NamingProfile(group="GRP")), release)
 
-    new_root = tmp_path / "der_artist-das_album-cdda-2026-grp"
+    new_root = tmp_path / "der_artist-das_album-cdda-2026-GRP"
     assert sorted(p.name for p in new_root.iterdir()) == ["cd1", "cd2"]
 
 
@@ -319,7 +319,8 @@ def test_apply_handles_case_only_rename(tmp_path):
 def test_apply_leaves_no_temporary_files(tmp_path):
     release, root = make_release(tmp_path, multi=True)
     apply_plan(plan_rename(release, root, NamingProfile(group="GRP")), release)
-    new_root = tmp_path / "der_artist-das_album-cdda-2026-grp"
+    new_root = tmp_path / "der_artist-das_album-cdda-2026-GRP"
+    assert new_root.is_dir()               # sonst prueft die Zeile darunter nichts
     assert not any("mp3releaser-tmp" in p.name for p in new_root.rglob("*"))
 
 
@@ -463,9 +464,9 @@ def test_atmos_beats_the_container_format():
 
 
 @pytest.mark.parametrize("audio_format,expected", [
-    ("MP3", "der_artist-das_album-cdda-2026-grp"),
-    ("FLAC", "der_artist-das_album-cdda-flac-2026-grp"),
-    ("AAC", "der_artist-das_album-cdda-aac-2026-grp"),
+    ("MP3", "der_artist-das_album-cdda-2026-GRP"),
+    ("FLAC", "der_artist-das_album-cdda-flac-2026-GRP"),
+    ("AAC", "der_artist-das_album-cdda-aac-2026-GRP"),
 ])
 def test_format_appears_before_the_year(audio_format, expected):
     release = Release(artist="Der Artist", album="Das Album", year=2026,
@@ -692,3 +693,72 @@ def test_two_manual_names_can_collide(tmp_path):
         track.manual_stem = "gleich"
     plan = plan_rename(release, root, NamingProfile(group="GRP"))
     assert plan.collisions and not plan.is_safe
+
+
+# ------------------------------------------------- Gruppe, wie eingegeben
+
+
+@pytest.mark.parametrize("case, expected", [
+    (CharCase.LOWER, "der_artist-das_album-2026-GrP"),
+    (CharCase.UPPER, "DER_ARTIST-DAS_ALBUM-2026-GrP"),
+    (CharCase.CAPITALIZE, "Der_Artist-Das_Album-2026-GrP"),
+    (CharCase.UNCHANGED, "Der_Artist-Das_Album-2026-GrP"),
+])
+def test_group_is_written_as_typed_whatever_the_case(case, expected):
+    """Die Schreibweise gilt fuer alles vor der Gruppe, nicht fuer sie."""
+    release = Release(artist="Der Artist", album="Das Album", year=2026)
+    profile = NamingProfile(group="GrP", charcase={Scope.DIRECTORY: case})
+    assert release_dirname(release, profile) == expected
+
+
+def test_group_is_not_run_through_the_rule_chain():
+    release = Release(artist="Die Ärzte", album="Album", year=2026)
+    profile = NamingProfile(group="Grp Ä", charcase={
+        Scope.DIRECTORY: CharCase.LOWER})
+    # Umlaut und Grossbuchstaben bleiben - nur das Leerzeichen wird zum
+    # Trenner, und Verbotenes faellt weg
+    assert release_dirname(release, profile) == "die_aerzte-album-2026-Grp_Ä"
+    slash = NamingProfile(group="A/B", charcase={Scope.DIRECTORY: CharCase.LOWER})
+    assert release_dirname(release, slash) == "die_aerzte-album-2026-AB"
+
+
+def test_without_a_group_the_separator_disappears():
+    release = Release(artist="X", album="Y", year=2026)
+    assert release_dirname(release, NamingProfile(group="")) == "x-y-2026"
+    assert release_dirname(release, NamingProfile(group="  ")) == "x-y-2026"
+
+
+def test_files_in_the_directory_follow_the_file_case_group_included():
+    """Wortlaut gilt nur fuer den Verzeichnisnamen. Die Dateien darin -
+    Begleitdateien eingeschlossen - folgen ganz der Schreibweise der Dateien."""
+    profile = NamingProfile(group="GrP", companion_prefix="00-",
+                            file_pattern="#N-#Trk-#Grp", charcase={
+                                Scope.DIRECTORY: CharCase.UPPER,
+                                Scope.FILENAME: CharCase.LOWER})
+    release = Release(artist="A", album="B", year=2026,
+                      discs=[Disc(1, tracks=[Track(1, "Titel", 1.0, 1)])])
+    assert release_dirname(release, profile) == "A-B-2026-GrP"
+
+    named = Release(artist="A", album="B", dirname="A-B-2026-GrP")
+    assert companion_name(named, ".nfo", profile) == "00-a-b-2026-grp.nfo"
+    track = release.discs[0].tracks[0]
+    assert track_stem(release, track, release.discs[0], profile) == \
+        "01-titel-grp"
+
+
+def test_a_title_word_like_the_group_is_left_alone():
+    """Ohne #Grp im Muster wird nichts als Gruppe behandelt - auch kein
+    Titel, der zufaellig so heisst."""
+    release = Release(artist="A", album="B", year=2026,
+                      discs=[Disc(1, tracks=[Track(1, "Grp", 1.0, 1)])])
+    profile = NamingProfile(group="GRP", file_pattern="#N-#Trk")
+    track = release.discs[0].tracks[0]
+    assert track_stem(release, track, release.discs[0], profile) == "01-grp"
+
+
+def test_a_typed_directory_name_keeps_the_group():
+    """Ein von Hand gesetzter Verzeichnisname ist ein Muster ohne Tags."""
+    release = Release(artist="A", album="B", year=2026)
+    profile = NamingProfile(group="GrP", dir_pattern="Mein Name-2026-grp",
+                            charcase={Scope.DIRECTORY: CharCase.UPPER})
+    assert release_dirname(release, profile) == "MEIN_NAME-2026-GrP"

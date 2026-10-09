@@ -92,7 +92,112 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
     import gi
 
     gi.require_version("Gtk", "4.0")
-    from gi.repository import GLib, Gtk
+    gi.require_version("Graphene", "1.0")
+    from gi.repository import GLib, Graphene, Gtk, Pango
+
+    from ..nfoview import cell_rects
+
+    class NfoView(Gtk.Widget):
+        """Die .nfo im festen Raster, wie ein NFO-Betrachter sie zeigt.
+
+        Vorher stand sie in einem Textfeld. Fehlten der Schrift die Block-
+        zeichen (``█ ▄ ▀ ░ ▒ ▓``), nahm GTK sie aus einer Ersatzschrift mit
+        anderer Breite - die Grafik verrutschte Zeile fuer Zeile und sah
+        eingerueckt aus. Und zwischen den Zeilen blieb eine Fuge. Hier hat
+        jedes Zeichen seine Zelle: Block- und Rahmenzeichen sind Flaechen
+        aus :mod:`releaser.nfoview`, die ihre Zelle bis zum Rand fuellen;
+        alles andere kommt aus der Schrift, jedes Zeichen einzeln an seinem
+        Platz. Gezeichnet wird ueber Gtk.Snapshot - ohne pycairo, das im
+        AppImage nicht dabei ist.
+        """
+
+        __gtype_name__ = "ReleaserNfoView"
+
+        FONT = "Monospace 10"
+        #: Rand um die Grafik
+        PAD = 10
+
+        def __init__(self):
+            super().__init__()
+            self.add_css_class("view")
+            self.text = ""
+            self.lines: list[str] = []
+            self._font = Pango.FontDescription.from_string(self.FONT)
+            self._cell: Optional[tuple[int, int, int]] = None
+            self._layouts: dict[str, tuple] = {}
+
+        def set_text(self, text: str) -> None:
+            if text == self.text:
+                return
+            self.text = text
+            self.lines = text.split("\n")
+            self.queue_resize()
+            self.queue_draw()
+
+        def cell(self) -> tuple[int, int, int]:
+            """Breite, Hoehe und Grundlinie einer Zelle in Pixeln."""
+            if self._cell is None:
+                layout = self.create_pango_layout("M" * 100)
+                layout.set_font_description(self._font)
+                _ink, logical = layout.get_pixel_extents()
+                self._cell = (max(1, round(logical.width / 100)),
+                              max(1, logical.height),
+                              layout.get_baseline() // Pango.SCALE)
+            return self._cell
+
+        def _glyph(self, char: str) -> tuple:
+            """Layout, Breite und Grundlinie eines Zeichens - je Zeichen
+            einmal gebaut. Breite und Grundlinie sind die der Schrift, aus
+            der es tatsaechlich kommt, auch wenn das eine Ersatzschrift ist."""
+            if char not in self._layouts:
+                layout = self.create_pango_layout(char)
+                layout.set_font_description(self._font)
+                _ink, logical = layout.get_pixel_extents()
+                self._layouts[char] = (layout, logical.width,
+                                       layout.get_baseline() // Pango.SCALE)
+            return self._layouts[char]
+
+        def do_measure(self, orientation, _for_size):
+            width, height, _base = self.cell()
+            if orientation == Gtk.Orientation.HORIZONTAL:
+                columns = max((len(line) for line in self.lines), default=0)
+                size = columns * width + 2 * self.PAD
+            else:
+                size = len(self.lines) * height + 2 * self.PAD
+            return size, size, -1, -1
+
+        def do_snapshot(self, snapshot) -> None:
+            width, height, baseline = self.cell()
+            color = self.get_color()
+            for row, line in enumerate(self.lines):
+                top = self.PAD + row * height
+                for column, char in enumerate(line):
+                    if char == " ":
+                        continue
+                    left = self.PAD + column * width
+                    rects = cell_rects(char, width, height)
+                    if rects is not None:
+                        for x, y, w, h, alpha in rects:
+                            shade = color.copy()
+                            shade.alpha = color.alpha * alpha
+                            snapshot.append_color(
+                                shade, Graphene.Rect().init(left + x, top + y,
+                                                            w, h))
+                        continue
+                    layout, glyph_width, glyph_base = self._glyph(char)
+                    snapshot.save()
+                    if glyph_width > width:
+                        # Breiter als die Zelle (Ersatzschrift): in die
+                        # Zelle stauchen statt die Nachbarn zu verdecken
+                        snapshot.translate(Graphene.Point().init(
+                            left, top + baseline - glyph_base))
+                        snapshot.scale(width / glyph_width, 1.0)
+                    else:
+                        snapshot.translate(Graphene.Point().init(
+                            left + (width - glyph_width) / 2,
+                            top + baseline - glyph_base))
+                    snapshot.append_layout(layout, color)
+                    snapshot.restore()
 
     def guarded(method):
         """Fängt Ausnahmen aus Ereignisbehandlern ab.
@@ -304,15 +409,40 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             check_button.connect("clicked", self._on_check_release)
             header.pack_end(check_button)
 
+            # Die Einzelschritte im Menü daneben - wer nur umbenennen oder
+            # nur Tags schreiben will, findet sie dort, mit Vorschau.
+            steps = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4,
+                            margin_top=6, margin_bottom=6,
+                            margin_start=6, margin_end=6)
+            single = Gtk.MenuButton(icon_name="view-more-symbolic")
+            single.set_tooltip_text("Einzelschritte: Tags, Umbenennen, "
+                                    "Dateien erzeugen")
+            popover = Gtk.Popover()
+            popover.set_child(steps)
+            single.set_popover(popover)
             for action, handler in (
-                (Action.BUILD, self._on_build),
-                (Action.PREVIEW_RENAME, self._on_rename),
                 (Action.PREVIEW_TAGS, self._on_tags),
+                (Action.PREVIEW_RENAME, self._on_rename),
+                (Action.BUILD, self._on_build),
             ):
                 button = Gtk.Button(label=action.label.replace(" vorschauen", "…"))
-                button.connect("clicked", handler)
-                header.pack_end(button)
+                button.add_css_class("flat")
+                button.connect("clicked", lambda _b, h=handler: (
+                    popover.popdown(), h()))
+                steps.append(button)
                 self.buttons[action] = button
+            header.pack_end(single)
+
+            # Ein Knopf für das fertige Release: Tags, Umbenennen und
+            # Begleitdateien in einem Schritt - vorher drei Knöpfe.
+            produce = Gtk.Button(label=Action.PRODUCE.label)
+            produce.add_css_class("suggested-action")
+            produce.set_tooltip_text(
+                "Tags schreiben, umbenennen und .nfo, .sfv, .m3u erzeugen - "
+                "in einem Schritt")
+            produce.connect("clicked", self._on_produce)
+            header.pack_end(produce)
+            self.buttons[Action.PRODUCE] = produce
 
             return header
 
@@ -364,11 +494,9 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                           margin_top=12, margin_bottom=12,
                           margin_start=12, margin_end=12)
 
-            self.nfo_view = Gtk.TextView(editable=False, monospace=True,
-                                         cursor_visible=False)
-            # Kein Zeilenumbruch: die Vorlage ist spaltengenau, ein Umbruch
-            # wuerde den ASCII-Rahmen zerreissen.
-            self.nfo_view.set_wrap_mode(Gtk.WrapMode.NONE)
+            # Kein Textfeld, sondern ein festes Zeichenraster - siehe
+            # NfoView. Kein Zeilenumbruch: die Vorlage ist spaltengenau.
+            self.nfo_view = NfoView()
             scroller = Gtk.ScrolledWindow(vexpand=True)
             scroller.set_child(self.nfo_view)
             box.append(scroller)
@@ -377,6 +505,11 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             self.nfo_status = Gtk.Label(xalign=0.0, wrap=True, hexpand=True)
             self.nfo_status.add_css_class("dim-label")
             bottom.append(self.nfo_status)
+
+            copy = Gtk.Button(label="Text kopieren")
+            copy.set_tooltip_text("Die .nfo als Text in die Zwischenablage")
+            copy.connect("clicked", self._on_copy_nfo)
+            bottom.append(copy)
 
             check = Gtk.Button(label="Vorlage prüfen")
             check.set_tooltip_text(
@@ -672,6 +805,15 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             elif build is not None:
                 build.set_tooltip_text(
                     "Erzeugt .nfo, .sfv und .m3u im Releaseverzeichnis")
+            produce = self.buttons.get(Action.PRODUCE)
+            if produce is not None:
+                produce.set_tooltip_text(
+                    "Tags schreiben, umbenennen und .nfo, .sfv, .m3u "
+                    "erzeugen - in einem Schritt"
+                    if enabled.get(Action.PRODUCE) else
+                    "Erst ein Release einlesen." if self.state.release is None
+                    else "Erst eine Vorlage laden." if self.state.template is None
+                    else "Dieser Ordner ist nur lesend eingehängt.")
 
         def _refresh_browser(self) -> None:
             self.path_label.set_text(self.state.current_path or "(Wurzel)")
@@ -774,7 +916,7 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 self.form_box.append(expander)
 
         def _refresh_nfo(self) -> None:
-            self.nfo_view.get_buffer().set_text(self.state.nfo_preview())
+            self.nfo_view.set_text(self.state.nfo_preview())
 
             if self.state.template is None or self.state.release is None:
                 self.nfo_status.set_text("")
@@ -873,6 +1015,12 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                      lambda: self.state.undo_last())
 
         @guarded
+        def _on_copy_nfo(self, *_args) -> None:
+            self.get_clipboard().set(self.nfo_view.text)
+            self.state.say("NFO-Text in die Zwischenablage kopiert")
+            self.refresh()
+
+        @guarded
         def _on_check_template(self, *_args) -> None:
             report = self.state.check_template()
             if report is None:
@@ -939,6 +1087,23 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                     self.refresh()
 
             _confirm(self, "Umbenennen", text, rename_then_hint)
+
+        @guarded
+        def _on_produce(self, *_args) -> None:
+            """Ein Klick, das fertige Release. Kein Zwischendialog: Was
+            entsteht, zeigen die Reiter „Namen“ und „NFO“ schon vorher, und
+            alles Riskante prüft AppState.produce, bevor es etwas anfasst."""
+            before = len(self.state.messages)
+            done = self.state.produce()
+            if done is not None:
+                _inform(self, "Release erstellt", "\n".join(done) + "\n\n"
+                        "Zurücknehmen mit ↶ - erst die Umbenennung, dann die "
+                        "Tags.")
+                return
+            reasons = [f"{LEVEL_PREFIX[m.level]}{m.text}"
+                       for m in self.state.messages[before:]
+                       if m.level is not Level.INFO]
+            _inform(self, "Release nicht erstellt", "\n".join(reasons))
 
         @guarded
         def _on_build(self, *_args) -> None:

@@ -54,6 +54,8 @@ class Action(Enum):
     PREVIEW_RENAME = "preview_rename"
     APPLY_RENAME = "apply_rename"
     BUILD = "build"
+    #: alles in einem Schritt - siehe AppState.produce
+    PRODUCE = "produce"
 
     @property
     def label(self) -> str:
@@ -65,6 +67,7 @@ class Action(Enum):
             Action.PREVIEW_RENAME: "Umbenennen vorschauen",
             Action.APPLY_RENAME: "Umbenennen",
             Action.BUILD: "Dateien erzeugen",
+            Action.PRODUCE: "Release erstellen",
         }[self]
 
 
@@ -805,6 +808,88 @@ class AppState:
         self._changed()
         return outcome.created
 
+    def produce(self) -> Optional[list[str]]:
+        """Das fertige Release in einem Schritt: Tags schreiben, umbenennen,
+        .nfo, .sfv und .m3u erzeugen - in dieser Reihenfolge.
+
+        Vorher waren das drei Knöpfe mit je eigener Vorschau. Die Reihenfolge
+        ist nicht beliebig: Entstünde das SFV vor dem Tag-Lauf, wären die
+        Prüfsummen sofort falsch, und die Begleitdateien heißen wie der
+        *neue* Ordner.
+
+        Bevor etwas angefasst wird, wird geprüft, ob alles gehen kann: ein
+        Release ist eingelesen und beschreibbar, eine Vorlage für die .nfo ist
+        da, und der Umbenennungsplan hat keine Kollision. Sonst ändert sich
+        nichts - früher konnten die Tags schon geschrieben sein, wenn das
+        Umbenennen danach scheiterte.
+
+        Rückgabe: was getan wurde, Zeile für Zeile; ``None``, wenn nichts
+        oder nicht alles getan wurde - die Meldungen sagen, warum.
+        """
+        if self.release is None or self.root is None:
+            self.say("Kein Release eingelesen.", Level.ERROR)
+            self._changed()
+            return None
+        if self._refuse_if_readonly("Release erstellen"):
+            return None
+        if self.build_options.nfo and self.build_options.template is None:
+            self.say("Für die .nfo wird eine Vorlage gebraucht - erst eine "
+                     "Vorlage laden.", Level.ERROR)
+            self._changed()
+            return None
+        rename_plan = service.preview_rename(self.release, self.root,
+                                             self.naming)
+        if not rename_plan.is_safe:
+            for collision in rename_plan.collisions:
+                self.say(collision, Level.ERROR)
+            self.say("Nichts geändert: Beim Umbenennen gäbe es eine "
+                     "Namenskollision (siehe Reiter „Namen“).", Level.ERROR)
+            self.rename_plan = rename_plan
+            self._changed()
+            return None
+
+        errors = self._error_count()
+        done: list[str] = []
+
+        tag_plan = service.preview_tags(self.release, self.tags)
+        for warning in tag_plan.warnings:
+            self.say(warning, Level.WARNING)
+        if tag_plan.changes:
+            self.tag_plan = tag_plan
+            written = self.apply_tags()
+            if self._error_count() > errors:
+                return self._stopped(done, "nach dem Tag-Schreiben")
+            done.append(f"Tags geschrieben: {written} Datei(en)")
+        else:
+            done.append("Tags: waren schon so, wie sie sein sollen")
+
+        if rename_plan.changes:
+            self.rename_plan = rename_plan
+            if not self.apply_rename():
+                return self._stopped(done, "beim Umbenennen")
+            done.append(f"Umbenannt: {len(rename_plan.changes)} Name(n), "
+                        f"Ordner jetzt {self.root.name}")
+        else:
+            done.append("Namen: passten bereits")
+
+        created = self.build()
+        if self._error_count() > errors:
+            return self._stopped(done, "beim Erzeugen der Dateien")
+        done.append("Erzeugt: " + (", ".join(p.name for p in created)
+                                    or "nichts"))
+        self.say(f"Release erstellt: {self.root.name}")
+        self._changed()
+        return done
+
+    def _error_count(self) -> int:
+        return sum(1 for message in self.messages if message.level is Level.ERROR)
+
+    def _stopped(self, done: list[str], where: str) -> None:
+        detail = "; ".join(done) if done else "noch nichts geändert"
+        self.say(f"Abgebrochen {where} - bis dahin: {detail}.", Level.ERROR)
+        self._changed()
+        return None
+
     # ------------------------------------------------ was gerade benutzbar ist
 
     def enabled(self) -> dict[Action, bool]:
@@ -829,6 +914,8 @@ class AppState:
                                                     and self.rename_plan.changes
                                                     and self.rename_plan.is_safe),
             Action.BUILD: can_write and loaded and (
+                self.template is not None or not self.build_options.nfo),
+            Action.PRODUCE: can_write and loaded and (
                 self.template is not None or not self.build_options.nfo),
         }
 

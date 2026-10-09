@@ -316,6 +316,52 @@ def cmd_rename(args: argparse.Namespace) -> int:
     return 0
 
 
+def _add_build_args(parser: argparse.ArgumentParser) -> None:
+    """Schalter fuer das Erzeugen der Begleitdateien - build und release."""
+    parser.add_argument("--strict", action="store_true")
+    parser.add_argument("--no-nfo", action="store_true")
+    parser.add_argument("--no-sfv", action="store_true")
+    parser.add_argument("--no-m3u", action="store_true")
+    parser.add_argument("--sfv-comment", help="Kommentarzeile im SFV")
+    parser.add_argument("--sfv-include", nargs="*", default=[], metavar="EXT",
+                        help="zusaetzliche Endungen ins SFV, z. B. log pdf")
+    parser.add_argument("--audio-crc", action="store_true",
+                        help="tagfreien Audio-CRC als Kommentar mitschreiben")
+    parser.add_argument("--catalog-no", action="store_true",
+                        help="Katalognummer statt Releasename als Dateiname")
+    parser.add_argument("--clean", action="store_true",
+                        help="vorhandene .nfo/.sfv/.m3u vorher entfernen")
+    parser.add_argument("--m3u-windows-paths", action="store_true",
+                        help="Rueckwaerts-Schraegstriche in der M3U wie im "
+                             "Original")
+
+
+def cmd_release(args: argparse.Namespace) -> int:
+    """Alles in einem Aufruf - wie der Knopf "Release erstellen".
+
+    Dasselbe wie ``build --tag --rename``, nur ohne dass man daran denken
+    muss, und mit der gespeicherten Vorlage, wenn keine angegeben ist. Ein
+    Umbenennungsplan mit Kollision bricht ab, bevor etwas geschrieben wird.
+    """
+    from ..service import bundled_template, find_template
+
+    if not args.template:
+        saved = args._config.get("build", "template")
+        found = (find_template(saved) if saved else None) or bundled_template()
+        if found is None:
+            print("Fehler: keine Vorlage angegeben, gespeichert oder "
+                  "mitgeliefert", file=sys.stderr)
+            return 2
+        args.template = str(found)
+        print(f"Vorlage: {found}", file=sys.stderr)
+    args.tag = args.rename = True
+    code = cmd_build(args)
+    if code == 0:
+        print("Release erstellt. Zuruecknehmen mit: releaser undo --apply "
+              "(erst die Umbenennung, dann die Tags)", file=sys.stderr)
+    return code
+
+
 def cmd_build(args: argparse.Namespace) -> int:
     """Der komplette Ablauf. Die Arbeit macht die Dienstschicht."""
     from ..config import resolve
@@ -360,6 +406,10 @@ def cmd_build(args: argparse.Namespace) -> int:
     root = outcome.root
     for path in outcome.created:
         print(path.relative_to(root) if path.is_relative_to(root) else path)
+    if args.rename:
+        # Der Ordner heisst jetzt anders - wer weitermachen will (verify,
+        # undo), braucht den neuen Namen
+        print(f"Ordner: {root}", file=sys.stderr)
     return 0
 
 
@@ -732,28 +782,26 @@ def main(argv: list[str] | None = None) -> int:
     b = sub.add_parser("build", help=".nfo, .sfv und .m3u fuer ein Release erzeugen")
     b.add_argument("directory")
     b.add_argument("template")
-    b.add_argument("--strict", action="store_true")
-    b.add_argument("--no-nfo", action="store_true")
-    b.add_argument("--no-sfv", action="store_true")
-    b.add_argument("--no-m3u", action="store_true")
-    b.add_argument("--sfv-comment", help="Kommentarzeile im SFV")
-    b.add_argument("--sfv-include", nargs="*", default=[],
-                   metavar="EXT", help="zusaetzliche Endungen ins SFV, z. B. log pdf")
-    b.add_argument("--audio-crc", action="store_true",
-                   help="tagfreien Audio-CRC als Kommentar mitschreiben")
-    b.add_argument("--catalog-no", action="store_true",
-                   help="Katalognummer statt Releasename als Dateiname")
+    _add_build_args(b)
     b.add_argument("--rename", action="store_true",
                    help="vorher nach Schema umbenennen")
     b.add_argument("--tag", action="store_true",
                    help="vorher Tags schreiben (laeuft vor dem Umbenennen)")
-    b.add_argument("--clean", action="store_true",
-                   help="vorhandene .nfo/.sfv/.m3u vorher entfernen")
-    b.add_argument("--m3u-windows-paths", action="store_true",
-                   help="Rueckwaerts-Schraegstriche in der M3U wie im Original")
     _add_naming_args(b)
     _add_tag_args(b)
     b.set_defaults(func=cmd_build)
+
+    rl = sub.add_parser(
+        "release", help="das fertige Release in einem Schritt: Tags "
+                        "schreiben, umbenennen, .nfo/.sfv/.m3u erzeugen")
+    rl.add_argument("directory")
+    rl.add_argument("template", nargs="?",
+                    help="SKL-Vorlage (Standard: gespeicherte, sonst die "
+                         "mitgelieferte)")
+    _add_build_args(rl)
+    _add_naming_args(rl)
+    _add_tag_args(rl)
+    rl.set_defaults(func=cmd_release)
 
     tg = sub.add_parser("tag", help="Tags aus dem Modell in die Dateien schreiben")
     tg.add_argument("directory")

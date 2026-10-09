@@ -201,6 +201,33 @@ def test_rename_needs_a_preview_before_it_may_run(client, tree):
 
 
 @needs_ffmpeg
+def test_produce_makes_the_release_in_one_request(client, tree):
+    """Der Knopf "Release erstellen": Tags, Umbenennen, Begleitdateien."""
+    client.post("/api/template", json={"name": "vorlage.skl"})
+    state = load_release(client)
+    assert state["enabled"]["produce"] is True
+
+    state = client.post("/api/produce", json={}).json()
+    assert state["done"] and state["done"][-1].startswith("Erzeugt:")
+    target = tree / "eingang" / "Der_Artist-Das_Album-2026-GRP"
+    assert target.is_dir()
+    assert sorted(p.suffix for p in target.iterdir()) == [
+        ".m3u", ".mp3", ".mp3", ".nfo", ".sfv"]
+    assert state["current_path"] == "eingang/Der_Artist-Das_Album-2026-GRP"
+
+
+@needs_ffmpeg
+def test_produce_reports_why_nothing_happened(client, tree):
+    client.post("/api/template", json={"name": "vorlage.skl"})
+    load_release(client)
+    client.post("/api/pattern", json={"which": "file", "value": "#Album"})
+    state = client.post("/api/produce", json={}).json()
+    assert state["done"] is None
+    assert any("Nichts geändert" in m["text"] for m in state["messages"])
+    assert (tree / "eingang" / "Artist-Album-2026-GRP").is_dir()
+
+
+@needs_ffmpeg
 def test_tag_plan_and_apply(client):
     load_release(client)
     client.post("/api/field", json={"name": "genre", "value": "drum and bass"})
@@ -435,6 +462,21 @@ def test_nfo_preview_over_http(client):
     assert data["lines"] > 1
     assert data["template"] == "vorlage.skl"
     assert data["overflows"] == []
+
+
+@needs_ffmpeg
+def test_nfo_preview_carries_the_shapes_for_the_grid(client, tree):
+    """Block- und Rahmenzeichen kommen als Flaechen mit - die Seite malt
+    damit dieselbe Geometrie wie der Desktop."""
+    (tree / "vorlagen" / "block.skl").write_bytes(
+        "\xdb\xdc\xdf\xb1 #Artist          \n\xc8\xcd\xbc\n".encode("latin-1"))
+    client.post("/api/template", json={"name": "block.skl"})
+    load_release(client)
+    data = client.get("/api/nfo").json()
+    assert data["cell"] == [8, 16]
+    assert set(data["shapes"]) == {"█", "▄", "▀", "▒", "╚", "═", "╝"}
+    assert data["shapes"]["█"] == [[0, 0, 8, 16, 1.0]]
+    assert data["text"].startswith("█▄▀▒ Der Artist")
 
 
 @needs_ffmpeg
