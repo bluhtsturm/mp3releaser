@@ -73,6 +73,23 @@ def test_module_imports_without_a_graphics_stack():
     assert isinstance(gtkui.is_available(), bool)
 
 
+def test_probe_survives_a_library_that_does_not_load(monkeypatch):
+    """Passt eine Bibliothek des Wirts nicht zu einer im Bündel, scheitern
+    die Overrides von PyGObject mit einem nackten AssertionError. Das darf
+    nicht die Kommandozeile mitreißen, die dieses Modul ebenfalls lädt -
+    0.25.1 brach so auf Debian testing schon bei ``--help`` ab."""
+    import types
+
+    def broken(namespace, version):
+        raise AssertionError
+
+    monkeypatch.setitem(sys.modules, "gi",
+                        types.SimpleNamespace(require_version=broken))
+    available, error = gtkui._probe()
+    assert available is False
+    assert error == "GTK 4 nicht verfügbar (AssertionError)"
+
+
 def test_requirements_hint_is_helpful():
     hint = gtkui.requirements_hint()
     assert "GTK" in hint

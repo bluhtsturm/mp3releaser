@@ -45,7 +45,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **860 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **862 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash
@@ -121,8 +121,10 @@ chmod +x ~/.local/bin/appimagetool
 ```
 
 Das fertige AppImage braucht auf dem Zielrechner glibc 2.38 oder neuer
-(Ubuntu 24.04, Linux Mint 22, Debian 13, Fedora 39 und neuer) und für die
-grafische Oberfläche GTK 4 des Systems. Die Kommandozeile läuft ohne GTK.
+(Ubuntu 24.04, Linux Mint 22, Debian 13, Fedora 40 und neuer, Arch) und für
+die grafische Oberfläche GTK 4 und GLib des Systems. Die Kommandozeile läuft
+ohne beides. Ob die Oberfläche auf anderen Systemen startet, prüft
+`packaging/check-start.sh build/mp3releaser-x86_64.AppImage` (braucht Xvfb).
 
 ## 6. Die drei Formen vergleichen
 

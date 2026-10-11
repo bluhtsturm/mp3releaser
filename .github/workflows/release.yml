@@ -2,8 +2,8 @@
 #
 # Ausgeloest durch ein Versions-Tag, das zu releaser.__version__ passt:
 #
-#     git tag v0.25.1
-#     git push origin v0.25.1
+#     git tag v0.25.2
+#     git push origin v0.25.2
 #
 # Von Hand gestartet (Actions -> Release -> Run workflow) entsteht nur ein
 # Artefakt zum Herunterladen, kein Release - zum Ausprobieren vor dem Tag.
@@ -26,9 +26,9 @@ jobs:
     name: AppImage bauen und pruefen
     # Dieselbe Grundlage wie der lokal gepruefte Bau: Ubuntu 24.04 mit dem
     # System-Python 3.12, fuer das PyGObject und GTK 4 als Pakete vorliegen.
-    # Das AppImage braucht dadurch glibc 2.38 oder neuer. Auf einem aelteren
-    # Ubuntu gebaut, laege eine aeltere GLib im Buendel - die vertraegt sich
-    # nicht mit dem neueren GTK des Wirts, und die Oberflaeche fiele aus.
+    # Das AppImage braucht dadurch glibc 2.38 oder neuer, die Oberflaeche
+    # ausserdem GLib 2.80 oder neuer: Dagegen ist PyGObject gebaut. GLib
+    # selbst, GTK und alles, was GTK laedt, kommen vom Wirt (pyinstaller.spec).
     runs-on: ubuntu-24.04
     timeout-minutes: 40
     env:
@@ -110,19 +110,6 @@ jobs:
           env -i APPIMAGE_EXTRACT_AND_RUN=1 PATH=/nonexistent HOME=/tmp "$app" --version
           env -i APPIMAGE_EXTRACT_AND_RUN=1 PATH=/nonexistent HOME=/tmp "$app" metrics
 
-      - name: Oberflaeche auf Debian 13 starten
-        # Gebaut wird hier, laufen soll es auch auf neueren Systemen. Deren
-        # GTK nimmt das Buendel vom Wirt; was es selbst mitbringt, muss dazu
-        # passen. 0.25.0 brachte Pango mit und brach auf Debian 13 beim Start
-        # ab - auf Ubuntu 24.04 fiel das nicht auf.
-        run: |
-          docker run --rm -v "$PWD:/src:ro" debian:trixie sh -c '
-            apt-get update -qq &&
-            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
-              --no-install-recommends libgtk-4-1 gir1.2-gtk-4.0 \
-              xvfb xauth fonts-dejavu-core >/dev/null &&
-            /src/packaging/check-start.sh /src/build/mp3releaser-x86_64.AppImage'
-
       - name: Umbenennen und Pruefsumme
         id: dist
         run: |
@@ -139,9 +126,70 @@ jobs:
           path: dist/
           if-no-files-found: error
 
+  start:
+    # Gebaut wird auf Ubuntu 24.04, laufen soll es auch auf neueren Systemen.
+    # Deren GTK nimmt das Buendel vom Wirt; was es selbst mitbringt, muss dazu
+    # passen. Auf Ubuntu 24.04 faellt eine Abweichung nicht auf: 0.25.0
+    # brachte Pango mit und brach auf Debian 13 ab, 0.25.1 brachte GLib mit
+    # und brach auf Debian testing ab. Fedora legt seine Typelibs woanders
+    # ab, Arch hat nicht alle. Jedes System startet frisch, mit nur GTK 4,
+    # Xvfb und einer Schrift. Debian testing, Fedora und Arch aendern sich
+    # laufend - schlaegt nur einer dieser Laeufe fehl, kann auch das System
+    # gerade klemmen.
+    name: Start auf ${{ matrix.name }}
+    needs: appimage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Debian 13
+            image: debian:trixie
+            install: >-
+              apt-get update -qq &&
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq
+              --no-install-recommends libgtk-4-1 gir1.2-gtk-4.0 xvfb
+              fonts-dejavu-core >/dev/null
+          - name: Debian testing
+            image: debian:testing
+            install: >-
+              apt-get update -qq &&
+              DEBIAN_FRONTEND=noninteractive apt-get install -y -qq
+              --no-install-recommends libgtk-4-1 gir1.2-gtk-4.0 xvfb
+              fonts-dejavu-core >/dev/null
+          - name: Fedora
+            image: fedora:latest
+            install: >-
+              dnf install -y -q --setopt=install_weak_deps=False gtk4
+              xorg-x11-server-Xvfb dejavu-sans-mono-fonts libglvnd-gles
+              mesa-libEGL mesa-dri-drivers >/dev/null
+          - name: Arch Linux
+            image: archlinux:latest
+            install: >-
+              pacman -Syu --noconfirm --needed gtk4 xorg-server-xvfb
+              ttf-dejavu >/dev/null
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v7
+        with:
+          name: mp3releaser-${{ needs.appimage.outputs.version }}-x86_64
+          path: dist
+
+      - name: Oberflaeche starten
+        env:
+          IMAGE: ${{ matrix.image }}
+          INSTALL: ${{ matrix.install }}
+        run: |
+          # Artefakte verlieren das Ausfuehrungsrecht
+          chmod +x dist/*.AppImage
+          docker run --rm -v "$PWD:/src:ro" "$IMAGE" sh -c \
+            "$INSTALL && /src/packaging/check-start.sh /src/dist/mp3releaser-*.AppImage"
+
   release:
     name: Release anlegen
-    needs: appimage
+    needs: [appimage, start]
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-24.04
     permissions:
@@ -168,13 +216,15 @@ jobs:
               sha256sum -c SHA256SUMS
 
           Voraussetzung: Linux x86_64 mit glibc 2.38 oder neuer (Ubuntu 24.04,
-          Linux Mint 22, Debian 13, Fedora 39 und neuer). Die Oberfläche nutzt
-          das GTK 4 des Systems, die Kommandozeile läuft auch ohne. Ohne FUSE:
+          Linux Mint 22, Debian 13, Fedora 40 und neuer, Arch). Die Oberfläche
+          nutzt GTK 4 und GLib des Systems, die Kommandozeile läuft auch ohne.
+          Gestartet auf Debian 13, Debian testing, Fedora und Arch. Ohne FUSE:
           \`--appimage-extract-and-run\`. Änderungen: [CHANGE.md](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/CHANGE.md).
 
           **English** – a single file, no installation, no Python. Requires
           Linux x86_64 with glibc 2.38 or newer; the graphical interface uses
-          the system's GTK 4, the command line works without it. See the
+          the system's GTK 4 and GLib, the command line works without them.
+          Started on Debian 13, Debian testing, Fedora and Arch. See the
           [README](https://github.com/${GITHUB_REPOSITORY}/blob/${GITHUB_REF_NAME}/README.en.md).
           EOF
           files=(dist/*.AppImage dist/SHA256SUMS)

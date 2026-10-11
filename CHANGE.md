@@ -1,3 +1,166 @@
+# Änderungen – 0.25.2: GLib vom System, geprüft auf vier Distributionen
+
+Stand: 11.10.2026 · Version 0.25.1 → **0.25.2**
+
+Rückmeldung aus der Erprobung: Auch 0.25.1 brach beim Start ab, diesmal mit
+einer anderen Bibliothek – und schon bei der Kommandozeile.
+
+```
+Failed to load shared library 'libgtk-4.so.1' referenced by the typelib:
+/usr/lib/x86_64-linux-gnu/libgstaudio-1.0.so.0: undefined symbol: g_sort_array
+  File "releaser/cli.py", line 9, in <module>
+  …
+  File "gi/overrides/Gdk.py", line 428, in <module>
+AssertionError
+```
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 860 | 862 |
+| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | alle grün | alle 862 grün, nichts übersprungen |
+| Oberfläche startet auf Debian 13 (GTK 4.18) | ja | ja |
+| … auf Debian testing (GTK 4.24, GLib 2.90) | nein | ja |
+| … auf Fedora 44 (GTK 4.22) | nein, nie | ja |
+| … auf Arch (GTK 4.24, schlanke Installation) | nein | ja |
+| Größe des AppImage | 22,2 MB | 15,4 MB |
+| `pyflakes` | sauber | sauber |
+
+## 1. Ursache
+
+Das System der Rückmeldung ist Debian testing. Dessen GTK 4.24 bindet
+GStreamer direkt ein (unter Debian 13 war das noch ein nachladbares Modul),
+und die `libgstaudio` von testing ruft `g_sort_array` auf – eine Funktion aus
+GLib 2.82. Das Bündel brachte aber GLib 2.80 aus dem Bausystem (Ubuntu 24.04)
+mit, samt GIO-Modulen und deren Abhängigkeiten (GnuTLS, Kerberos, libproxy,
+libmount …). Eine Bibliothek im Bündel geht der des Systems vor; das GTK des
+Systems bekam die alte GLib und ließ sich nicht laden.
+
+Derselbe Fehler wie in 0.25.0 mit Pango, eine Ebene tiefer. Nachgestellt in
+einem frischen Debian testing: 0.24.1 und 0.25.1 brechen mit genau dieser
+Ausgabe ab.
+
+Dass schon `--help` abbrach, lag an der Prüfung, ob die Oberfläche verfügbar
+ist: Sie läuft beim Laden der Kommandozeile mit und fing nur `ImportError` und
+`ValueError` ab. Scheitert das Laden der Bibliothek, melden die Overrides von
+PyGObject aber einen nackten `AssertionError`.
+
+Beim Gegenprüfen auf Fedora fiel ein älterer Fehler auf: Dort startete die
+Oberfläche **nie**. Die mitgebrachte libgirepository, gebaut für
+Debian/Ubuntu, sucht Typelibs nur unter
+`/usr/lib/x86_64-linux-gnu/girepository-1.0` und `/usr/lib/girepository-1.0`;
+Fedora legt sie unter `/usr/lib64` ab. Das AppImage meldete „Namespace Gtk
+not available“ und zeigte nur den Hinweis auf fehlendes GTK. Auf Arch
+(`/usr/lib`) fand sie GTK, aber einer schlanken Installation fehlt
+`cairo-1.0.typelib` – das bis 0.25.0 im Bündel lag und mit 0.25.1
+herausfiel.
+
+## 2. Behebung
+
+**`packaging/pyinstaller.spec`** – alles, was GTK lädt, kommt vom System:
+
+* `HOST_PROVIDED` umfasst jetzt auch `libglib-2.0`, `libgobject-2.0`,
+  `libgio-2.0` und `libgmodule-2.0`; die GIO-Module (`gio_modules/`) bleiben
+  ebenso draußen – die GLib des Systems lädt ihre eigenen.
+* Danach behält das Spec nur noch, was der Interpreter und seine
+  Erweiterungsmodule anfordern, direkt oder über eine behaltene Bibliothek
+  (`objdump -p`, Einträge `NEEDED`). Was allein über GLib und die GIO-Module
+  hereinkam, fällt mit weg. Im Bündel bleiben Python, OpenSSL, zlib, bzip2,
+  xz, libffi, libyaml und libgirepository-1.0 für PyGObject.
+* `HOST_DATA`: Der Cache der GIO-Module, die GSettings-Schemas und die
+  MIME-Datenbank des Bausystems bleiben draußen. Sie hätten über
+  `XDG_DATA_DIRS` die des Systems verdeckt – ältere Schemas neben einem
+  neueren GTK.
+* `HOST_TYPELIBS` entfällt: Die Typelibs bleiben im Bündel, aber nur als
+  Rückfall (siehe unten).
+
+**`packaging/entrypoint.py`** – `use_host_glib()` läuft vor allem anderen:
+
+* `GIO_MODULE_DIR` wird gelöscht; der Laufzeit-Hook von PyInstaller zeigte
+  auf den Ordner im Bündel.
+* `GI_TYPELIB_PATH` nennt zuerst die Typelib-Ordner des Systems, die es gibt
+  (Debian/Ubuntu, `/usr/lib64`, `/usr/lib`, `/usr/local/lib`), danach den
+  Ordner im Bündel. Die Typelibs des Systems passen zu dessen Bibliotheken und
+  gehen vor; schlanken Installationen von Fedora oder Arch fehlt aber etwa
+  `cairo-1.0.typelib`, und dafür springt das Bündel ein.
+
+**`releaser/frontends/gtkui.py`** – die Prüfung auf GTK fängt jede Ausnahme.
+Scheitert GTK, meldet das AppImage „GTK 4 nicht verfügbar (AssertionError)“
+mit dem Hinweis auf die Pakete, und die Kommandozeile läuft weiter.
+
+Geprüft in frischen Containern (nur GTK 4, Xvfb, eine Schrift; Fedora dazu
+GL ES):
+
+| System | GTK | GLib | 0.25.1 | 0.25.2 |
+|---|---|---|---|---|
+| Ubuntu 24.04 (Bausystem) | 4.14 | 2.80 | läuft | läuft |
+| Debian 13 | 4.18 | 2.84 | läuft | läuft |
+| Debian testing | 4.24 | 2.90 | `g_sort_array` | läuft |
+| Fedora 44 | 4.22 | 2.88 | „Namespace Gtk not available“ | läuft |
+| Arch | 4.24 | 2.90 | „cairo-1.0 not found“ | läuft |
+
+Auf Debian testing durchgeklickt: Release einlesen, NFO-Vorschau mit
+Block- und Rahmenzeichen, Dateiauswahl „Vorlage…“. Ohne GLib auf dem System
+(nacktes Debian testing) laufen `--version`, `--help` und `metrics`; ohne
+Argumente erklärt das AppImage, dass GTK fehlt, und endet mit Status 3.
+
+Bekannt und unverändert: Das Bündel braucht `libexpat` vom System, weil der
+Interpreter sie lädt und sie auf der Ausschlussliste der AppImage-Gemeinschaft
+steht. Auf jedem Desktop ist sie vorhanden, in einem nackten Container nicht.
+
+## 3. Startprüfung auf vier Systemen
+
+`.github/workflows/release.yml`: Statt eines Schritts in Debian 13 gibt es
+einen eigenen Job **„Start auf …“**, der das gebaute AppImage in frischen
+Installationen von **Debian 13, Debian testing, Fedora und Arch** startet,
+jeweils parallel und ohne beim ersten Fehler abzubrechen. Das Release entsteht
+erst, wenn alle vier grün sind. Debian testing, Fedora und Arch ändern sich
+laufend; schlägt nur einer dieser Läufe fehl, kann auch das System gerade
+klemmen – erneut starten lässt er sich in GitHub einzeln.
+
+`packaging/check-start.sh` startet Xvfb jetzt selbst statt über
+`xvfb-run`. Das scheiterte lokal gelegentlich beim Aufräumen seines Ordners
+und meldete einen Fehler, obwohl die Oberfläche lief. Xvfb wählt dabei selbst
+eine freie Nummer (`-displayfd`). Als Ladefehler zählt jetzt auch der Hinweis
+„nicht zur Verfügung“.
+
+Die Befehle der vier Läufe sind lokal gegengeprüft, wörtlich aus dem
+Workflow gelesen (nur mit dem Zertifikat des hiesigen Proxys davor).
+
+## 4. Dokumentation
+
+* `README.md`, `README.en.md`: Voraussetzungen (Fedora 40 statt 39 – die
+  Oberfläche braucht GLib 2.80; Arch; die vier geprüften Systeme), Abschnitt
+  „Auslieferung als Bündel“ bzw. „Delivery as a bundle“ neu gefasst, Ablauf
+  des Workflows, Eintrag unter „Aus der vierzehnten Erprobung“, Testzahl,
+  Versionsbeispiele.
+* `EINRICHTUNG.md`: Voraussetzungen, `check-start.sh` von Hand, Testzahl.
+* Release-Text im Workflow: Voraussetzungen, geprüfte Systeme.
+
+## Neue und geänderte Tests
+
+* `tests/test_gtkui.py`: neu `test_probe_survives_a_library_that_does_not_load`
+  – ein `AssertionError` beim Laden ergibt „GTK 4 nicht verfügbar
+  (AssertionError)“ statt eines Abbruchs.
+* `tests/test_packaging.py`:
+  * neu `test_bundle_looks_for_typelibs_where_the_host_keeps_them` –
+    `GIO_MODULE_DIR` verschwindet, die Typelib-Ordner des Systems stehen vor
+    dem des Bündels.
+  * `test_spec_leaves_host_graphics_libraries_out` verlangt GLib, GObject,
+    GIO und `HOST_DATA`.
+  * `test_bundle_contains_no_host_graphics_libraries` prüft am gebauten
+    Bündel zusätzlich, dass nichts nur für GIO-Module mitkam (GnuTLS,
+    libproxy, Kerberos, libmount, PCRE2), dass Interpreter und
+    libgirepository bleiben und keine Daten aus `HOST_DATA` darin liegen.
+  * `test_release_workflow_builds_and_checks_before_publishing` verlangt den
+    Job `start` mit Debian 13, Debian testing, Fedora und Arch, ohne
+    `fail-fast`, und dass das Release auf ihn wartet.
+
+Gegen den Code von 0.25.1 laufen gelassen, schlagen 4 dieser Tests fehl (dazu
+die drei Testzahlen); mit einem Bündel von 0.25.1 auch der Bündeltest, der
+dort `libglib-2.0` und Co. findet.
+
+---
+
 # Änderungen – 0.25.1: AppImage startet wieder auf Debian 13
 
 Stand: 09.10.2026 · Version 0.25.0 → **0.25.1**

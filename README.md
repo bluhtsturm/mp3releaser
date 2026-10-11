@@ -15,19 +15,21 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.25.1:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.25.2:
 
 ```bash
-chmod +x mp3releaser-0.25.1-x86_64.AppImage
-./mp3releaser-0.25.1-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.25.1-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.25.2-x86_64.AppImage
+./mp3releaser-0.25.2-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.25.2-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
 Voraussetzung: Linux x86_64 mit glibc 2.38 oder neuer (Ubuntu 24.04,
-Linux Mint 22, Debian 13, Fedora 39 und neuer). Die grafische Oberfläche
-nutzt das GTK 4 des Systems; die Kommandozeile läuft auch ohne. Fehlt FUSE,
-startet es mit `--appimage-extract-and-run`.
+Linux Mint 22, Debian 13, Fedora 40 und neuer, Arch). Die grafische
+Oberfläche nutzt GTK 4 und GLib des Systems; die Kommandozeile läuft auch
+ohne. Vor jedem Release startet die Oberfläche probeweise auf Debian 13,
+Debian testing, Fedora und Arch. Fehlt FUSE, startet es mit
+`--appimage-extract-and-run`.
 
 ## Schnellstart
 
@@ -49,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 860 Tests
+python3 -m pytest tests -q          # 862 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -770,21 +772,39 @@ Mitgebündelt wird nur die Python-Seite von PyGObject, einschließlich der
 **GTK-Overrides** (`gi.overrides.Gtk`, `gi.overrides.Gdk`). PyInstaller nahm
 die nur mit, wenn sein GTK-3-Hook griff; auf einem Rechner mit ausschließlich
 GTK 4 fehlten sie, und die Oberfläche brach beim Start ab. Sie stehen jetzt
-ausdrücklich im Spec. Umgekehrt bleiben Grafikbibliotheken, die GTK auf dem
-Wirt ohnehin mitbringt (X11, xcb, cairo, fontconfig, freetype …), draußen –
-dieselben Namen stehen auf der Ausschlussliste der AppImage-Gemeinschaft.
-Ebenso der Textsatz (Pango, HarfBuzz, Graphene) und GTK selbst, jeweils mit
-ihren Typelibs (`HOST_PROVIDED`, `HOST_TYPELIBS` in `pyinstaller.spec`):
-Seit die NFO-Vorschau Pango direkt einbindet, zog PyInstaller sie sonst
-herein, und eine ältere Pango aus dem Bündel neben dem neueren GTK des
-Wirts brach den Start ab (0.25.0 auf Debian 13). Ein Test startet die
+ausdrücklich im Spec.
+
+**Alles, was GTK lädt, kommt vom Wirt.** Eine Bibliothek im Bündel geht der
+des Systems vor; ist sie älter, fehlen dem GTK des Systems Funktionen, und es
+lässt sich nicht laden. Zweimal ist das passiert: 0.25.0 brachte Pango aus
+dem Bausystem (Ubuntu 24.04) mit und brach auf Debian 13 ab, 0.25.1 brachte
+GLib 2.80 mit und brach auf Debian testing ab – dort bindet GTK 4.24
+GStreamer ein, und das braucht GLib 2.82. Deshalb bleiben draußen
+(`HOST_PROVIDED` in `pyinstaller.spec`): Grafik (X11, xcb, cairo,
+fontconfig, freetype … – dieselben Namen wie auf der Ausschlussliste der
+AppImage-Gemeinschaft), Textsatz (Pango, HarfBuzz, Graphene), GTK selbst und
+GLib, GObject, GIO samt GIO-Modulen. Was danach nur noch diese Bibliotheken
+brauchten (GnuTLS, Kerberos, libproxy, libmount …), fällt mit weg: Das Spec
+behält allein, was der Interpreter und seine Erweiterungsmodule anfordern.
+Übrig sind Python, OpenSSL, zlib, bzip2, xz, libffi, libyaml und die
+libgirepository von PyGObject; das AppImage wurde dadurch ein Drittel
+kleiner.
+
+Die Typelibs sucht das Bündel zuerst beim System, auch unter `/usr/lib64`
+(Fedora) – die mitgebrachte libgirepository kannte nur die Pfade von
+Debian/Ubuntu, und auf Fedora startete die Oberfläche nie. Die Typelibs im
+Bündel bleiben als Rückfall dahinter; schlanken Installationen etwa von Arch
+fehlt `cairo-1.0.typelib` (`packaging/entrypoint.py`).
+
+Lässt sich GTK trotzdem nicht laden, meldet die Oberfläche das und beendet
+sich; die Kommandozeile bleibt davon unberührt. Ein Test startet die
 Oberfläche aus dem AppDir unter `xvfb-run`, ein zweiter prüft das gebaute
 Bündel darauf, dass keine dieser Bibliotheken darin liegt.
 
 Die Oberfläche kommt nur ins Bündel, wenn der bauende Interpreter PyGObject
 und GTK 4 importieren kann; `build.sh` warnt sonst. Das fertige AppImage
-braucht glibc 2.38 oder neuer – das legt der Rechner fest, auf dem gebaut
-wird.
+braucht glibc 2.38 oder neuer, die Oberfläche außerdem GLib 2.80 oder
+neuer – beides legt der Rechner fest, auf dem gebaut wird.
 
 ### Neue Version veröffentlichen
 
@@ -800,9 +820,10 @@ git push origin v0.22.2
 Der Workflow baut auf Ubuntu 24.04 mit demselben Aufbau wie oben, lässt
 vorher die komplette Testsuite laufen (unter `xvfb` mit GTK 4 und WebKitGTK),
 danach die Bündeltests samt Start der Oberfläche, startet das AppImage ohne
-Python und ohne `PATH`, öffnet die Oberfläche in einem frischen Debian 13
-(`packaging/check-start.sh`, mit einem neueren GTK als dem des Bausystems)
-— und erst dann legt er das Release mit AppImage und `SHA256SUMS` an.
+Python und ohne `PATH`, öffnet die Oberfläche in frischen Installationen
+von Debian 13, Debian testing, Fedora und Arch (`packaging/check-start.sh`,
+jeweils mit einem neueren GTK als dem des Bausystems) — und erst dann legt
+er das Release mit AppImage und `SHA256SUMS` an.
 Passt das Tag nicht zur Version im Code, bricht er ab.
 `appimagetool` ist auf eine Fassung mit Prüfsumme festgelegt. Von Hand
 gestartet (*Actions → Release → Run workflow*) entsteht nur ein Artefakt zum
@@ -1276,7 +1297,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-860 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+862 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1635,6 +1656,13 @@ Umleitung greift.
   GTK samt Typelibs draußen; der Release-Workflow startet das AppImage
   jetzt zusätzlich in einem frischen Debian 13 (siehe
   [Auslieferung als Bündel](#auslieferung-als-bündel)).
+* **0.25.1 startete auf Debian testing nicht** – diesmal brachte das Bündel
+  GLib 2.80 mit, und das GTK 4.24 von Debian testing braucht über GStreamer
+  `g_sort_array` aus GLib 2.82. Selbst `--help` brach ab, weil die
+  Kommandozeile die Oberfläche beim Laden prüft. 0.25.2 nimmt GLib vom
+  System, sucht Typelibs auch dort, wo Fedora sie ablegt – dort startete die
+  Oberfläche nie –, und startet sie vor jedem Release auf Debian 13, Debian
+  testing, Fedora und Arch.
 
 ### Was offen ist
 

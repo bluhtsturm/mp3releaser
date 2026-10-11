@@ -60,6 +60,36 @@ def test_start_check_is_executable():
     assert os.access(PACKAGING / "check-start.sh", os.X_OK)
 
 
+def _entrypoint():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(
+        "bundle_entrypoint", PACKAGING / "entrypoint.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_bundle_looks_for_typelibs_where_the_host_keeps_them():
+    """Die Laufzeit-Hooks von PyInstaller zeigen auf Ordner im Bündel.
+    GIO-Module sollen vom Wirt kommen, Typelibs zuerst auch - dort, wo er
+    sie ablegt (Fedora: /usr/lib64); die des Bündels nur als Rückfall."""
+    entry = _entrypoint()
+    environ = {"GI_TYPELIB_PATH": "/tmp/_MEI1/gi_typelibs",
+               "GIO_MODULE_DIR": "/tmp/_MEI1/gio_modules", "HOME": "/h"}
+    present = {"/usr/lib64/girepository-1.0", "/usr/local/lib/girepository-1.0"}
+    entry.use_host_glib(environ, present.__contains__)
+    assert environ == {
+        "GI_TYPELIB_PATH": "/usr/lib64/girepository-1.0:"
+                           "/usr/local/lib/girepository-1.0:"
+                           "/tmp/_MEI1/gi_typelibs",
+        "HOME": "/h"}
+
+    environ = {"GI_TYPELIB_PATH": "/tmp/_MEI1/gi_typelibs"}
+    entry.use_host_glib(environ, lambda path: False)
+    assert environ == {"GI_TYPELIB_PATH": "/tmp/_MEI1/gi_typelibs"}
+
+
 def test_desktop_entry_has_the_required_keys():
     text = (APPIMAGE / "mp3releaser.desktop").read_text(encoding="utf-8")
     assert text.startswith("[Desktop Entry]")
@@ -414,10 +444,11 @@ def test_spec_leaves_host_graphics_libraries_out():
     text = (PACKAGING / "pyinstaller.spec").read_text(encoding="utf-8")
     assert "HOST_PROVIDED" in text
     for name in ("libX11.", "libxcb", "libcairo", "libfontconfig.",
-                 "libpango", "libharfbuzz", "libgraphene"):
+                 "libpango", "libharfbuzz", "libgraphene",
+                 "libglib-2.0.", "libgobject-2.0.", "libgio-2.0."):
         assert f'"{name}"' in text, name
-    assert "HOST_TYPELIBS" in text
-    for name in ("Pango-", "HarfBuzz-", "Graphene-", "Gtk-"):
+    assert "HOST_DATA" in text
+    for name in ("gio_modules/", "share/glib-2.0/"):
         assert f'"{name}"' in text, name
 
 
@@ -472,16 +503,24 @@ def test_release_workflow_builds_and_checks_before_publishing():
     assert "pytest tests" in runs
     assert "tests/test_packaging.py" in runs          # nach dem Bau erneut
     assert "GITHUB_REF_NAME" in runs                  # Tag passt zur Version
-    # Start auf einem neueren System als dem Bausystem: Was das Bündel
-    # mitbringt, muss zum GTK dort passen (0.25.0 brach auf Debian 13 ab)
-    assert "debian:trixie" in runs
-    assert "packaging/check-start.sh" in runs
+
+    # Start auf neueren Systemen als dem Bausystem: Was das Bündel mitbringt,
+    # muss zum GTK dort passen (0.25.0 brach auf Debian 13 ab, 0.25.1 auf
+    # Debian testing; Fedora legt Typelibs woanders ab, Arch hat nicht alle)
+    start = workflow["jobs"]["start"]
+    assert start["needs"] == "appimage"
+    images = {entry["image"] for entry in start["strategy"]["matrix"]["include"]}
+    assert {"debian:trixie", "debian:testing", "fedora:latest",
+            "archlinux:latest"} <= images
+    assert start["strategy"]["fail-fast"] is False    # jedes System melden
+    start_runs = "\n".join(step.get("run", "") for step in start["steps"])
+    assert "packaging/check-start.sh" in start_runs
 
     digest = build["env"]["APPIMAGETOOL_SHA256"]
     assert len(digest) == 64 and all(c in "0123456789abcdef" for c in digest)
 
     release = workflow["jobs"]["release"]
-    assert release["needs"] == "appimage"
+    assert release["needs"] == ["appimage", "start"]
     assert release["permissions"] == {"contents": "write"}
     assert workflow["permissions"] == {"contents": "read"}
 
@@ -510,15 +549,22 @@ def test_bundle_contains_no_host_graphics_libraries():
                     if Path(name).name.startswith(prefixes))
     assert not leaked, f"Bibliotheken des Wirts im Bündel: {leaked}"
 
-    # Die Typelibs dazu ebenso - eine alte Pango-1.0.typelib im Bündel
-    # passte nicht zur Bibliothek des Wirts
-    typelibs = ast.literal_eval(
-        re.search(r"^HOST_TYPELIBS = (\(.*?^\))", spec, re.S | re.M).group(1))
-    packed = re.findall(r"'gi_typelibs/([^']+)'",
+    # Was nur GLib und die GIO-Module des Bausystems brauchten, ist mit
+    # ihnen weg - der Interpreter und seine Bibliotheken bleiben
+    names = {Path(name).name.split(".so")[0] for name in bundled}
+    stray = sorted(names & {"libgnutls", "libproxy", "libkrb5", "libmount",
+                            "libpcre2-8"})
+    assert not stray, f"nur für GLib und GIO-Module gebündelt: {stray}"
+    assert any(name.startswith("libpython") for name in names)
+    assert "libgirepository-1.0" in names             # für PyGObject
+
+    # Ebenso die Daten zur GLib des Bausystems: GIO-Module, Schemas
+    host_data = ast.literal_eval(
+        re.search(r"^HOST_DATA = (\(.*?^\))", spec, re.S | re.M).group(1))
+    packed = re.findall(r"\('([^']+)',\s*'[^']*',\s*'(?:DATA|BINARY)'\)",
                         PKG_TOC.read_text(encoding="utf-8"))
-    assert packed, "keine Typelibs im Bauprotokoll gefunden"
-    leaked = sorted(name for name in packed if name.startswith(typelibs))
-    assert not leaked, f"Typelibs des Wirts im Bündel: {leaked}"
+    leaked = sorted(name for name in packed if name.startswith(host_data))
+    assert not leaked, f"Daten des Wirts im Bündel: {leaked}"
 
 
 def test_container_reads_its_configuration_from_the_mounted_folder():

@@ -20,19 +20,20 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.25.1 as an example:
+is `SHA256SUMS` with the checksum. Using 0.25.2 as an example:
 
 ```bash
-chmod +x mp3releaser-0.25.1-x86_64.AppImage
-./mp3releaser-0.25.1-x86_64.AppImage              # graphical interface
-./mp3releaser-0.25.1-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.25.2-x86_64.AppImage
+./mp3releaser-0.25.2-x86_64.AppImage              # graphical interface
+./mp3releaser-0.25.2-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
 Requirements: Linux x86_64 with glibc 2.38 or newer (Ubuntu 24.04,
-Linux Mint 22, Debian 13, Fedora 39 and later). The graphical interface uses
-the system's GTK 4; the command line works without it. Without FUSE, start it
-with `--appimage-extract-and-run`.
+Linux Mint 22, Debian 13, Fedora 40 and later, Arch). The graphical interface
+uses the system's GTK 4 and GLib; the command line works without them. Before
+every release the interface is started on Debian 13, Debian testing, Fedora
+and Arch. Without FUSE, start it with `--appimage-extract-and-run`.
 
 ## Quick start
 
@@ -54,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 860 tests
+python3 -m pytest tests -q          # 862 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -774,19 +775,36 @@ Only the Python side of PyGObject is bundled, including the **GTK overrides**
 (`gi.overrides.Gtk`, `gi.overrides.Gdk`). PyInstaller only picked those up
 when its GTK 3 hook kicked in; on a machine with GTK 4 only they were missing,
 and the interface crashed on start-up. They are now listed explicitly in the
-spec. Conversely, graphics libraries that GTK brings along on the host anyway
-(X11, xcb, cairo, fontconfig, freetype …) are left out — the same names are on
-the AppImage community's exclude list. So are text layout (Pango, HarfBuzz,
-Graphene) and GTK itself, each with its typelibs (`HOST_PROVIDED`,
-`HOST_TYPELIBS` in `pyinstaller.spec`): since the NFO preview uses Pango
-directly, PyInstaller would pull them in otherwise, and an older Pango from
-the bundle next to the host's newer GTK broke the start (0.25.0 on Debian
-13). A test starts the interface from the AppDir under `xvfb-run`; a second
-one checks the built bundle for any of these libraries.
+spec.
+
+**Everything GTK loads comes from the host.** A library in the bundle takes
+precedence over the system's; if it is older, the system's GTK misses
+functions and cannot be loaded. This happened twice: 0.25.0 brought Pango
+from the build system (Ubuntu 24.04) and failed on Debian 13, 0.25.1 brought
+GLib 2.80 and failed on Debian testing — there GTK 4.24 links GStreamer, which
+needs GLib 2.82. So these stay out (`HOST_PROVIDED` in `pyinstaller.spec`):
+graphics (X11, xcb, cairo, fontconfig, freetype … — the same names as on the
+AppImage community's exclude list), text layout (Pango, HarfBuzz, Graphene),
+GTK itself, and GLib, GObject, GIO including the GIO modules. Whatever only
+these libraries needed (GnuTLS, Kerberos, libproxy, libmount …) goes as well:
+the spec keeps only what the interpreter and its extension modules request.
+What remains is Python, OpenSSL, zlib, bzip2, xz, libffi, libyaml and
+PyGObject's libgirepository; the AppImage shrank by a third.
+
+The bundle looks for typelibs on the system first, including `/usr/lib64`
+(Fedora) — the bundled libgirepository only knew the Debian/Ubuntu paths, and
+on Fedora the interface never started. The bundle's own typelibs remain as a
+fallback behind them; slim installations of Arch, for instance, lack
+`cairo-1.0.typelib` (`packaging/entrypoint.py`).
+
+If GTK still cannot be loaded, the interface says so and exits; the command
+line is not affected. A test starts the interface from the AppDir under
+`xvfb-run`; a second one checks the built bundle for any of these libraries.
 
 The interface only makes it into the bundle if the building interpreter can
 import PyGObject and GTK 4; otherwise `build.sh` warns. The finished AppImage
-needs glibc 2.38 or newer — that is determined by the machine it is built on.
+needs glibc 2.38 or newer, the interface also GLib 2.80 or newer — both are
+determined by the machine it is built on.
 `build.sh` also runs `appimagetool` without FUSE, so it works in containers
 and CI.
 
@@ -804,9 +822,10 @@ git push origin v0.22.2
 The workflow builds on Ubuntu 24.04 with the same setup as above, runs the
 complete test suite first (under `xvfb` with GTK 4 and WebKitGTK), then the
 bundle tests including starting the interface, starts the AppImage without
-Python and without `PATH`, opens the interface in a fresh Debian 13
-(`packaging/check-start.sh`, with a newer GTK than the build system's) — and
-only then creates the release with the AppImage and `SHA256SUMS`. If the tag does not match the version in the code,
+Python and without `PATH`, opens the interface in fresh installations of
+Debian 13, Debian testing, Fedora and Arch (`packaging/check-start.sh`, each
+with a newer GTK than the build system's) — and only then creates the release
+with the AppImage and `SHA256SUMS`. If the tag does not match the version in the code,
 it aborts. `appimagetool` is pinned to one version with a checksum. Started by
 hand (*Actions → Release → Run workflow*) it only produces an artifact for
 trying out, no release.
@@ -1286,7 +1305,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 860 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 862 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1632,6 +1651,13 @@ takes effect.
   pango_font_description_set_features`. 0.25.1 leaves GTK's text layout and
   its typelibs out; the release workflow now also starts the AppImage in a
   fresh Debian 13 (see [Delivery as a bundle](#delivery-as-a-bundle)).
+* **0.25.1 did not start on Debian testing** — this time the bundle brought
+  GLib 2.80, and Debian testing's GTK 4.24 needs `g_sort_array` from GLib 2.82
+  via GStreamer. Even `--help` aborted, because the command line checks the
+  interface when loading. 0.25.2 takes GLib from the system, also looks for
+  typelibs where Fedora keeps them — the interface never started there — and
+  starts it before every release on Debian 13, Debian testing, Fedora and
+  Arch.
 
 ### What is open
 

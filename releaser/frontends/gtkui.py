@@ -66,8 +66,11 @@ def _probe() -> tuple[bool, str]:
         from gi.repository import Gtk
 
         assert Gtk is not None          # nur die Verfuegbarkeit pruefen
-    except (ValueError, ImportError) as exc:
-        return False, f"GTK 4 nicht verfügbar ({exc})"
+    except Exception as exc:
+        # Laesst sich die Bibliothek nicht laden, scheitern die Overrides von
+        # PyGObject mit einem nackten AssertionError. Die Kommandozeile, die
+        # dieses Modul ebenfalls laedt, soll davon unberuehrt bleiben.
+        return False, f"GTK 4 nicht verfügbar ({str(exc) or type(exc).__name__})"
     return True, ""
 
 
