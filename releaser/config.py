@@ -29,6 +29,13 @@ Gesucht wird, wenn kein Pfad angegeben ist, in dieser Reihenfolge:
 ``./mp3releaser.toml``, ``./.mp3releaser.toml``,
 ``$XDG_CONFIG_HOME/mp3releaser/config.toml``,
 ``~/.config/mp3releaser/config.toml``.
+
+Dazu kommt die **Einstellungsdatei** aus ``$RELEASER_SETTINGS``, sofern
+gesetzt: Die Weboberfläche schreibt dorthin, was dort als Standard
+gespeichert wird. Ihre Werte liegen über denen der Konfiguration - im
+Container ist die Konfiguration nur lesbar eingehängt und gehört dem, der
+den Dienst betreibt; die Einstellungsdatei liegt in einem eigenen Volume
+und gehört der Oberfläche.
 """
 
 from __future__ import annotations
@@ -44,7 +51,9 @@ except ModuleNotFoundError:            # pragma: no cover
     tomllib = None                     # type: ignore[assignment]
 
 CONFIG_NAME = "mp3releaser.toml"
-SECTIONS = ("naming", "tags", "build", "gui")
+SECTIONS = ("naming", "tags", "build", "gui", "web")
+#: Umgebungsvariable mit dem Pfad der Einstellungsdatei (siehe oben)
+SETTINGS_ENV = "RELEASER_SETTINGS"
 
 #: Erlaubte Schluessel je Abschnitt. Ein Tippfehler bliebe sonst wirkungslos
 #: und unbemerkt - das ist schlimmer als eine Meldung.
@@ -66,6 +75,9 @@ KNOWN_KEYS: dict[str, frozenset[str]] = {
     }),
     # Nur die Desktop-Anwendung: wo die Auswahl beim Start steht
     "gui": frozenset({"start"}),
+    # Nur die Weboberflaeche: welcher eingehaengte Ordner beim Start offen
+    # ist, als Pfad wie in der Auswahl ("eingang/neu")
+    "web": frozenset({"start"}),
 }
 
 
@@ -86,7 +98,10 @@ class Config:
     tags: dict[str, Any] = field(default_factory=dict)
     build: dict[str, Any] = field(default_factory=dict)
     gui: dict[str, Any] = field(default_factory=dict)
+    web: dict[str, Any] = field(default_factory=dict)
     source: Optional[Path] = None
+    #: die Einstellungsdatei, deren Werte darueber liegen - falls gelesen
+    settings: Optional[Path] = None
     #: unbekannte Schluessel, die wirkungslos bleiben
     warnings: list[str] = field(default_factory=list)
 
@@ -151,8 +166,27 @@ def _read(path: Path) -> Config:
     return parse(text, source=path)
 
 
+def settings_path() -> Optional[Path]:
+    """Wohin die Weboberfläche speichert - ``None``, wenn nicht vorgesehen."""
+    value = os.environ.get(SETTINGS_ENV)
+    return Path(value) if value else None
+
+
+def merge(base: Config, overlay: Config) -> Config:
+    """Legt die Werte von ``overlay`` je Abschnitt über die von ``base``."""
+    merged = Config(source=base.source, settings=overlay.source,
+                    warnings=base.warnings + overlay.warnings)
+    for name in SECTIONS:
+        setattr(merged, name, {**base.section(name), **overlay.section(name)})
+    return merged
+
+
 def load(path: Optional[str | Path] = None, required: bool = False) -> Config:
-    """Lädt die Konfiguration. Ohne Pfad wird an den üblichen Orten gesucht."""
+    """Lädt die Konfiguration. Ohne Pfad wird an den üblichen Orten gesucht.
+
+    Ohne Pfad kommt die Einstellungsdatei aus ``$RELEASER_SETTINGS`` obenauf,
+    sofern es sie gibt. Mit Pfad gilt genau diese eine Datei.
+    """
     if path is not None:
         p = Path(path)
         if not p.is_file():
@@ -160,6 +194,10 @@ def load(path: Optional[str | Path] = None, required: bool = False) -> Config:
         return _read(p)
 
     found = find_config()
+    overlay = settings_path()
+    if overlay is not None and overlay.is_file():
+        base = _read(found) if found is not None else Config()
+        return merge(base, _read(overlay))
     if found is None:
         if required:
             raise ConfigError(
@@ -220,6 +258,9 @@ release_date_format = "%Y-%m-%d"   # leeres Releasedatum = heute; "" schaltet es
 
 [gui]
 start = "~/Musik/Eingang"      # Verzeichnis, das die Auswahl beim Start zeigt
+
+[web]
+start = "eingang"              # Weboberflaeche: eingehaengter Ordner beim Start
 '''
 
 

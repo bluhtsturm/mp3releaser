@@ -633,7 +633,8 @@ def test_config_command_shows_every_section(tmp_path, capsys):
 
     path = config_module.save(config_module.Config(
         naming={"group": "GRP"}, build={"release_date_format": "%d.%m.%Y"},
-        gui={"start": "/musik/eingang"}), tmp_path / "c.toml")
+        gui={"start": "/musik/eingang"}, web={"start": "eingang"}),
+        tmp_path / "c.toml")
 
     assert cli.main(["config", str(path)]) == 0
     out = capsys.readouterr().out
@@ -681,3 +682,96 @@ def test_web_start_names_the_configuration(tmp_path, monkeypatch, capsys):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
     assert cli.main(["web", "--mounts", mounts]) == 0
     assert "Konfiguration: keine gefunden" in capsys.readouterr().err
+
+
+# ================================================ Einstellungsdatei
+
+
+def _settings_env(tmp_path, monkeypatch, config_text=None, settings_text=None):
+    """Konfiguration und Einstellungsdatei wie im Container."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path / "config"))
+    settings = tmp_path / "settings" / "settings.toml"
+    monkeypatch.setenv("RELEASER_SETTINGS", str(settings))
+    if config_text is not None:
+        target = tmp_path / "config" / "mp3releaser" / "config.toml"
+        target.parent.mkdir(parents=True)
+        target.write_text(config_text, encoding="utf-8")
+    if settings_text is not None:
+        settings.parent.mkdir(parents=True)
+        settings.write_text(settings_text, encoding="utf-8")
+    return settings
+
+
+def test_settings_file_lies_over_the_configuration(tmp_path, monkeypatch):
+    """Was die Weboberfläche speichert, schlägt die nur lesbar eingehängte
+    Konfiguration - Schlüssel für Schlüssel, der Rest bleibt."""
+    settings = _settings_env(
+        tmp_path, monkeypatch,
+        config_text='[naming]\ngroup = "BETRIEB"\ncase_file = "upper"\n'
+                    '[tags]\ncase = "lower"\n',
+        settings_text='[naming]\ngroup = "GrP"\n[web]\nstart = "eingang"\n')
+    config = config_module.load()
+    assert config.naming == {"group": "GrP", "case_file": "upper"}
+    assert config.tags == {"case": "lower"}
+    assert config.web == {"start": "eingang"}
+    assert config.source == tmp_path / "config" / "mp3releaser" / "config.toml"
+    assert config.settings == settings
+
+
+def test_settings_file_works_without_a_configuration(tmp_path, monkeypatch):
+    settings = _settings_env(tmp_path, monkeypatch,
+                             settings_text='[naming]\ncase_dir = "lower"\n')
+    config = config_module.load()
+    assert config.source is None and config.settings == settings
+    assert config.naming == {"case_dir": "lower"}
+
+
+def test_missing_settings_file_changes_nothing(tmp_path, monkeypatch):
+    _settings_env(tmp_path, monkeypatch, config_text='[naming]\ngroup = "G"\n')
+    config = config_module.load()
+    assert config.naming == {"group": "G"} and config.settings is None
+
+
+def test_explicit_config_ignores_the_settings_file(tmp_path, monkeypatch):
+    """Mit --config gilt genau diese eine Datei."""
+    _settings_env(tmp_path, monkeypatch,
+                  settings_text='[naming]\ngroup = "GrP"\n')
+    path = config_module.save(config_module.Config(naming={"group": "G"}),
+                              tmp_path / "eigene.toml")
+    assert config_module.load(path).naming == {"group": "G"}
+
+
+def test_config_command_shows_the_settings_file(tmp_path, monkeypatch, capsys):
+    from releaser import cli
+
+    settings = _settings_env(tmp_path, monkeypatch,
+                             config_text='[naming]\ngroup = "BETRIEB"\n',
+                             settings_text='[naming]\ngroup = "GrP"\n')
+    assert cli.main(["config"]) == 0
+    out = capsys.readouterr().out
+    assert f"darüber: {settings}" in out
+    assert "group = 'GrP'" in out
+
+
+def test_web_start_names_the_settings_file(tmp_path, monkeypatch, capsys):
+    pytest.importorskip("fastapi")
+    from releaser import cli
+    from releaser.frontends import web
+
+    passed = {}
+    monkeypatch.setattr(web, "run", lambda **kwargs: passed.update(kwargs) or 0)
+    settings = _settings_env(tmp_path, monkeypatch)
+    (tmp_path / "ein").mkdir()
+    mounts = f"eingang:{tmp_path / 'ein'}"
+
+    assert cli.main(["web", "--mounts", mounts]) == 0
+    assert (f"Einstellungen: {settings} - noch nicht gespeichert"
+            in capsys.readouterr().err)
+    assert passed["settings_file"] == settings
+
+    monkeypatch.delenv("RELEASER_SETTINGS")
+    assert cli.main(["web", "--mounts", mounts]) == 0
+    assert "Speichern abgeschaltet" in capsys.readouterr().err
+    assert passed["settings_file"] is None

@@ -1260,24 +1260,13 @@ def save_defaults(state: AppState, path: Optional[Path] = None) -> Path:
     der ``ConfigError`` geht an den Aufrufer, die Oberflaeche zeigt ihn an.
     """
     from ..config import Config, load, save, user_config_path
-    from ..service import template_setting
+    from ..service import naming_settings, template_setting
 
     target = Path(path) if path else (state.config_path or user_config_path())
     config = load(target) if target.is_file() else Config()
 
-    naming = state.naming
     config.naming = dict(config.naming)
-    config.naming.update({
-        "dir_pattern": naming.dir_pattern,
-        "file_pattern": naming.file_pattern,
-        "group": naming.group,
-        "case_dir": naming.charcase.get(
-            Scope.DIRECTORY, CharCase.UNCHANGED).value,
-        "case_file": naming.charcase.get(
-            Scope.FILENAME, CharCase.UNCHANGED).value,
-        "companion_prefix": naming.companion_prefix,
-        "prefix_all": ".sfv" in naming.prefixed_suffixes,
-    })
+    config.naming.update(naming_settings(state.naming))
     # case_dir/case_file stehen jetzt ausdruecklich da - ein allgemeines
     # "case" wuerde beim Lesen nicht mehr gebraucht, aber verwirren
     config.naming.pop("case", None)

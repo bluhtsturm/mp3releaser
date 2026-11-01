@@ -1,3 +1,179 @@
+# Änderungen – 0.26.0: Container – Schreibweise, Tab, eigene Einstellungsdatei
+
+Stand: 01.11.2026 · Version 0.25.2 → **0.26.0**
+
+Rückmeldung aus der Erprobung der Container-Fassung: Sind die Python-Pakete
+aktuell? In der Weboberfläche lässt sich nicht einstellen, wie Verzeichnis
+und Dateien geschrieben werden; das Weiterschalten mit Tab klappt nicht; und
+gespeichert werden soll in eine eigene Datei im Container.
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 862 | 880 |
+| Ergebnis mit GTK 4, WebKitGTK und gebautem Bündel (Python 3.12) | alle grün | 878 grün, 2 übersprungen (hier ohne `flac`-Programm und PyInstaller-Kommando) |
+| Prüfungen im echten Browser (`tools/webcheck.py`) | 17 | 20 |
+| `pyflakes` | sauber | sauber |
+
+Gegen 0.25.2 laufen gelassen, schlagen 23 der jetzigen Tests fehl.
+
+## 1. Python-Pakete im Image
+
+Ein frisch gebautes Image (Basis `python:3.12-slim` vom 28.10.2026, Python
+3.12.16) geprüft mit `pip list --outdated` und `pip-audit`:
+
+| Paket | Fassung | Stand |
+|---|---|---|
+| fastapi | 0.162.0 | aktuell, keine bekannte Lücke |
+| starlette | 1.10.0 | aktuell, keine bekannte Lücke |
+| uvicorn | 0.54.0 | aktuell, keine bekannte Lücke |
+| pydantic / pydantic_core | 2.14.2 / 2.50.2 | aktuell, keine bekannte Lücke |
+| mutagen | 1.48.1 | aktuell, keine bekannte Lücke |
+| anyio, h11, idna, click … | | aktuell, keine bekannte Lücke |
+| **pip** | **25.0.1** | **veraltet (26.2.2), sechs bekannte Lücken** (PYSEC-2026-1795, -1796, -196, -2875, -2876, -3721) |
+
+Die Pakete sind im `Dockerfile` nicht festgeschrieben; jeder Bau holt die
+aktuellen. Aktuell ist ein Image also, wenn es frisch gebaut ist – Docker
+verwendet beim Bauen aber Zwischenstände wieder und erneuert das Basisimage
+nur mit `--pull`. Das `pip` kommt aus dem Basisimage und wird zur Laufzeit
+nicht gebraucht, nur beim Bauen.
+
+**Geändert:** Das `Dockerfile` hebt `pip` an, bevor es damit installiert. Im
+neuen Image steht pip 26.2.2; `pip-audit` meldet für das ganze Image keine
+bekannte Lücke mehr. README und EINRICHTUNG nennen den Befehl zum
+Aktualisieren: `docker compose build --pull --no-cache && docker compose up -d`.
+
+## 2. Schreibweise in der Weboberfläche
+
+Der Desktop hatte im Reiter „Namen“ seit Langem je eine Auswahl für die
+Schreibweise von Verzeichnis und Dateien; der Server konnte beides auch
+setzen (`/api/pattern` mit `case_dir`, `case_file`). Nur die Webseite bot
+die Auswahl nicht an – und lieferte die aktuellen Werte nicht mit.
+
+**Jetzt** im Reiter „Namen“:
+
+* **Schreibweise Verzeichnis** und **Schreibweise Dateien**, je mit „wie
+  eingegeben“ (`unchanged`), „klein“ (`lower`), „GROSS“ (`upper`) und
+  „Wörter Groß“ (`capitalize`). Die Gruppe steht im Verzeichnisnamen
+  weiterhin so, wie sie eingegeben ist.
+* **Begleitdateien mit „00-“ beginnen** – wie im Desktop.
+
+`state_json` liefert `case_dir`, `case_file` und `companion_prefix` mit,
+`/api/info` die Bezeichnungen. Eine unbekannte Schreibweise wird gemeldet
+und nicht übernommen.
+
+## 3. Tab zwischen den Feldern
+
+Nachgestellt in Chromium: Feld „Artist“ ändern, Tab, sofort „XYZ“ tippen.
+Danach stand der Cursor nirgends, im Feld „Album“ stand nur „X“.
+
+**Ursache:** Jede Antwort des Servers baute das ganze Formular neu
+(`form.replaceChildren()`). Tab löst im verlassenen Feld `change` aus; die
+Antwort kam an, als der Cursor schon im nächsten Feld stand, und ersetzte
+dieses Feld durch ein neues – ohne Cursor, ohne das inzwischen Getippte. Dazu
+klappten Gruppen, die man zugeklappt hatte, wieder auf.
+
+**Jetzt** wird das Formular einmal gebaut und danach an Ort und Stelle
+aktualisiert: Werte, Zähler, Herkunft. Das Feld mit dem Cursor behält, was
+darin steht. Neu gebaut wird nur, wenn sich die Felder selbst ändern (anderes
+Release, andere Vorlage) – auch dann kommen Cursor, Getipptes und auf- oder
+zugeklappte Gruppen zurück. Jedes Eingabefeld ist über Gruppe und Feld
+bestimmt: Dasselbe Feld steht oft in mehreren Gruppen (Artist in der
+Vorlage, im Verzeichnis- und Dateinamen und in den Tags), und alle Vorkommen
+zeigen den neuen Wert. Die Gruppenköpfe liegen nicht mehr in der Tab-Folge –
+Tab springt von Feld zu Feld; auf- und zuklappen geht weiter per Klick.
+
+Geprüft in Chromium mit echter Tastatur: fünf Felder nacheinander mit Tab,
+jedes kommt beim Server an, der Cursor steht danach im sechsten; dasselbe
+gegen den laufenden Container.
+
+## 4. Eigene Einstellungsdatei im Container
+
+Die Konfiguration ist im Container nur lesbar eingehängt
+(`./config:/config:ro`) und gehört dem, der den Dienst betreibt. Die
+Weboberfläche hatte keinen Speichern-Knopf.
+
+**Jetzt:**
+
+* **Einstellungsdatei** `/settings/settings.toml`, genannt in
+  `RELEASER_SETTINGS` (`Dockerfile`). Sie liegt in einem **benannten Volume**
+  `settings` (`docker-compose.yml`): Ein solches Volume übernimmt beim ersten
+  Einhängen Besitzer und Rechte des Ordners aus dem Image, der Dienst
+  (Benutzer `releaser`, nicht root) darf schreiben. Die Datei überlebt
+  `restart`, `down`/`up` und einen Neubau; erst `down -v` löscht sie.
+* **„Als Standard“** in der Kopfzeile schreibt Vorlage (als Name aus
+  `templates/`), Gruppe, den gerade offenen Ordner (`[web] start`), Verzeichnis-
+  und Dateimuster, beide Schreibweisen und die Vorsilbe. Was sonst in der
+  Datei steht, bleibt; eine kaputte Datei wird nicht überschrieben. Das
+  Fenster danach nennt die Werte. Den Pfad der Datei erfährt der Browser
+  nicht – wie bei den eingehängten Ordnern geht kein Pfad des Systems hinaus;
+  er steht im Protokoll (`docker compose logs releaser`), ebenso die
+  Einzelheiten, falls das Speichern scheitert.
+* Gespeichertes gilt **für jede neue Sitzung** sofort, ohne Neustart;
+  laufende Sitzungen behalten ihren Stand.
+* **Rangfolge:** Kommandozeile, dann Einstellungsdatei, dann `config.toml`,
+  dann Voreinstellung – Schlüssel für Schlüssel. Was nur in der `config.toml`
+  steht (`[tags]`, `audio_crc` …), gilt weiter. Mit `--config` gilt genau
+  diese eine Datei, und das Speichern ist abgeschaltet.
+* Der Dienst `cli` hängt das Volume nur lesend ein und sieht dieselben
+  Einstellungen. `releaser config` zeigt beide Dateien zusammengeführt
+  („darüber: /settings/settings.toml“), `docker compose logs releaser` nennt
+  sie beim Start.
+* Ohne `RELEASER_SETTINGS` (etwa `releaser web` auf dem eigenen Rechner) ist
+  „Als Standard“ ausgegraut. Ist der Ort nicht beschreibbar, sagt die
+  Oberfläche das mit dem Grund, statt mit einem Serverfehler ohne Grund zu
+  enden.
+* Neuer Abschnitt `[web]` mit `start`; `[build] template` nennt im Container
+  jetzt die Vorlage, mit der jede Sitzung beginnt (vorher ohne Wirkung).
+
+Im echten Container geprüft (Docker 29, Compose 5): frisches Volume gehört
+`releaser`; einstellen, speichern, `restart`, `down`/`up` – jede neue Sitzung
+beginnt im gespeicherten Ordner mit GROSS/Wörter Groß und Gruppe „GrP“;
+„Release erstellen“ ergibt `DER_ARTIST-DAS_ALBUM-2026-GrP/01-Der_Artist-Titel_1.mp3`;
+`docker compose run --rm -T cli config` zeigt die Einstellungsdatei.
+
+## 5. Kleineres
+
+* **Startseite ohne Zwischenspeicher:** `/` schickt `Cache-Control:
+  no-cache`. Ohne Angabe durfte ein Browser die Seite eine Weile ungefragt
+  wiederverwenden – nach einem Update des Containers sah man dann noch die
+  alte Oberfläche. Aufgefallen beim Gegenprüfen: WebKit zeigte aus seinem
+  Zwischenspeicher die neue Seite, obwohl der Server schon die alte auslieferte.
+* `naming_settings()` in `releaser/service.py`: Was Desktop und Web unter
+  `[naming]` speichern, steht an einer Stelle.
+* Beobachtet, unverändert: Mit „Verzeichnis GROSS“ und „Dateien Wörter Groß“
+  heißen die Begleitdateien `00-DER_Artist-DAS_Album-2026-Grp.nfo` – sie
+  folgen dem künftigen Verzeichnisnamen in der Schreibweise der Dateien, und
+  „Wörter Groß“ lässt kurze Wörter in Großbuchstaben als Abkürzung stehen.
+
+## 6. Dokumentation
+
+* `README.md`, `README.en.md`: „Einstellungen im Container“ neu gefasst (zwei
+  Dateien, Rangfolge, Ansehen, Zurücksetzen), neuer Abschnitt „Pakete im
+  Container aktuell halten“, Browserprüfung (20), Eintrag „Aus der fünfzehnten
+  Erprobung“, Testzahl, Versionsbeispiele.
+* `EINRICHTUNG.md`: Einstellungsdatei, Aktualisieren, Testzahl.
+* `config/mp3releaser/README.md`: was die Weboberfläche speichert und wo.
+
+## Neue und geänderte Tests
+
+* `tests/test_web.py`: Schreibweisen über HTTP (auch eine unbekannte),
+  Vorsilbe, Bezeichnungen in `/api/info`, Speichern abgeschaltet ohne Datei,
+  Speichern gilt für neue Sitzungen und nicht für laufende, Neustart mit
+  Konfiguration darunter, anderes in der Datei bleibt, kaputte Datei bleibt
+  unangetastet, nicht beschreibbarer Ort wird gemeldet, `Cache-Control`.
+* `tests/test_extras.py`: Einstellungsdatei über der Konfiguration, ohne
+  Konfiguration, fehlende Datei, `--config` ohne Einstellungsdatei,
+  `releaser config` und der Start der Weboberfläche nennen sie.
+* `tests/test_packaging.py`: Volume und Besitzer des Ordners, `cli` nur
+  lesend, `pip` wird vor dem Installieren angehoben.
+* `tools/webcheck.py` (WebKitGTK): Tab behält Cursor und Getipptes,
+  Schreibweise wählbar, „Als Standard“ speichert. Mit der Seite von 0.25.2
+  scheitern genau diese drei.
+* `tests/test_readme.py`: Nach `docker compose exec` ist „releaser“ der
+  Dienst, kein Kommando.
+
+---
+
 # Änderungen – 0.25.2: GLib vom System, geprüft auf vier Distributionen
 
 Stand: 11.10.2026 · Version 0.25.1 → **0.25.2**

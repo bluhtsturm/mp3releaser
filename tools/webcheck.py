@@ -33,7 +33,9 @@ from releaser.browse import Mount, MountedSource  # noqa: E402
 from releaser.naming import NamingProfile  # noqa: E402
 
 PORT = 8765
-TIMEOUT = 30.0
+TIMEOUT = 40.0
+#: wohin "Als Standard" waehrend der Pruefung speichert
+SETTINGS = Path("/tmp/webcheck-settings.toml")
 
 
 def start_server(mount: Path, templates: Path) -> threading.Thread:
@@ -44,7 +46,7 @@ def start_server(mount: Path, templates: Path) -> threading.Thread:
 
     app = create_app(MountedSource([Mount("eingang", mount)]),
                      naming=NamingProfile(group="GRP"),
-                     templates_dir=templates)
+                     templates_dir=templates, settings_file=SETTINGS)
     config = uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="error")
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
@@ -228,6 +230,33 @@ def build_steps(checker: Checker) -> None:
                                      f"Artist-Feld zeigt {value!r}"),
                             c.next()))
 
+    def step_tab_keeps_focus():
+        # Wie Tab: Das verlassene Feld meldet seine Aenderung, der Cursor
+        # steht schon im naechsten, und dort wird weitergetippt, waehrend
+        # die Antwort unterwegs ist. Vorher baute die Antwort das Formular
+        # neu - Cursor und Getipptes waren weg.
+        c.js("""
+             const inputs = [...document.querySelectorAll(
+                 '#form details[open] .grid input')];
+             window.tabFrom = inputs[0];
+             window.tabTo = inputs[1];
+             tabFrom.focus();
+             tabFrom.value = 'Der Artist';
+             tabFrom.dispatchEvent(new Event('change'));
+             tabTo.focus();
+             tabTo.value = 'getippt';
+             'ok'
+             """, lambda _: GLib.timeout_add(800, lambda: (c.js("""
+             JSON.stringify({
+               same: document.activeElement === window.tabTo,
+               connected: window.tabTo.isConnected,
+               value: window.tabTo.value})
+             """, lambda got: (
+                 c.report(got.get("same") and got.get("connected")
+                          and got.get("value") == "getippt",
+                          f"Tab: Cursor und Getipptes bleiben ({got})"),
+                 c.next())), False)[1]))
+
     def step_counter_turns_red():
         c.js("""
              const labels = [...document.querySelectorAll('.grid label')]
@@ -300,6 +329,45 @@ def build_steps(checker: Checker) -> None:
                                 f"Dateiname von Hand übernommen ({got})"),
                        c.next())))))
 
+    def step_letter_case():
+        # Reiter "Namen": Schreibweise des Verzeichnisses auf GROSS - die
+        # Gruppe bleibt, wie sie eingegeben ist
+        c.js("""
+             const choice = document.getElementById('p-case-dir');
+             choice.value = 'upper';
+             choice.dispatchEvent(new Event('change'));
+             JSON.stringify([...choice.options].map(o => o.value))
+             """, lambda options: c.wait("""
+             JSON.stringify(document.getElementById('dirline').textContent
+                 .includes('DER_ARTIST'))
+             """, lambda _: c.js(
+             "JSON.stringify(document.getElementById('dirline').textContent)",
+             lambda line: (
+                 c.report(options == ["unchanged", "lower", "upper",
+                                      "capitalize"]
+                          and line.rstrip().endswith("-GRP"),
+                          f"Schreibweise wählbar ({line.strip()})"),
+                 c.next()))))
+
+    def step_save_settings():
+        c.js("document.getElementById('saveDefaults').click(); 'ok'",
+             lambda _: None)
+        c.wait("JSON.stringify(document.getElementById('plan').open)",
+               lambda _: c.js("""
+                   const text = document.getElementById('planText').textContent;
+                   document.getElementById('planCancel').click();
+                   JSON.stringify({
+                     title: document.getElementById('planTitle').textContent,
+                     text: text})
+                   """, lambda got: (
+                       c.report(got.get("title") == "Als Standard gespeichert"
+                                and "GROSS" in (got.get("text") or "")
+                                and str(SETTINGS) not in (got.get("text") or "")
+                                and 'case_dir = "upper"'
+                                in SETTINGS.read_text(encoding="utf-8"),
+                                "Als Standard gespeichert"),
+                       c.next())))
+
     def step_nfo_tab():
         # Die .nfo steht im Raster auf einem Canvas. Gemessen wird die erste
         # Zeile der Standardvorlage (╔ + 76 × ═ + ╗): Ihre obere Linie muss
@@ -359,8 +427,10 @@ def build_steps(checker: Checker) -> None:
                step_open_and_select_release, step_template,
                step_load_release, step_groups,
                step_unused_collapsed, step_field_value,
+               step_tab_keeps_focus,
                step_counter_turns_red, step_plan_dialog,
                step_cancel_changes_nothing, step_file_name_by_hand,
+               step_letter_case, step_save_settings,
                step_nfo_tab, step_status, step_produce]
 
 
@@ -368,6 +438,7 @@ def main() -> int:
     mount = Path(sys.argv[1]) if len(sys.argv) > 1 else Path("/tmp/webcheck/eingang")
     templates = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("templates")
 
+    SETTINGS.unlink(missing_ok=True)
     start_server(mount, templates)
     print(f"Server laeuft auf 127.0.0.1:{PORT}, Einhaengepunkt: {mount}")
 

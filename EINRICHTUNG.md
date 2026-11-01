@@ -45,7 +45,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **862 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **880 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash
@@ -93,7 +93,16 @@ docker compose up --build
 
 Sichtbar ist ausschließlich, was unter `volumes` steht. Die Einstellungen des
 Containers stehen in `config/mp3releaser/config.toml`; gelesen werden sie beim
-Start (`docker compose restart releaser` nach einer Änderung).
+Start (`docker compose restart releaser` nach einer Änderung). Was in der
+Weboberfläche mit „Als Standard“ gespeichert wird – Vorlage, Gruppe, Ordner,
+Muster, Schreibweisen –, landet in einer eigenen Datei im Volume `settings`
+(`/settings/settings.toml`) und liegt über der `config.toml`.
+
+Pakete und Basisimage aktualisieren:
+
+```bash
+docker compose build --pull --no-cache && docker compose up -d
+```
 
 ## 5. Gebündelte Fassung und AppImage
 
@@ -144,7 +153,8 @@ releaser config --example > mp3releaser.toml
 
 Die Datei wird in `./mp3releaser.toml` und `~/.config/mp3releaser/config.toml`
 gesucht, im Container in `config/mp3releaser/config.toml` neben
-`docker-compose.yml`. `releaser config` zeigt, welche Datei gilt.
+`docker-compose.yml`, darüber die Einstellungsdatei der Weboberfläche.
+`releaser config` zeigt, welche Dateien gelten.
 Kommandozeilenschalter haben Vorrang. Unbekannte Schlüssel werden gemeldet,
 mit Vorschlag.
 

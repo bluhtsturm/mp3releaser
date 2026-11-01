@@ -84,6 +84,11 @@ def test_index_is_served(client):
     assert "mp3releaser" in response.text
 
 
+def test_index_is_revalidated_after_an_update(client):
+    """Sonst zeigt der Browser nach einem Update noch die alte Seite."""
+    assert client.get("/").headers["cache-control"] == "no-cache"
+
+
 def test_info_names_the_scope(client):
     info = client.get("/api/info").json()
     assert info["mounts"]["scope"] == "nur was eingehängt wurde"
@@ -354,6 +359,177 @@ def test_patterns_can_be_changed_over_http(client):
                         json={"which": "file", "value": "#N-#Trk"}).json()
     assert state["names"]["file_pattern"] == "#N-#Trk"
     assert state["names"]["files"][0][1].startswith("01-titel")
+
+
+def test_info_offers_the_letter_cases(client):
+    """Die Auswahl bekommt Werte für den Server und Namen für den Menschen."""
+    cases = client.get("/api/info").json()["cases"]
+    assert list(cases) == ["unchanged", "lower", "upper", "capitalize"]
+    assert cases["unchanged"] == "wie eingegeben"
+
+
+@needs_ffmpeg
+def test_letter_case_can_be_chosen_over_http(client):
+    """Bis 0.25.2 fehlte die Auswahl in der Weboberfläche - Verzeichnis und
+    Dateien blieben bei der Voreinstellung."""
+    state = load_release(client)
+    assert state["names"]["case_dir"] == "capitalize"     # Voreinstellung
+    assert state["names"]["case_file"] == "lower"
+
+    state = client.post("/api/pattern",
+                        json={"which": "case_dir", "value": "upper"}).json()
+    assert state["names"]["case_dir"] == "upper"
+    # Gruppe wie eingegeben, alles davor gross
+    assert state["names"]["directory"][1] == "DER_ARTIST-DAS_ALBUM-2026-GRP"
+
+    state = client.post("/api/pattern",
+                        json={"which": "case_file", "value": "unchanged"}).json()
+    assert state["names"]["case_file"] == "unchanged"
+    assert state["names"]["files"][0][1] == "01-Der_Artist-Titel_1.mp3"
+
+    state = client.post("/api/pattern",
+                        json={"which": "case_dir", "value": "laut"}).json()
+    assert state["names"]["case_dir"] == "upper"          # unverändert
+    assert any(m["level"] == "error" for m in state["messages"])
+
+
+@needs_ffmpeg
+def test_companion_prefix_can_be_switched_over_http(client):
+    load_release(client)
+    state = client.post("/api/pattern",
+                        json={"which": "companion_prefix", "value": ""}).json()
+    assert state["names"]["companion_prefix"] == ""
+    assert not any(n.startswith("00-") for n in state["names"]["companions"])
+    state = client.post("/api/pattern",
+                        json={"which": "companion_prefix", "value": "00-"}).json()
+    assert all(n.startswith("00-") for n in state["names"]["companions"])
+
+
+# ===================================================== Einstellungsdatei
+
+
+def settings_client(tree: Path, target: Path, config=None) -> TestClient:
+    from releaser.service import naming_from_config
+
+    # wie beim echten Start: die Gruppe aus der Konfiguration, sonst GRP
+    app = create_app(MountedSource([Mount("eingang", tree / "eingang")]),
+                     naming=naming_from_config(
+                         config, group=None if config else "GRP"),
+                     templates_dir=tree / "vorlagen",
+                     config=config, settings_file=target)
+    return TestClient(app)
+
+
+def test_saving_is_off_without_a_settings_file(client):
+    assert client.get("/api/info").json()["settings"] == {
+        "enabled": False, "exists": False, "writable": False}
+    response = client.post("/api/settings", json={})
+    assert response.status_code == 409
+    assert "RELEASER_SETTINGS" in response.json()["detail"]
+
+
+@needs_ffmpeg
+def test_saved_settings_apply_to_every_new_session(tree, tmp_path):
+    """„Als Standard“ schreibt in die eigene Datei; jede neue Sitzung bekommt
+    die Werte, eine laufende behält ihren Stand."""
+    from releaser.config import load
+
+    target = tmp_path / "settings" / "settings.toml"
+    target.parent.mkdir()
+    first = settings_client(tree, target)
+    other = TestClient(first.app)
+    other.get("/api/state")                              # läuft schon
+    info = first.get("/api/info").json()["settings"]
+    assert info == {"enabled": True, "exists": False, "writable": True}
+
+    load_release(first)
+    first.post("/api/template", json={"name": "vorlage.skl"})
+    first.post("/api/pattern", json={"which": "case_dir", "value": "upper"})
+    first.post("/api/pattern", json={"which": "group", "value": "GrP"})
+    first.post("/api/browse", json={"path": "eingang"})
+    saved = first.post("/api/settings", json={}).json()
+    assert "GROSS" in saved["summary"] and "eingang" in saved["summary"]
+    # Wie überall: kein Pfad des Systems geht an den Browser
+    assert str(tmp_path) not in str(saved)
+    assert str(tmp_path) not in str(first.get("/api/info").json())
+
+    config = load(target)
+    assert config.naming["case_dir"] == "upper"
+    assert config.naming["group"] == "GrP"
+    assert config.build["template"] == "vorlage.skl"     # nur der Name
+    assert config.web["start"] == "eingang"
+
+    fresh = TestClient(first.app).get("/api/state").json()
+    assert fresh["names"]["case_dir"] == "upper"
+    assert fresh["names"]["group"] == "GrP"
+    assert fresh["template"] == "vorlage.skl"
+    assert fresh["current_path"] == "eingang"
+    running = other.get("/api/state").json()
+    assert running["names"]["case_dir"] == "capitalize"
+
+
+@needs_ffmpeg
+def test_saved_settings_survive_a_restart(tree, tmp_path, monkeypatch):
+    """Nach einem Neustart liest der Dienst die Datei über der Konfiguration."""
+    from releaser.config import load
+
+    config_home = tmp_path / "config"
+    (config_home / "mp3releaser").mkdir(parents=True)
+    (config_home / "mp3releaser" / "config.toml").write_text(
+        '[naming]\ngroup = "VOM_BETREIBER"\ncase_file = "upper"\n',
+        encoding="utf-8")
+    target = tmp_path / "settings.toml"
+    target.write_text('[naming]\ncase_dir = "lower"\ngroup = "GrP"\n'
+                      '[web]\nstart = "eingang"\n', encoding="utf-8")
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(config_home))
+    monkeypatch.setenv("RELEASER_SETTINGS", str(target))
+    monkeypatch.chdir(tmp_path)
+
+    config = load()
+    client = settings_client(tree, target, config)
+    state = client.get("/api/state").json()
+    assert state["names"]["group"] == "GrP"              # Einstellung gewinnt
+    assert state["names"]["case_dir"] == "lower"
+    assert state["names"]["case_file"] == "upper"        # aus der Konfiguration
+    assert state["current_path"] == "eingang"
+
+
+def test_saving_keeps_what_else_is_in_the_settings_file(tree, tmp_path):
+    from releaser.config import load
+
+    target = tmp_path / "settings.toml"
+    target.write_text('[tags]\ncase = "lower"\n', encoding="utf-8")
+    client = settings_client(tree, target)
+    client.get("/api/state")
+    assert client.post("/api/settings", json={}).status_code == 200
+    config = load(target)
+    assert config.tags == {"case": "lower"}
+    assert "start" not in config.web                     # an der Wurzel
+
+
+def test_a_broken_settings_file_is_not_overwritten(tree, tmp_path):
+    target = tmp_path / "settings.toml"
+    target.write_text("[naming\n", encoding="utf-8")
+    client = settings_client(tree, target)
+    client.get("/api/state")
+    response = client.post("/api/settings", json={})
+    assert response.status_code == 409
+    assert str(tmp_path) not in response.json()["detail"]
+    assert target.read_text(encoding="utf-8") == "[naming\n"
+
+
+def test_an_unwritable_settings_place_is_reported(tree, tmp_path):
+    """Kann nicht geschrieben werden - etwa weil das Volume fehlt -, sagt die
+    Oberfläche das, statt mit einem Serverfehler ohne Grund zu enden."""
+    blocker = tmp_path / "kein-ordner"
+    blocker.write_text("", encoding="utf-8")       # eine Datei, kein Ordner
+    client = settings_client(tree, blocker / "settings.toml")
+    assert client.get("/api/info").json()["settings"]["writable"] is False
+    client.get("/api/state")
+    response = client.post("/api/settings", json={})
+    assert response.status_code == 500
+    assert "Volume" in response.json()["detail"]
+    assert str(tmp_path) not in response.json()["detail"]
 
 
 @needs_ffmpeg

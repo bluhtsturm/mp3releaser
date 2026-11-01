@@ -103,6 +103,28 @@ def naming_from_config(config=None, group: Optional[str] = None,
     return profile
 
 
+def naming_settings(naming: NamingProfile) -> dict:
+    """Was die Oberflaechen unter ``[naming]`` als Standard speichern.
+
+    Die Umkehrung von :func:`naming_from_config` fuer alles, was sich in den
+    Oberflaechen einstellen laesst - Desktop und Web speichern dasselbe.
+    """
+    from .naming import Scope
+    from .text import CharCase
+
+    return {
+        "dir_pattern": naming.dir_pattern,
+        "file_pattern": naming.file_pattern,
+        "group": naming.group,
+        "case_dir": naming.charcase.get(
+            Scope.DIRECTORY, CharCase.UNCHANGED).value,
+        "case_file": naming.charcase.get(
+            Scope.FILENAME, CharCase.UNCHANGED).value,
+        "companion_prefix": naming.companion_prefix,
+        "prefix_all": ".sfv" in naming.prefixed_suffixes,
+    }
+
+
 #: Begleitdateien mit Praefix, wenn ``prefix_all`` aus ist - wie im Original.
 UNPREFIXED_COMPANIONS: frozenset[str] = frozenset(
     {".nfo", ".jpg", ".jpeg", ".png", ".pdf"})

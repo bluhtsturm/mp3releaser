@@ -27,6 +27,19 @@ docker compose restart releaser
 docker compose logs releaser | grep Konfiguration
 ```
 
-Im Container wirken `[naming]`, `[tags]` und `[build]`. `[gui]` gilt nur für
-die Desktop-Anwendung; die Vorlage wählt man im Web aus dem Ordner
-`templates/`, `[build] template` bleibt dort ohne Wirkung.
+Im Container wirken `[naming]`, `[tags]`, `[build]` und `[web]`. `[gui]` gilt
+nur für die Desktop-Anwendung. `[build] template` nennt die Vorlage, mit der
+jede Sitzung beginnt – ein Name aus dem Ordner `templates/`.
+
+## Was die Weboberfläche speichert
+
+Diese Datei bleibt dem, der den Dienst betreibt; der Container darf sie nicht
+ändern. Was in der Weboberfläche mit **„Als Standard“** gespeichert wird,
+landet in einer eigenen Datei: `/settings/settings.toml` im Volume
+`settings`. Ihre Werte liegen über denen hier, alles andere von hier gilt
+weiter.
+
+```bash
+docker compose run --rm -T cli config                    # beide zusammen
+docker compose exec releaser rm /settings/settings.toml  # zurücksetzen
+```

@@ -66,6 +66,10 @@
   .panel { flex: 1; overflow: auto; padding: 16px 20px; }
   .panel.hidden { display: none; }
   .grid.names { grid-template-columns: 180px 1fr; }
+  .grid.names select { justify-self: start; min-width: 220px; }
+  .grid.names .check { color: var(--text); display: flex; gap: 8px;
+                       align-items: center; }
+  .grid.names .check input { width: auto; }
   .hint { color: var(--dim); font-size: 12px; }
   #dirline { font-family: ui-monospace, monospace; font-size: 12px;
              margin: 12px 0 8px; }
@@ -137,6 +141,8 @@
   <button id="up">↑ eine Ebene</button>
   <button id="load">Einlesen</button>
   <select id="template"><option value="">Vorlage …</option></select>
+  <button id="saveDefaults"
+          title="Vorlage, Gruppe, Ordner, Muster und Schreibweisen als Standard speichern – gilt für jede neue Sitzung, auch nach einem Neustart">Als Standard</button>
   <span class="spacer"></span>
   <button id="undo" title="Letzte Umbenennung oder letzten Tag-Lauf zurücknehmen">↶</button>
   <button id="check">Prüfen</button>
@@ -175,11 +181,20 @@
         <label>Verzeichnismuster</label><input id="p-dir">
         <label>Dateimuster</label><input id="p-file">
         <label>Gruppe</label><input id="p-group">
+        <label for="p-case-dir">Schreibweise Verzeichnis</label>
+        <select id="p-case-dir"></select>
+        <label for="p-case-file">Schreibweise Dateien</label>
+        <select id="p-case-file"></select>
+        <span></span>
+        <label class="check"><input type="checkbox" id="p-prefix">
+          Begleitdateien mit „00-“ beginnen (.nfo, .sfv, .m3u und Bild)</label>
         <label>Verzeichnis</label><input id="p-dirname">
       </div>
       <p class="hint">Tags: #Artist #Album #Year #Source #Fmt #Grp ·
          Dateien: #N #Trk #Cd. #Fmt setzt FLAC, AAC oder ATMOS ein —
          bei MP3 nichts. Ein Verzeichnisname ohne Tags gilt wörtlich.
+         Die Gruppe steht im Verzeichnisnamen immer so, wie sie eingegeben
+         ist; die Schreibweise gilt für alles davor.
          Dateinamen lassen sich unten einzeln von Hand ändern (Eingabetaste
          übernimmt); leer lassen oder ↺ nimmt wieder das Muster.</p>
       <p class="hint" id="companions"></p>
@@ -273,53 +288,7 @@ function render(state) {
     list.appendChild(row);
   }
 
-  const form = document.getElementById("form");
-  form.replaceChildren();
-  if (!state.loaded) {
-    form.innerHTML = '<p style="color:var(--dim)">Links einen Ordner wählen '
-      + 'und auf „Einlesen“ klicken.</p>';
-  }
-  for (const group of state.groups) {
-    const box = document.createElement("details");
-    box.open = group.title !== "nicht verwendet";
-    const head = document.createElement("summary");
-    head.textContent = `${group.title} (${group.fields.length})`;
-    box.appendChild(head);
-
-    const grid = document.createElement("div");
-    grid.className = "grid";
-    for (const field of group.fields) {
-      const label = document.createElement("label");
-      label.textContent = field.label;
-      const input = document.createElement("input");
-      input.value = field.value;
-      input.placeholder = field.hint || "";
-      if (field.width) input.title = `${field.width} Zeichen Platz in der Vorlage`;
-      const counter = document.createElement("div");
-      counter.className = "counter";
-      const origin = document.createElement("div");
-      origin.className = "origin";
-      origin.textContent = field.origin || "";
-
-      const update = () => {
-        const length = input.value.length;
-        counter.textContent = field.width ? `${length}/${field.width}`
-                                          : (length || "");
-        const over = field.width && length > field.width;
-        counter.classList.toggle("over", !!over);
-        input.classList.toggle("over", !!over);
-      };
-      update();
-      input.oninput = update;
-      input.onchange = () =>
-        call("/api/field", { name: field.name, value: input.value }).then(render);
-
-      grid.append(label, input, counter, origin);
-    }
-    box.appendChild(grid);
-    form.appendChild(box);
-  }
-
+  renderForm(state);
   renderNames(state);
   refreshNfo();
   const picker = document.getElementById("template");
@@ -335,6 +304,127 @@ function render(state) {
   document.getElementById("build").disabled = !enabled.build;
   document.getElementById("produce").disabled = !enabled.produce;
   document.getElementById("up").disabled = !state.current_path;
+}
+
+// Die Felder werden einmal gebaut und danach an Ort und Stelle
+// aktualisiert. Vorher entstand das Formular nach jedem übernommenen Feld
+// neu: Wer mit Tab ins nächste Feld sprang, verlor dort den Cursor - die
+// Antwort auf das verlassene Feld kam an, das Formular wurde ersetzt -, und
+// was er inzwischen tippte, war weg. Neu gebaut wird nur, wenn sich die
+// Felder selbst ändern (anderes Release, andere Vorlage); auch dann kommt
+// der Cursor zurück.
+function formShape(state) {
+  return JSON.stringify([state.loaded,
+    state.groups.map(g => [g.title, g.fields.map(f => f.name)])]);
+}
+
+// Dasselbe Feld kann in mehreren Gruppen stehen (Artist steht in der
+// Vorlage, im Verzeichnis- und im Dateinamen und in den Tags) - jedes
+// Eingabefeld ist deshalb über Gruppe und Feld bestimmt.
+function fieldInput(form, groupIndex, name) {
+  return form.querySelector(
+    `input[data-group-index="${groupIndex}"][data-field="${CSS.escape(name)}"]`);
+}
+
+function renderForm(state) {
+  const form = document.getElementById("form");
+  const shape = formShape(state);
+  if (form.dataset.shape !== shape) buildForm(form, state, shape);
+  state.groups.forEach((group, groupIndex) => {
+    const head = form.querySelector(`summary[data-group-index="${groupIndex}"]`);
+    if (head) head.textContent = `${group.title} (${group.fields.length})`;
+    for (const field of group.fields)
+      updateField(fieldInput(form, groupIndex, field.name), field);
+  });
+}
+
+function buildForm(form, state, shape) {
+  // Was der Nutzer auf- oder zugeklappt hat und wo der Cursor steht
+  const opened = {};
+  for (const box of form.querySelectorAll("details"))
+    opened[box.dataset.group] = box.open;
+  const active = document.activeElement;
+  const focus = active && form.contains(active) && active.dataset.field
+    ? { group: active.dataset.groupTitle, name: active.dataset.field,
+        value: active.value,
+        start: active.selectionStart, end: active.selectionEnd } : null;
+
+  form.replaceChildren();
+  form.dataset.shape = shape;
+  if (!state.loaded) {
+    form.innerHTML = '<p style="color:var(--dim)">Links einen Ordner wählen '
+      + 'und auf „Einlesen“ klicken.</p>';
+  }
+  state.groups.forEach((group, groupIndex) => {
+    const box = document.createElement("details");
+    box.dataset.group = group.title;
+    box.open = group.title in opened ? opened[group.title]
+                                     : group.title !== "nicht verwendet";
+    const head = document.createElement("summary");
+    head.dataset.groupIndex = groupIndex;
+    // Tab springt von Feld zu Feld, nicht über die Gruppenköpfe - die
+    // bleiben per Klick auf- und zuklappbar
+    head.tabIndex = -1;
+    box.appendChild(head);
+
+    const grid = document.createElement("div");
+    grid.className = "grid";
+    for (const field of group.fields) {
+      const id = `field-${groupIndex}-${field.name}`;
+      const label = document.createElement("label");
+      label.textContent = field.label;
+      label.htmlFor = id;
+      const input = document.createElement("input");
+      input.id = id;
+      input.dataset.field = field.name;
+      input.dataset.groupIndex = groupIndex;
+      input.dataset.groupTitle = group.title;
+      input.spellcheck = false;
+      const counter = document.createElement("div");
+      counter.className = "counter";
+      const origin = document.createElement("div");
+      origin.className = "origin";
+      input.oninput = () => countField(input);
+      input.onchange = () =>
+        call("/api/field", { name: field.name, value: input.value }).then(render);
+      grid.append(label, input, counter, origin);
+    }
+    box.appendChild(grid);
+    form.appendChild(box);
+  });
+
+  if (focus) {
+    const again = [...form.querySelectorAll("input[data-field]")].find(
+      input => input.dataset.groupTitle === focus.group
+               && input.dataset.field === focus.name);
+    if (again) {
+      again.value = focus.value;
+      again.focus();
+      try { again.setSelectionRange(focus.start, focus.end); } catch (_) {}
+    }
+  }
+}
+
+function updateField(input, field) {
+  if (!input) return;
+  // Wo der Cursor steht, wird gerade getippt - dort bleibt der Text stehen
+  if (input !== document.activeElement) input.value = field.value;
+  input.placeholder = field.hint || "";
+  input.title = field.width ? `${field.width} Zeichen Platz in der Vorlage` : "";
+  input.dataset.width = field.width || "";
+  const origin = input.nextElementSibling.nextElementSibling;
+  origin.textContent = field.origin || "";
+  countField(input);
+}
+
+function countField(input) {
+  const counter = input.nextElementSibling;
+  const width = Number(input.dataset.width) || 0;
+  const length = input.value.length;
+  counter.textContent = width ? `${length}/${width}` : (length || "");
+  const over = width && length > width;
+  counter.classList.toggle("over", !!over);
+  input.classList.toggle("over", !!over);
 }
 
 let nfoPending = false;
@@ -426,6 +516,9 @@ function renderNames(state) {
   set("p-file", names.file_pattern);
   set("p-group", names.group);
   set("p-dirname", names.directory ? names.directory[1] : "");
+  set("p-case-dir", names.case_dir || "unchanged");
+  set("p-case-file", names.case_file || "unchanged");
+  document.getElementById("p-prefix").checked = !!names.companion_prefix;
 
   const companions = document.getElementById("companions");
   companions.textContent = names.companions && names.companions.length
@@ -527,10 +620,26 @@ for (const tab of document.querySelectorAll(".tab")) {
 }
 
 for (const [id, which] of [["p-dir", "dir"], ["p-file", "file"],
-                           ["p-group", "group"], ["p-dirname", "dirname"]]) {
+                           ["p-group", "group"], ["p-dirname", "dirname"],
+                           ["p-case-dir", "case_dir"],
+                           ["p-case-file", "case_file"]]) {
   document.getElementById(id).onchange = event =>
     call("/api/pattern", { which, value: event.target.value }).then(render);
 }
+document.getElementById("p-prefix").onchange = event =>
+  call("/api/pattern", { which: "companion_prefix",
+                         value: event.target.checked ? "00-" : "" }).then(render);
+
+// Als Standard speichern: in die Einstellungsdatei des Dienstes
+document.getElementById("saveDefaults").onclick = async () => {
+  const data = await call("/api/settings", {});
+  if (!data) return;
+  pendingPlan = null;
+  document.getElementById("planTitle").textContent = "Als Standard gespeichert";
+  document.getElementById("planText").textContent = data.summary;
+  document.getElementById("planApply").style.display = "none";
+  document.getElementById("plan").showModal();
+};
 
 function showPlan(payload, kind) {
   // Bei einem Fehler liefert call() null - die Meldung steht dann schon da.
@@ -653,6 +762,24 @@ async function start() {
       option.value = option.textContent = name;
       select.appendChild(option);
     }
+    // Schreibweisen: Wert für den Server, Bezeichnung für den Menschen
+    for (const id of ["p-case-dir", "p-case-file"]) {
+      const choice = document.getElementById(id);
+      for (const [value, label] of Object.entries(info.cases || {})) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        choice.appendChild(option);
+      }
+    }
+    const save = document.getElementById("saveDefaults");
+    const settings = info.settings || {};
+    save.disabled = !settings.writable;
+    if (!settings.enabled)
+      save.title = "Speichern ist nicht eingerichtet (RELEASER_SETTINGS)";
+    else if (!settings.writable)
+      save.title = "Die Einstellungsdatei ist nicht beschreibbar – "
+        + "Einzelheiten im Protokoll des Dienstes";
   }
   render(await call("/api/state"));
 }

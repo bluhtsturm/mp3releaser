@@ -16,6 +16,11 @@ die Originaldateien nicht umbenennen, es entstünde eine Kopie im Container
 und ein ZIP zurück. Voller Funktionsumfang geht nur über eingehängte Ordner.
 
 **Pfade bleiben virtuell.** Nach außen geht nie ein Pfad des Wirtsystems.
+
+**Gespeichert wird in eine eigene Datei.** Die Konfiguration ist im
+Container nur lesbar eingehängt; was die Oberfläche als Standard speichert,
+geht in die Einstellungsdatei aus ``$RELEASER_SETTINGS`` (ein eigenes
+Volume) und gilt danach für jede neue Sitzung - siehe :mod:`releaser.config`.
 """
 
 from __future__ import annotations
@@ -39,8 +44,11 @@ try:
 except ImportError:                    # pragma: no cover - ohne FastAPI
     FASTAPI_AVAILABLE = False
 
+import os
+import sys
+
 from ...browse import AccessError, MountedSource, describe, from_environment
-from ...naming import NamingProfile, format_plan as format_rename_plan
+from ...naming import NamingProfile, Scope, format_plan as format_rename_plan
 from ...runtime import as_dict as metrics_dict, collect as collect_metrics
 from ...service import BuildOptions
 from ...tagwriter import TagProfile, format_plan as format_tag_plan
@@ -71,10 +79,13 @@ class SessionStore:
                  tags: TagProfile, ttl: float = SESSION_TTL,
                  limit: int = MAX_SESSIONS,
                  default_template: Optional[Path] = None,
-                 build_options: Optional[BuildOptions] = None):
+                 build_options: Optional[BuildOptions] = None,
+                 start: Optional[str] = None):
         self.source = source
         #: wird in jeder neuen Sitzung gleich geladen
         self.default_template = default_template
+        #: der Ordner, den eine neue Sitzung zeigt (``None``: die Wurzel)
+        self.start = start
         self.naming = naming
         self.tags = tags
         #: Vorlage fuer die Erzeugungsoptionen; jede Sitzung bekommt eine
@@ -116,11 +127,11 @@ class SessionStore:
             state = AppState(source=self.source,
                              naming=self.naming, tags=self.tags,
                              build_options=replace(self.build_options),
-                             undo_scope="session")
+                             undo_scope="session", start_path=self.start)
             if self.default_template is not None:
                 state.load_template(self.default_template)
                 state.clear_messages()
-            state.show_roots()
+            state.show_start()
             self._sessions[key] = Session(state)
             self._expire()
             return key, state
@@ -130,6 +141,124 @@ class SessionStore:
             return False
         with self._lock:
             return self._sessions.pop(key, None) is not None
+
+    def adopt(self, state: AppState) -> None:
+        """Übernimmt die Einstellungen einer Sitzung für alle neuen.
+
+        Laufende Sitzungen behalten ihren Stand - wer gerade ein Release
+        bearbeitet, dem ändert sich nichts unter der Hand.
+        """
+        with self._lock:
+            self.naming = state.naming
+            if state.template_path is not None:
+                self.default_template = state.template_path
+            self.start = state.listed_path
+
+
+# --------------------------------------------------------- Einstellungsdatei
+
+
+def settings_info(path: Optional[Path]) -> dict:
+    """Ob gespeichert werden kann - für die Oberfläche.
+
+    Ohne den Pfad: Auch er ist ein Pfad des Systems, auf dem der Dienst
+    läuft. Wo die Datei liegt, sagt das Protokoll beim Start.
+    """
+    if path is None:
+        return {"enabled": False, "exists": False, "writable": False}
+    folder = path.parent
+    writable = (os.access(path, os.W_OK) if path.exists()
+                else folder.is_dir() and os.access(folder, os.W_OK))
+    return {"enabled": True, "exists": path.is_file(), "writable": writable}
+
+
+def template_value(path: Path, templates: Optional[Path]) -> str:
+    """Wie die Vorlage in der Einstellungsdatei steht.
+
+    Aus dem eingehängten Vorlagenordner nur der Dateiname: Der Ordner liegt
+    im Container immer unter demselben Pfad, gewählt wird aber nach Namen.
+    """
+    from ...service import template_setting
+
+    if templates is not None and path.parent == templates:
+        return path.name
+    return template_setting(path)
+
+
+def resolve_template(value: Optional[str],
+                     templates: Optional[Path]) -> Optional[Path]:
+    """Findet die gespeicherte Vorlage wieder - zuerst im Vorlagenordner."""
+    from ...service import find_template
+
+    if not value:
+        return None
+    if templates is not None and len(Path(value).parts) == 1:
+        candidate = templates / value
+        if candidate.is_file():
+            return candidate
+    return find_template(value)
+
+
+def save_settings(state: AppState, target: Path,
+                  templates: Optional[Path]) -> Path:
+    """Schreibt Vorlage, Gruppe, Ordner, Muster und Schreibweisen.
+
+    Was sonst in der Datei steht, bleibt erhalten. Die Konfiguration darunter
+    wird nicht angefasst - sie ist im Container ohnehin nur lesbar.
+    """
+    from ...config import Config, load, save
+    from ...service import naming_settings
+
+    config = load(target) if target.is_file() else Config()
+    config.naming = {**config.naming, **naming_settings(state.naming)}
+    config.build = dict(config.build)
+    if state.template_path is not None:
+        config.build["template"] = template_value(state.template_path,
+                                                  templates)
+    config.web = dict(config.web)
+    if state.listed_path:
+        config.web["start"] = state.listed_path
+    else:
+        config.web.pop("start", None)
+    return save(config, target)
+
+
+def settings_summary(state: AppState) -> str:
+    """Was gespeichert wurde - für die Bestätigung."""
+    naming = state.naming
+    prefix = naming.companion_prefix
+    return "\n".join([
+        "Gespeichert in der Einstellungsdatei des Dienstes",
+        "",
+        f"Vorlage              "
+        f"{state.template_path.name if state.template_path else '(keine)'}",
+        f"Gruppe               {naming.group or '(keine)'}",
+        f"Ordner beim Start    {state.listed_path or '(Wurzel)'}",
+        f"Verzeichnismuster    {naming.dir_pattern}",
+        f"Dateimuster          {naming.file_pattern}",
+        f"Schreibweise Ordner  {CASE_LABELS[_case(naming, Scope.DIRECTORY)]}",
+        f"Schreibweise Dateien {CASE_LABELS[_case(naming, Scope.FILENAME)]}",
+        "Begleitdateien       "
+        + (f"beginnen mit „{prefix}“" if prefix else "ohne Vorsilbe"),
+        "",
+        "Gilt für jede neue Sitzung, auch nach einem Neustart des Containers.",
+        "Laufende Sitzungen behalten ihren Stand.",
+    ])
+
+
+#: Schreibweisen, wie die Oberfläche sie anbietet
+CASE_LABELS = {
+    "unchanged": "wie eingegeben",
+    "lower": "klein",
+    "upper": "GROSS",
+    "capitalize": "Wörter Groß",
+}
+
+
+def _case(naming: NamingProfile, scope: Scope) -> str:
+    from ...text import CharCase
+
+    return naming.charcase.get(scope, CharCase.UNCHANGED).value
 
 
 # ------------------------------------------------------------- Darstellung
@@ -174,6 +303,11 @@ def state_json(state: AppState) -> dict:
             "dir_pattern": state.naming.dir_pattern,
             "file_pattern": state.naming.file_pattern,
             "group": state.naming.group,
+            # Schreibweisen getrennt fuer Verzeichnis und Dateien - wie im
+            # Desktop. Der Weboberflaeche fehlte die Auswahl bis 0.25.2.
+            "case_dir": _case(state.naming, Scope.DIRECTORY),
+            "case_file": _case(state.naming, Scope.FILENAME),
+            "companion_prefix": state.naming.companion_prefix,
             "directory": preview["directory"],
             "files": preview["files"],
             # je Datei bearbeitbar - ohne Begrenzung, sonst liessen sich
@@ -202,8 +336,15 @@ def create_app(source: Optional[MountedSource] = None,
                naming: Optional[NamingProfile] = None,
                tags: Optional[TagProfile] = None,
                templates_dir: Optional[Path] = None,
-               build_options: Optional[BuildOptions] = None):
-    """Baut die Anwendung. Ohne Quelle werden die eingehängten Ordner gelesen."""
+               build_options: Optional[BuildOptions] = None,
+               config=None,
+               settings_file: Optional[Path] = None):
+    """Baut die Anwendung. Ohne Quelle werden die eingehängten Ordner gelesen.
+
+    ``config`` liefert gespeicherte Vorlage und Startordner, ``settings_file``
+    ist die Datei, in die „Als Standard speichern“ schreibt - ohne sie ist
+    das Speichern abgeschaltet.
+    """
     if not FASTAPI_AVAILABLE:
         raise RuntimeError(requirements_hint())
 
@@ -213,16 +354,22 @@ def create_app(source: Optional[MountedSource] = None,
 
     resolved = source if source is not None else from_environment()
     templates = Path(templates_dir) if templates_dir else None
-    # Die Standardvorlage aus dem eingehaengten Vorlagenordner bevorzugen,
-    # sonst die mitgelieferte - jede neue Sitzung hat damit gleich eine.
-    preloaded = None
-    if templates is not None and (templates / STANDARD_TEMPLATE).is_file():
+    # Die gespeicherte Vorlage, sonst die Standardvorlage aus dem
+    # eingehaengten Vorlagenordner, sonst die mitgelieferte - jede neue
+    # Sitzung hat damit gleich eine.
+    preloaded = resolve_template(
+        config.get("build", "template") if config is not None else None,
+        templates)
+    if preloaded is None and templates is not None \
+            and (templates / STANDARD_TEMPLATE).is_file():
         preloaded = templates / STANDARD_TEMPLATE
-    elif templates is None:
+    elif preloaded is None and templates is None:
         preloaded = bundled_template()
-    store = SessionStore(resolved, naming or naming_from_config(),
+    store = SessionStore(resolved, naming or naming_from_config(config),
                          tags or TagProfile(), default_template=preloaded,
-                         build_options=build_options)
+                         build_options=build_options,
+                         start=(config.get("web", "start")
+                                if config is not None else None))
 
     app = FastAPI(title="mp3releaser", docs_url="/api/docs")
     app.state.store = store
@@ -243,7 +390,11 @@ def create_app(source: Optional[MountedSource] = None,
 
     @app.get("/")
     def index():
-        return FileResponse(STATIC / "index.html")
+        # Ohne Angabe darf ein Browser die Seite eine Weile ungefragt
+        # wiederverwenden - nach einem Update sah man dann noch die alte
+        # Oberflaeche. "no-cache" heisst: jedes Mal beim Server nachfragen.
+        return FileResponse(STATIC / "index.html",
+                            headers={"Cache-Control": "no-cache"})
 
     @app.get("/api/info")
     def info():
@@ -252,7 +403,42 @@ def create_app(source: Optional[MountedSource] = None,
             "sessions": len(store),
             "templates": ([p.name for p in sorted(templates.glob("*.skl"))]
                           if templates else []),
+            "settings": settings_info(settings_file),
+            "cases": CASE_LABELS,
         }
+
+    @app.post("/api/settings")
+    def store_settings(response: Response,
+                       releaser_session: Optional[str] = Cookie(default=None)):
+        """„Als Standard speichern“: in die Einstellungsdatei, für alle neuen
+        Sitzungen - auch nach einem Neustart des Containers."""
+        from ...config import ConfigError
+
+        state = session(response, releaser_session)
+        if settings_file is None:
+            raise HTTPException(
+                409, "Speichern ist nicht eingerichtet: RELEASER_SETTINGS "
+                     "nennt keine Einstellungsdatei")
+        # Die Einzelheiten samt Pfad gehen ins Protokoll des Dienstes, nicht
+        # an den Browser - siehe settings_info
+        try:
+            save_settings(state, settings_file, templates)
+        except ConfigError as exc:
+            # Eine vorhandene, aber kaputte Datei wird nicht ueberschrieben
+            print(f"Einstellungen nicht gespeichert: {exc}", file=sys.stderr)
+            raise HTTPException(
+                409, "Die Einstellungsdatei ist nicht lesbar und wurde nicht "
+                     "überschrieben - Einzelheiten im Protokoll des Dienstes")
+        except OSError as exc:
+            print(f"Einstellungen nicht gespeichert: {settings_file}: {exc}",
+                  file=sys.stderr)
+            raise HTTPException(
+                500, f"Einstellungen nicht gespeichert: {exc.strerror or exc}"
+                     " - ist das Volume beschreibbar eingehängt? Einzelheiten "
+                     "im Protokoll des Dienstes")
+        store.adopt(state)
+        return JSONResponse({"summary": settings_summary(state)},
+                            headers=dict(response.headers))
 
     @app.get("/api/metrics")
     def metrics():
@@ -376,6 +562,8 @@ def create_app(source: Optional[MountedSource] = None,
         state = session(response, releaser_session)
         if which == "dirname":
             state.set_literal_dirname(value)
+        elif which == "companion_prefix":
+            state.set_companion_prefix(value, include_all=True)
         else:
             state.set_pattern(which, value)
         return answer(response, state)
@@ -486,10 +674,13 @@ def run(host: str = "0.0.0.0", port: int = 8000,
         naming: Optional[NamingProfile] = None,
         tags: Optional[TagProfile] = None,
         templates_dir: Optional[Path] = None,
-        build_options: Optional[BuildOptions] = None) -> int:
+        build_options: Optional[BuildOptions] = None,
+        config=None,
+        settings_file: Optional[Path] = None) -> int:
     import uvicorn
 
-    uvicorn.run(create_app(source, naming, tags, templates_dir, build_options),
+    uvicorn.run(create_app(source, naming, tags, templates_dir, build_options,
+                           config=config, settings_file=settings_file),
                 host=host, port=port, log_level="info")
     return 0
 

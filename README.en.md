@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.25.2 as an example:
+is `SHA256SUMS` with the checksum. Using 0.26.0 as an example:
 
 ```bash
-chmod +x mp3releaser-0.25.2-x86_64.AppImage
-./mp3releaser-0.25.2-x86_64.AppImage              # graphical interface
-./mp3releaser-0.25.2-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.26.0-x86_64.AppImage
+./mp3releaser-0.26.0-x86_64.AppImage              # graphical interface
+./mp3releaser-0.26.0-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 862 tests
+python3 -m pytest tests -q          # 880 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -892,30 +892,67 @@ mounted folders — which is why there is deliberately no drag and drop.
 
 ### Settings in the container
 
-The web interface has no save button; its settings live in
-`config/mp3releaser/config.toml` next to `docker-compose.yml`. The compose
-file mounts the `config/` folder read-only at `/config`, and the image sets
-`XDG_CONFIG_HOME=/config`. Without a `config.toml` the defaults apply.
+Two files, one on top of the other:
+
+| File | belongs to | inside the container |
+|---|---|---|
+| `config/mp3releaser/config.toml` next to `docker-compose.yml` | whoever runs the service | `/config/mp3releaser/config.toml`, read-only |
+| settings file in the `settings` volume | the web interface | `/settings/settings.toml`, writable |
+
+**"Als Standard"** (save as default) in the web interface's header writes the
+template, group, the folder currently open, directory and file patterns, both
+letter cases and the "00-" prefix to the settings file. Every new session
+starts with them, also after `docker compose restart` or `down`/`up`; running
+sessions keep their state. The values lie on top of those in `config.toml` —
+whatever is set there and cannot be set in the interface (`[tags]`,
+`audio_crc` …) still applies. The command line in the container
+(`docker compose run --rm cli …`) reads the same file.
+
+```bash
+docker compose logs releaser | grep -E "Konfiguration|Einstellungen"
+docker compose run --rm -T cli config                  # both files, merged
+docker compose exec releaser cat /settings/settings.toml
+docker compose exec releaser rm /settings/settings.toml  # reset
+```
+
+The settings file lives in a **named volume**, not in a folder next to the
+compose file: such a volume takes over owner and permissions of the image's
+folder when first mounted — the service does not run as root and may write
+there. `docker compose down -v` removes the volume and with it the settings.
+
+The compose file mounts `config.toml` read-only at `/config`, and the image
+sets `XDG_CONFIG_HOME=/config`. Without it the defaults apply.
 
 ```bash
 cp ~/.config/mp3releaser/config.toml config/mp3releaser/config.toml   # the AppImage's
 docker compose restart releaser          # read at start
-docker compose logs releaser | grep Konfiguration
 ```
 
 The folder is mounted on purpose, not the file: if a mounted file is missing,
 Docker creates an empty folder in its place — owned by root, so getting rid of
 it takes `sudo`. The folder `config/mp3releaser/` is therefore already part of
 the repository, and `.gitignore` excludes the `config.toml` inside it. In the
-container `[naming]`, `[tags]` and `[build]` apply; `[gui]` is for the
-desktop application only, and on the web the template is chosen from
-`templates/`.
+container `[naming]`, `[tags]`, `[build]` and `[web]` apply; `[gui]` is for
+the desktop application only. `[build] template` names the template every
+session starts with — a name from `templates/`.
+
+### Keeping the container's packages current
+
+The Python packages are not pinned to versions in the `Dockerfile`: every
+build fetches the current ones, and `pip` itself is upgraded first. Docker
+reuses cached layers when building, though, and only refreshes the base image
+`python:3.12-slim` when asked. To update:
+
+```bash
+docker compose build --pull --no-cache && docker compose up -d
+docker compose run --rm --entrypoint pip cli list --outdated   # should be empty
+```
 
 ### Tested in a real browser engine
 
 The other web tests go through the API — the JavaScript never runs there.
 `tools/webcheck.py` therefore loads the page with **WebKitGTK** from a real
-server and operates it: click, double-click, type, open dialogs. Fourteen
+server and operates it: click, double-click, type, open dialogs. Twenty
 checks, under `xvfb-run`, included as a regular test.
 
 ```
@@ -924,8 +961,11 @@ checks, under `xvfb-run`, included as a regular test.
   [ok ] Doppelklick öffnet den Ordner
   [ok ] Gruppe „nicht verwendet“ ist eingeklappt
   [ok ] Überlänge wird rot markiert ({'counter': '92/59', 'red': True})
+  [ok ] Tab: Cursor und Getipptes bleiben
   [ok ] Umbenennungsplan erscheint im Dialog
-  14 von 14 Pruefungen bestanden
+  [ok ] Schreibweise wählbar (… → DER_ARTIST-DAS_ALBUM-2026-GRP)
+  [ok ] Als Standard gespeichert
+  20 von 20 Pruefungen bestanden
 ```
 
 The test rig itself had two bugs that only the run revealed: exceptions in
@@ -1305,7 +1345,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 862 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 880 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1658,6 +1698,25 @@ takes effect.
   typelibs where Fedora keeps them — the interface never started there — and
   starts it before every release on Debian 13, Debian testing, Fedora and
   Arch.
+
+### From the fifteenth trial (container)
+
+* **Letter case on the web.** The web interface lacked the choice the
+  desktop has had for a long time: directory and files stayed at the default.
+  The "Namen" tab now offers "as typed", "lower", "UPPER" and "Capitalised"
+  for both, plus the "00-" prefix.
+* **Tab between fields.** Every server response rebuilt the form; tabbing
+  into the next field lost the cursor there and whatever had been typed in
+  the meantime. The fields are now updated in place, and Tab moves from field
+  to field instead of stopping on the group headers.
+* **Saving in the container.** The configuration is mounted read-only there.
+  "Als Standard" now writes to a file of its own in the `settings` volume,
+  which lies on top of the configuration (see
+  [Settings in the container](#settings-in-the-container)).
+* **Packages.** A freshly built image has all runtime packages at their
+  latest versions; only the base image's `pip` was old and had known
+  vulnerabilities. The build now upgrades it (see
+  [Keeping the container's packages current](#keeping-the-containers-packages-current)).
 
 ### What is open
 

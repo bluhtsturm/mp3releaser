@@ -68,7 +68,9 @@ def test_readme_exists_and_is_substantial(readme):
 @READMES
 def test_every_mentioned_command_exists(readme, commands):
     text = readme.read_text(encoding="utf-8")
-    mentioned = set(re.findall(r"releaser\s+(\w+)", text)) - NOT_COMMANDS
+    # Nach "docker compose exec" ist "releaser" der Dienst, nicht das
+    # Programm: "exec releaser cat /settings/settings.toml"
+    mentioned = set(re.findall(r"(?<!exec )releaser\s+(\w+)", text)) - NOT_COMMANDS
     unknown = mentioned - commands
     assert not unknown, f"im README erwähnt, aber kein Kommando: {sorted(unknown)}"
 

@@ -24,6 +24,12 @@ services:
       # Voreinstellungen. Gelesen wird beim Start: nach Aenderungen
       # "docker compose restart releaser".
       - ./config:/config:ro
+      # Was die Oberflaeche mit "Als Standard" speichert:
+      # /settings/settings.toml, ueber der config.toml. Ein benanntes
+      # Volume, damit der Dienst schreiben darf und die Datei Neustart und
+      # Neubau ueberlebt. Ansehen: docker compose exec releaser cat
+      # /settings/settings.toml - zuruecksetzen: die Datei loeschen.
+      - settings:/settings
     restart: unless-stopped
     # Der Dienst braucht keine besonderen Rechte.
     read_only: false
@@ -44,5 +50,10 @@ services:
     volumes:
       - ./data/eingang:/data/eingang
       - ./config:/config:ro
+      # dieselben gespeicherten Einstellungen wie die Oberflaeche
+      - settings:/settings:ro
     entrypoint: ["python", "-m", "releaser"]
     command: ["--help"]
+
+volumes:
+  settings:

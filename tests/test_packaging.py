@@ -579,6 +579,36 @@ def test_container_reads_its_configuration_from_the_mounted_folder():
     assert mounts == [home, home]
 
 
+def test_container_has_a_writable_settings_file():
+    """Die Weboberflaeche speichert in eine eigene Datei: in einem benannten
+    Volume, das dem Dienst gehoert. Die Konfiguration darunter bleibt nur
+    lesbar; die Kommandozeile im Container sieht dieselben Einstellungen."""
+    import re
+
+    yaml = pytest.importorskip("yaml")
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    settings = re.search(r'ENV RELEASER_SETTINGS="([^"]+)"', dockerfile).group(1)
+    folder = str(Path(settings).parent)
+    # Der Ordner gehoert im Image dem Dienst - ein frisches benanntes Volume
+    # uebernimmt Besitzer und Rechte von dort
+    assert f"mkdir {folder} && chown releaser:releaser {folder}" in dockerfile
+
+    compose = yaml.safe_load(COMPOSE.read_text(encoding="utf-8"))
+    assert "settings" in compose["volumes"]
+    service = compose["services"]["releaser"]["volumes"]
+    cli = compose["services"]["cli"]["volumes"]
+    assert f"settings:{folder}" in service              # beschreibbar
+    assert f"settings:{folder}:ro" in cli               # nur lesen
+
+
+def test_container_brings_a_current_pip():
+    """Das Basisimage bringt pip 25.0.1 mit bekannten Luecken mit - der Bau
+    hebt es an, bevor er damit etwas installiert."""
+    dockerfile = DOCKERFILE.read_text(encoding="utf-8")
+    upgrade = dockerfile.index("pip install --no-cache-dir --upgrade pip")
+    assert upgrade < dockerfile.index("pip install --no-cache-dir . fastapi")
+
+
 def test_container_configuration_is_optional_and_private():
     """Eingehaengt wird ein Ordner, den es im Repository schon gibt - eine
     fehlende Datei liesse Docker an ihrer Stelle einen Ordner anlegen. Die

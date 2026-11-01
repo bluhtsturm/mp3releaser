@@ -449,14 +449,28 @@ def cmd_web(args: argparse.Namespace) -> int:
     print(f"Konfiguration: {source_file}" if source_file else
           "Konfiguration: keine gefunden - es gelten die Voreinstellungen",
           file=sys.stderr)
+    from ..config import settings_path
     from ..service import build_options_from_config
 
+    # Mit --config gilt genau diese Datei; gespeichert wird dann nicht, sonst
+    # laege das Gespeicherte beim naechsten Start unbeachtet daneben.
+    settings = None if args.config else settings_path()
+    if settings is None:
+        print("Einstellungen: Speichern abgeschaltet (RELEASER_SETTINGS "
+              "nicht gesetzt)" if not args.config else
+              "Einstellungen: Speichern abgeschaltet (--config)",
+              file=sys.stderr)
+    else:
+        print(f"Einstellungen: {settings}"
+              + ("" if settings.is_file() else " - noch nicht gespeichert"),
+              file=sys.stderr)
     templates = args.templates or os.environ.get("RELEASER_TEMPLATES") or None
     return run(host=args.host, port=args.port, source=source,
                naming=_profile_from_args(args),
                tags=_tag_profile_from_args(args),
                templates_dir=Path(templates) if templates else None,
-               build_options=build_options_from_config(args._config))
+               build_options=build_options_from_config(args._config),
+               config=args._config, settings_file=settings)
 
 
 def cmd_gui(args: argparse.Namespace) -> int:
@@ -682,23 +696,31 @@ def cmd_dupe(args: argparse.Namespace) -> int:
 
 def cmd_config(args: argparse.Namespace) -> int:
     from ..config import (EXAMPLE, SECTIONS, candidate_paths, find_config,
-                          load, user_config_path)
+                          load, settings_path, user_config_path)
 
     if args.example:
         sys.stdout.write(EXAMPLE)
         return 0
     found = args.path or find_config()
-    if found is None:
+    settings = settings_path()
+    if found is None and not (settings and settings.is_file()):
         # Beantwortet gleich mit, wo die Datei hingehoert - "keine
         # Konfiguration gefunden" allein liess offen, wo gesucht wurde.
         print("keine Konfiguration gefunden, gesucht in:", file=sys.stderr)
         for path in candidate_paths():
             print(f"  {path}", file=sys.stderr)
+        if settings is not None:
+            print(f"  {settings} (Einstellungen der Weboberfläche)",
+                  file=sys.stderr)
         print("Die Desktop-Anwendung legt sie beim ersten Speichern an: "
               f"{user_config_path()}", file=sys.stderr)
         return 1
-    config = load(found)
-    print(f"gelesen: {config.source}")
+    # Ohne Pfad wie beim Start: Konfiguration samt Einstellungsdatei darueber
+    config = load(args.path) if args.path else load()
+    if config.source:
+        print(f"gelesen: {config.source}")
+    if config.settings:
+        print(f"darüber: {config.settings} (Einstellungen der Weboberfläche)")
     for warning in config.warnings:
         print(f"  ! {warning}", file=sys.stderr)
     # Alle Abschnitte, nicht eine feste Liste - [gui] fehlte hier, obwohl

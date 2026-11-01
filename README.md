@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.25.2:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.26.0:
 
 ```bash
-chmod +x mp3releaser-0.25.2-x86_64.AppImage
-./mp3releaser-0.25.2-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.25.2-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.26.0-x86_64.AppImage
+./mp3releaser-0.26.0-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.26.0-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 862 Tests
+python3 -m pytest tests -q          # 880 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -886,30 +886,68 @@ geht nur über eingehängte Ordner — deshalb gibt es Drag & Drop bewusst nicht
 
 ### Einstellungen im Container
 
-Die Weboberfläche hat keinen Speichern-Knopf; ihre Einstellungen stehen in
-`config/mp3releaser/config.toml` neben `docker-compose.yml`. Die
-Compose-Datei hängt den Ordner `config/` nur lesend unter `/config` ein, das
-Image setzt `XDG_CONFIG_HOME=/config`. Ohne `config.toml` gelten die
-Voreinstellungen.
+Zwei Dateien, übereinander:
+
+| Datei | gehört | im Container |
+|---|---|---|
+| `config/mp3releaser/config.toml` neben `docker-compose.yml` | dem, der den Dienst betreibt | `/config/mp3releaser/config.toml`, nur lesbar |
+| Einstellungsdatei im Volume `settings` | der Weboberfläche | `/settings/settings.toml`, beschreibbar |
+
+**„Als Standard“** in der Kopfzeile der Weboberfläche schreibt Vorlage,
+Gruppe, den gerade offenen Ordner, Verzeichnis- und Dateimuster, die beiden
+Schreibweisen und die Vorsilbe „00-“ in die Einstellungsdatei. Jede neue
+Sitzung beginnt damit, auch nach `docker compose restart` oder `down`/`up`;
+laufende Sitzungen behalten ihren Stand. Die Werte liegen über denen der
+`config.toml` – was dort steht und in der Oberfläche nicht einstellbar ist
+(`[tags]`, `audio_crc` …), gilt weiter. Die Kommandozeile im Container
+(`docker compose run --rm cli …`) liest dieselbe Datei.
+
+```bash
+docker compose logs releaser | grep -E "Konfiguration|Einstellungen"
+docker compose run --rm -T cli config                  # beide Dateien, zusammengeführt
+docker compose exec releaser cat /settings/settings.toml
+docker compose exec releaser rm /settings/settings.toml  # zurücksetzen
+```
+
+Die Einstellungsdatei liegt in einem **benannten Volume**, nicht in einem
+Ordner neben der Compose-Datei: Ein solches Volume übernimmt beim ersten
+Einhängen Besitzer und Rechte des Ordners aus dem Image – der Dienst läuft
+nicht als root und darf dort schreiben. `docker compose down -v` löscht das
+Volume und damit die Einstellungen.
+
+Die `config.toml` hängt die Compose-Datei nur lesend unter `/config` ein, das
+Image setzt `XDG_CONFIG_HOME=/config`. Ohne sie gelten die Voreinstellungen.
 
 ```bash
 cp ~/.config/mp3releaser/config.toml config/mp3releaser/config.toml   # die des AppImage
 docker compose restart releaser          # gelesen wird beim Start
-docker compose logs releaser | grep Konfiguration
 ```
 
 Eingehängt wird bewusst der Ordner, nicht die Datei: Fehlt eine eingehängte
 Datei, legt Docker an ihrer Stelle einen leeren Ordner an — als root, den man
 danach nur mit `sudo` wieder loswird. Der Ordner `config/mp3releaser/` liegt
 deshalb schon im Repository, die `config.toml` darin schließt `.gitignore`
-aus. Im Container wirken `[naming]`, `[tags]` und `[build]`; `[gui]` gilt nur
-für die Desktop-Anwendung, und die Vorlage wählt man im Web aus `templates/`.
+aus. Im Container wirken `[naming]`, `[tags]`, `[build]` und `[web]`; `[gui]`
+gilt nur für die Desktop-Anwendung. `[build] template` nennt die Vorlage,
+mit der jede Sitzung beginnt – ein Name aus `templates/`.
+
+### Pakete im Container aktuell halten
+
+Die Python-Pakete sind im `Dockerfile` nicht auf Fassungen festgeschrieben:
+Jeder Bau holt die aktuellen, `pip` selbst wird vorher angehoben. Docker
+verwendet beim Bauen aber Zwischenstände wieder, und das Basisimage
+`python:3.12-slim` erneuert es nur auf Nachfrage. Zum Aktualisieren:
+
+```bash
+docker compose build --pull --no-cache && docker compose up -d
+docker compose run --rm --entrypoint pip cli list --outdated   # sollte leer sein
+```
 
 ### In einer echten Browser-Engine geprüft
 
 Die übrigen Web-Tests gehen über die API — das JavaScript läuft dabei nie.
 `tools/webcheck.py` lädt die Seite deshalb mit **WebKitGTK** von einem echten
-Server und bedient sie: klicken, doppelklicken, tippen, Dialog öffnen. Vierzehn
+Server und bedient sie: klicken, doppelklicken, tippen, Dialog öffnen. Zwanzig
 Prüfungen, unter `xvfb-run`, als regulärer Test eingebunden.
 
 ```
@@ -918,8 +956,11 @@ Prüfungen, unter `xvfb-run`, als regulärer Test eingebunden.
   [ok ] Doppelklick öffnet den Ordner
   [ok ] Gruppe „nicht verwendet“ ist eingeklappt
   [ok ] Überlänge wird rot markiert ({'counter': '92/59', 'red': True})
+  [ok ] Tab: Cursor und Getipptes bleiben
   [ok ] Umbenennungsplan erscheint im Dialog
-  14 von 14 Pruefungen bestanden
+  [ok ] Schreibweise wählbar (… → DER_ARTIST-DAS_ALBUM-2026-GRP)
+  [ok ] Als Standard gespeichert
+  20 von 20 Pruefungen bestanden
 ```
 
 Der Prüfstand hatte selbst zwei Fehler, die erst der Lauf zeigte: Ausnahmen in
@@ -1297,7 +1338,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-862 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+880 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1663,6 +1704,25 @@ Umleitung greift.
   System, sucht Typelibs auch dort, wo Fedora sie ablegt – dort startete die
   Oberfläche nie –, und startet sie vor jedem Release auf Debian 13, Debian
   testing, Fedora und Arch.
+
+### Aus der fünfzehnten Erprobung (Container)
+
+* **Schreibweise im Web.** Der Weboberfläche fehlte die Auswahl, die der
+  Desktop seit Langem hat: Verzeichnis und Dateien blieben bei der
+  Voreinstellung. Der Reiter „Namen“ bietet jetzt für beide „wie
+  eingegeben“, „klein“, „GROSS“ und „Wörter Groß“, dazu die Vorsilbe „00-“.
+* **Tab zwischen den Feldern.** Jede Antwort des Servers baute das Formular
+  neu; wer mit Tab ins nächste Feld sprang, verlor dort den Cursor und das
+  inzwischen Getippte. Die Felder werden jetzt an Ort und Stelle
+  aktualisiert, Tab springt von Feld zu Feld statt über die Gruppenköpfe.
+* **Speichern im Container.** Die Konfiguration ist dort nur lesbar
+  eingehängt. „Als Standard“ schreibt jetzt in eine eigene Datei im Volume
+  `settings`, die über der Konfiguration liegt (siehe
+  [Einstellungen im Container](#einstellungen-im-container)).
+* **Pakete.** Ein frisch gebautes Image hat alle Laufzeitpakete in der
+  neuesten Fassung; nur das `pip` des Basisimages war alt und hatte bekannte
+  Lücken. Der Bau hebt es jetzt an (siehe
+  [Pakete im Container aktuell halten](#pakete-im-container-aktuell-halten)).
 
 ### Was offen ist
 

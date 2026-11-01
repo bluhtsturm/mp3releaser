@@ -6,14 +6,24 @@ FROM python:3.12-slim AS base
 
 # Nicht als root laufen. Der Dienst braucht keine erhoehten Rechte - die
 # braucht nur, wer den Container startet.
-RUN useradd --create-home --uid 1000 releaser
+# /settings gehoert dem Dienst: Dort speichert die Weboberflaeche ihre
+# Einstellungen. Ein benanntes Volume uebernimmt beim ersten Einhaengen
+# Besitzer und Rechte dieses Ordners - ohne das waere es root und nicht
+# beschreibbar.
+RUN useradd --create-home --uid 1000 releaser \
+    && mkdir /settings && chown releaser:releaser /settings
 
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY releaser ./releaser
 COPY templates ./templates
 
-RUN pip install --no-cache-dir . fastapi uvicorn \
+# pip selbst zuerst: Das Basisimage bringt eine aeltere Fassung mit bekannten
+# Luecken mit (25.0.1). Die Pakete sind nicht festgeschrieben - jeder Bau
+# holt die aktuellen; "docker compose build --pull" erneuert dazu das
+# Basisimage.
+RUN pip install --no-cache-dir --upgrade pip \
+    && pip install --no-cache-dir . fastapi uvicorn \
     && rm -rf /root/.cache
 
 USER releaser
@@ -26,6 +36,9 @@ ENV RELEASER_TEMPLATES="/app/templates"
 # Aufbau wie ~/.config/mp3releaser/config.toml beim AppImage. docker-compose
 # haengt dort ./config ein; fehlt die Datei, gelten die Voreinstellungen.
 ENV XDG_CONFIG_HOME="/config"
+# Was die Weboberflaeche als Standard speichert, liegt darueber - in einer
+# eigenen Datei im Volume /settings, beschreibbar fuer den Dienst.
+ENV RELEASER_SETTINGS="/settings/settings.toml"
 
 EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
