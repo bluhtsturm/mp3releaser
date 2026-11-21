@@ -97,11 +97,27 @@ def to_ascii(value: str) -> str:
 
 
 def to_codepage(value: str, codepage: str = NFO_CODEPAGE) -> bytes:
-    """Kodiert nach CP437 und faellt fuer nicht abbildbare Zeichen auf ASCII zurueck."""
+    """Kodiert nach CP437 und faellt fuer nicht abbildbare Zeichen auf ASCII zurueck.
+
+    Die Rueckfallebene greift *je Zeichen*, nicht fuer den ganzen Text: ein
+    einziges "’" oder "™" aus einem Tag darf nicht die Blockgrafik der
+    Vorlage (``█▓▒░╔═╗``) mitreissen - frueher lief bei einem Fehler die
+    komplette NFO durch :func:`to_ascii` und verlor jedes Zeichen ueber 127.
+    """
+    # NFC vorab: Namen aus macOS kommen zerlegt ("a" + Trema). Zeichenweise
+    # behandelt bliebe sonst nur "a" uebrig, obwohl CP437 ein "ä" hat.
+    value = unicodedata.normalize("NFC", value)
     try:
         return value.encode(codepage)
     except UnicodeEncodeError:
-        return to_ascii(value).encode(codepage, errors="replace")
+        pass
+    out = bytearray()
+    for char in value:
+        try:
+            out += char.encode(codepage)
+        except UnicodeEncodeError:
+            out += to_ascii(char).encode(codepage, errors="replace") or b"?"
+    return bytes(out)
 
 
 def read_template(path: str | Path, codepage: str = NFO_CODEPAGE) -> str:

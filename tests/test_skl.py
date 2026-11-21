@@ -257,3 +257,43 @@ def test_wrapped_notes_fit_a_narrower_continuation_line():
     assert _words(out) == (first + " zweite").split()
     widths = {len(line) for line in out.splitlines()}
     assert max(widths) <= 32
+
+
+# ------------------------------------------------- Codepage beim Schreiben
+
+
+def test_one_unmappable_character_keeps_the_block_graphics(tmp_path):
+    """Ein einziges "’" in einem Tag lief frueher als Ausloeser fuer die
+    ganze NFO durch die ASCII-Umwandlung - Rahmen und Blockgrafik der
+    Vorlage verschwanden komplett."""
+    from releaser.text import write_nfo
+
+    art = "╔════╗ █▓▒░ ▄▀\n║ ÄÖÜ ║ ·°±²\n╚════╝"
+    target = tmp_path / "x.nfo"
+    write_nfo(target, art + "\nTitel: Don’t Stop – Live™ 東", crlf=False)
+    text = target.read_bytes().decode("cp437")
+    assert text.startswith(art + "\n")
+    assert text.endswith("Titel: Don't Stop - LiveTM ?")
+
+
+def test_standard_template_keeps_its_frame_with_an_unmappable_tag(tmp_path):
+    """Der Fall aus der Erprobung: Atmos-Album, ein Titel mit typografischem
+    Apostroph - die erzeugte .nfo hatte keinen einzigen Rahmenstrich mehr."""
+    from releaser.text import read_template, write_nfo
+
+    skl = Path(__file__).resolve().parent.parent / "templates" / "standard.skl"
+    raw = skl.read_bytes()
+    template = Template.parse(read_template(skl))
+    release = make_release(artist="Beyoncé’s Band", audio_format="ATMOS")
+    target = tmp_path / "out.nfo"
+    write_nfo(target, template.render(release))
+    out = target.read_bytes()
+    assert out.split(b"\r\n")[0] == raw.splitlines()[0]
+    assert "Beyoncé's Band".encode("cp437") in out
+    assert sum(b >= 0x80 for b in out) > 0.5 * sum(b >= 0x80 for b in raw)
+
+
+def test_decomposed_umlaut_stays_an_umlaut():
+    from releaser.text import to_codepage
+
+    assert to_codepage("ä ™").decode("cp437") == "ä TM"

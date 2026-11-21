@@ -1,3 +1,50 @@
+# Änderungen – 0.26.1: Blockgrafik der NFO bleibt erhalten
+
+Stand: 21.11.2026 · Version 0.26.0 → **0.26.1**
+
+Rückmeldung aus der Erprobung der Container-Fassung mit einem Atmos-Album:
+In der erzeugten .nfo fehlten alle Zeichen der Blockgrafik.
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 880 | 883 |
+
+Gegen 0.26.0 laufen gelassen, schlagen die drei neuen Tests fehl.
+
+## 1. Ursache
+
+`to_codepage` (`releaser/text.py`) kodierte den fertigen Text nach CP437 und
+fiel bei einem `UnicodeEncodeError` für den **ganzen** Text auf `to_ascii`
+zurück. `to_ascii` behält nur 7-Bit-Zeichen – damit verschwanden Rahmen,
+Schattierungen und Umlaute der Vorlage, sobald irgendwo in den Tags ein
+einziges nicht abbildbares Zeichen stand – schon ein typografischer
+Apostroph `’`, ein Halbgeviertstrich `–`, `™`, `東` oder ein Emoji.
+
+## 2. Änderung
+
+* Die Rückfallebene greift jetzt je Zeichen: Was CP437 kennt, bleibt
+  unverändert; nur das einzelne Zeichen wird umgeschrieben (`’` → `'`,
+  `™` → `TM`, ohne Entsprechung `?`).
+* Vorab NFC-Normalisierung: Ein zerlegtes `a` + Trema (macOS-Dateinamen)
+  wird zu `ä`, das CP437 kennt – zeichenweise behandelt wäre sonst nur `a`
+  übrig geblieben.
+* Betrifft .nfo, .sfv und .m3u gleichermaßen (alle schreiben über
+  `to_codepage`), Desktop, Kommandozeile und Weboberfläche.
+
+## 3. Neue Tests (`tests/test_skl.py`)
+
+* `test_one_unmappable_character_keeps_the_block_graphics`
+* `test_standard_template_keeps_its_frame_with_an_unmappable_tag` – die
+  mitgelieferte `standard.skl` mit einem Tag wie aus der Erprobung
+* `test_decomposed_umlaut_stays_an_umlaut`
+
+## 4. Dokumentation
+
+README, README.en.md (Abschnitt „Aus der sechzehnten Erprobung“,
+Testzahl, Versionsbeispiel), EINRICHTUNG.md (Testzahl), GITHUB.md.
+
+---
+
 # Änderungen – 0.26.0: Container – Schreibweise, Tab, eigene Einstellungsdatei
 
 Stand: 01.11.2026 · Version 0.25.2 → **0.26.0**

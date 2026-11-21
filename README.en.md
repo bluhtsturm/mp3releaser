@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.26.0 as an example:
+is `SHA256SUMS` with the checksum. Using 0.26.1 as an example:
 
 ```bash
-chmod +x mp3releaser-0.26.0-x86_64.AppImage
-./mp3releaser-0.26.0-x86_64.AppImage              # graphical interface
-./mp3releaser-0.26.0-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.26.1-x86_64.AppImage
+./mp3releaser-0.26.1-x86_64.AppImage              # graphical interface
+./mp3releaser-0.26.1-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 880 tests
+python3 -m pytest tests -q          # 883 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -1345,7 +1345,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 880 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 883 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1717,6 +1717,16 @@ takes effect.
   latest versions; only the base image's `pip` was old and had known
   vulnerabilities. The build now upgrades it (see
   [Keeping the container's packages current](#keeping-the-containers-packages-current)).
+
+### From the sixteenth trial (container, Atmos album)
+
+* **NFO without block graphics.** A single character CP437 does not know —
+  typographic apostrophe `’`, `™`, Japanese in a title — sent the *whole* NFO
+  through the ASCII conversion. That dropped every character above 127,
+  including the template's frame and block graphics (`█▓▒░╔═╗`). 0.26.1 only
+  replaces the single character (`’` → `'`, `™` → `TM`, otherwise `?`);
+  decomposed umlauts from macOS names are composed first and stay `ä`. The
+  same applies to .sfv and .m3u.
 
 ### What is open
 

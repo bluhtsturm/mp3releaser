@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.26.0:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.26.1:
 
 ```bash
-chmod +x mp3releaser-0.26.0-x86_64.AppImage
-./mp3releaser-0.26.0-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.26.0-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.26.1-x86_64.AppImage
+./mp3releaser-0.26.1-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.26.1-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 880 Tests
+python3 -m pytest tests -q          # 883 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -1338,7 +1338,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-880 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+883 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1723,6 +1723,16 @@ Umleitung greift.
   neuesten Fassung; nur das `pip` des Basisimages war alt und hatte bekannte
   Lücken. Der Bau hebt es jetzt an (siehe
   [Pakete im Container aktuell halten](#pakete-im-container-aktuell-halten)).
+
+### Aus der sechzehnten Erprobung (Container, Atmos-Album)
+
+* **NFO ohne Blockgrafik.** Ein einziges Zeichen, das CP437 nicht kennt –
+  typografischer Apostroph `’`, `™`, Japanisch in einem Titel –, schickte
+  die *ganze* NFO durch die ASCII-Umwandlung. Die warf jedes Zeichen über 127
+  weg, also auch Rahmen und Blockgrafik der Vorlage (`█▓▒░╔═╗`). 0.26.1
+  ersetzt nur noch das einzelne Zeichen (`’` → `'`, `™` → `TM`, sonst `?`);
+  zerlegte Umlaute aus macOS-Namen werden vorher zusammengesetzt und bleiben
+  `ä`. Gilt genauso für .sfv und .m3u.
 
 ### Was offen ist
 
