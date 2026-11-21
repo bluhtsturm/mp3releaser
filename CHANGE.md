@@ -1,19 +1,22 @@
-# Änderungen – 0.26.1: Blockgrafik der NFO, „OK“ im Ergebnisfenster
+# Änderungen – 0.27.0: Ausgabeordner, Blockgrafik der NFO, „OK“ im Ergebnisfenster
 
-Stand: 21.11.2026 · Version 0.26.0 → **0.26.1**
+Stand: 21.11.2026 · Version 0.26.0 → **0.27.0**
 
 Rückmeldung aus der Erprobung der Container-Fassung mit einem Atmos-Album:
-In der erzeugten .nfo fehlten alle Zeichen der Blockgrafik. Und nach
-„Release erstellen“ blieb das Ergebnisfenster mit nur einem Knopf
-„Abbrechen“ stehen.
+In der erzeugten .nfo fehlten alle Zeichen der Blockgrafik. Nach „Release
+erstellen“ blieb das Ergebnisfenster mit nur einem Knopf „Abbrechen“ stehen.
+Und gewünscht: ein Ausgabeordner, in den das fertige Release geschoben wird.
 
 | | vorher | nachher |
 |---|---|---|
-| Tests | 880 | 884 |
-| Prüfungen im echten Browser (`tools/webcheck.py`) | 20 | 21 |
+| Tests | 880 | 907 |
+| Ergebnis hier (ohne GTK/WebKitGTK, Python 3.12) | – | 876 grün, 31 übersprungen |
+| Prüfungen im echten Browser (`tools/webcheck.py`) | 20 | 23 |
+| `pyflakes` | sauber | sauber |
 
-Gegen 0.26.0 laufen gelassen, schlagen die vier neuen Tests und ein
-angepasster fehl.
+Gegen 0.26.0 laufen gelassen, schlagen die neuen Tests und ein angepasster
+fehl. Die Zwischenstände dieser Arbeit trugen kurz die Nummer 0.26.1; die
+wurde nie getaggt und geht in 0.27.0 auf.
 
 ## 1. Ursache
 
@@ -52,8 +55,60 @@ blieb „Abbrechen“, als liefe noch etwas.
   das Ergebnis von „Release erstellen“ nur „OK“, Enter schließt es,
   „Zurücknehmen“ zeigt danach wieder beide Knöpfe; keine JavaScript-Fehler.
 
-## 4. Neue und geänderte Tests
+## 4. Ausgabeordner
 
+„Release erstellen“ schiebt das fertige Release zum Schluss in einen
+Ausgabeordner, sofern einer eingestellt ist. Neues Modul
+`releaser/output.py`.
+
+* **Einstellung:** `[build] output_dir` – ein Schlüssel für Kommandozeile,
+  Desktop und Weboberfläche, immer der echte Pfad. Die Weboberfläche zeigt
+  ihn als Pfad der Auswahl (`ausgang`) und nimmt beides an; so versteht die
+  Kommandozeile im selben Container die gespeicherte Datei auch.
+* **Oberflächen:** Reiter „Namen“. Desktop: Feld und „Wählen …“
+  (Ordnerauswahl). Web: Feld mit den beschreibbaren Einhängepunkten als
+  Vorschlag und „Ordner links“ für den gerade gezeigten Ordner. „Als
+  Standard“ speichert ihn mit.
+* **Kommandozeile:** `release --output-dir ORDNER`, ohne Angabe aus der
+  Konfiguration; `--output-dir ""` schaltet ab. `build` verschiebt nur mit
+  ausdrücklichem `--output-dir` – wer bloß die .nfo neu erzeugt, will
+  nichts verschoben haben.
+* **Vorher geprüft:** Ausgabeordner vorhanden, beschreibbar eingehängt,
+  nicht im Release selbst, und dort noch kein Ordner mit dem Namen, den das
+  Release *nach* dem Umbenennen trägt. Sonst ändert sich nichts – keine
+  Tags, keine Umbenennung.
+* **Über Laufwerksgrenzen:** Im Container sind Eingang und Ausgang zwei
+  Volumes; `rename` scheitert dort mit `EXDEV`. Dann wird kopiert und das
+  Original erst nach vollständiger Kopie gelöscht; scheitert die Kopie,
+  wird der Rest im Ziel entfernt. Nie wird etwas überschrieben.
+* **Rückgängig:** eigener Protokolleintrag (`kind = "move"`); `↶` holt das
+  Release zurück, auch über Laufwerksgrenzen. Ältere Fassungen lesen den
+  Eintrag als Umbenennung – die Rücknahme funktioniert dort ebenso.
+* **Auswahl links:** zeigt nach dem Verschieben den Eingang ohne das
+  Release.
+* **Container:** `docker-compose.yml` hängt `data/ausgang` beschreibbar unter
+  `/data/ausgang` ein (Dienst und `cli`).
+* Im Browser nachgeprüft (Chromium): Ausgabeordner „ausgang“ gesetzt,
+  „Release erstellen“ – Release liegt im Ausgang, Eingang leer,
+  Ergebnisfenster nennt „Verschoben nach: ausgang/…“, `↶` bietet „1
+  Verschiebung(en) in den Ausgabeordner“ an und holt es zurück; keine
+  JavaScript-Fehler.
+
+## 5. Neue und geänderte Tests
+
+* `tests/test_output.py` (neu, 9): Verschieben, Pfade im Modell,
+  simulierter Dateisystemwechsel (`EXDEV`) hin und zurück, abgebrochene
+  Kopie hinterlässt nichts, Ziel belegt, Name nach dem Umbenennen,
+  Ausgabeordner im Release, fehlender Ordner, schon dort
+* `tests/test_uistate.py` (6): Ablauf mit Rücknahme in drei Schritten,
+  belegtes Ziel ändert nichts, ohne Ausgabeordner bleibt alles, nur
+  beschreibbare eingehängte Ordner, lokaler Pfad, „lag schon dort“
+* `tests/test_web.py` (4): Verschieben per API, unzulässige Ordner,
+  „Ordner links“, Speichern als echter Pfad ohne ihn an den Browser zu geben
+* `tests/test_api.py` (4): `release` mit Konfiguration, `build` ignoriert
+  sie, belegtes Ziel, fehlender Ordner
+* `tools/webcheck.py`: zweiter Einhängepunkt `ausgang`, Schritt
+  „Ausgabeordner“, Ergebnis prüft „Verschoben nach“
 * `tests/test_skl.py`:
   `test_one_unmappable_character_keeps_the_block_graphics`,
   `test_standard_template_keeps_its_frame_with_an_unmappable_tag` (die
@@ -64,10 +119,12 @@ blieb „Abbrechen“, als liefe noch etwas.
 * `tools/webcheck.py` (WebKitGTK): Das Ergebnisfenster hat „OK“, ist
   vorausgewählt und schließt; ein Plan hat weiterhin „Abbrechen“
 
-## 5. Dokumentation
+## 6. Dokumentation
 
-README, README.en.md (Abschnitt „Aus der sechzehnten Erprobung“,
-Testzahl, Versionsbeispiel), EINRICHTUNG.md (Testzahl), GITHUB.md.
+README, README.en.md (Abschnitte „Ausgabeordner“, „Rückgängig machen“,
+„Als Standard speichern“, „Aus der sechzehnten Erprobung“, Modulbaum,
+Testzahl, Versionsbeispiel), EINRICHTUNG.md (Ordner `data/ausgang`,
+Testzahl), `config/mp3releaser/README.md`, GITHUB.md.
 
 ---
 

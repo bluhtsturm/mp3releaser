@@ -71,6 +71,8 @@
                        align-items: center; }
   .grid.names .check input { width: auto; }
   .hint { color: var(--dim); font-size: 12px; }
+  .grid.names .output { display: flex; gap: 8px; min-width: 0; }
+  .grid.names .output input { flex: 1; min-width: 0; }
   #dirline { font-family: ui-monospace, monospace; font-size: 12px;
              margin: 12px 0 8px; }
   /* Dateinamen: je Datei ein Eingabefeld */
@@ -142,7 +144,7 @@
   <button id="load">Einlesen</button>
   <select id="template"><option value="">Vorlage …</option></select>
   <button id="saveDefaults"
-          title="Vorlage, Gruppe, Ordner, Muster und Schreibweisen als Standard speichern – gilt für jede neue Sitzung, auch nach einem Neustart">Als Standard</button>
+          title="Vorlage, Gruppe, Ordner, Muster, Schreibweisen und Ausgabeordner als Standard speichern – gilt für jede neue Sitzung, auch nach einem Neustart">Als Standard</button>
   <span class="spacer"></span>
   <button id="undo" title="Letzte Umbenennung oder letzten Tag-Lauf zurücknehmen">↶</button>
   <button id="check">Prüfen</button>
@@ -189,7 +191,18 @@
         <label class="check"><input type="checkbox" id="p-prefix">
           Begleitdateien mit „00-“ beginnen (.nfo, .sfv, .m3u und Bild)</label>
         <label>Verzeichnis</label><input id="p-dirname">
+        <label for="p-output">Ausgabeordner</label>
+        <span class="output">
+          <input id="p-output" list="outputs"
+                 placeholder="leer – das Release bleibt, wo es ist">
+          <button id="p-output-here"
+                  title="Den Ordner nehmen, den die Auswahl links gerade zeigt">Ordner links</button>
+        </span>
+        <datalist id="outputs"></datalist>
       </div>
+      <p class="hint">„Release erstellen“ schiebt das fertige Release zum
+         Schluss in den Ausgabeordner. Liegt dort schon ein gleichnamiges,
+         ändert sich gar nichts. ↶ holt es wieder zurück.</p>
       <p class="hint">Tags: #Artist #Album #Year #Source #Fmt #Grp ·
          Dateien: #N #Trk #Cd. #Fmt setzt FLAC, AAC oder ATMOS ein —
          bei MP3 nichts. Ein Verzeichnisname ohne Tags gilt wörtlich.
@@ -519,6 +532,7 @@ function renderNames(state) {
   set("p-case-dir", names.case_dir || "unchanged");
   set("p-case-file", names.case_file || "unchanged");
   document.getElementById("p-prefix").checked = !!names.companion_prefix;
+  set("p-output", names.output);
 
   const companions = document.getElementById("companions");
   companions.textContent = names.companions && names.companions.length
@@ -622,10 +636,13 @@ for (const tab of document.querySelectorAll(".tab")) {
 for (const [id, which] of [["p-dir", "dir"], ["p-file", "file"],
                            ["p-group", "group"], ["p-dirname", "dirname"],
                            ["p-case-dir", "case_dir"],
-                           ["p-case-file", "case_file"]]) {
+                           ["p-case-file", "case_file"],
+                           ["p-output", "output"]]) {
   document.getElementById(id).onchange = event =>
     call("/api/pattern", { which, value: event.target.value }).then(render);
 }
+document.getElementById("p-output-here").onclick = () =>
+  call("/api/pattern", { which: "output_here" }).then(render);
 document.getElementById("p-prefix").onchange = event =>
   call("/api/pattern", { which: "companion_prefix",
                          value: event.target.checked ? "00-" : "" }).then(render);
@@ -700,7 +717,10 @@ document.getElementById("produce").onclick = () =>
     showInfo(payload.done ? "Release erstellt" : "Release nicht erstellt",
       payload.done
         ? payload.done.join("\n")
-          + "\n\nZurücknehmen mit ↶ – erst die Umbenennung, dann die Tags."
+          + "\n\nZurücknehmen mit ↶ – "
+          + (payload.done.some(line => line.startsWith("Verschoben"))
+             ? "erst das Verschieben, dann die Umbenennung, dann die Tags."
+             : "erst die Umbenennung, dann die Tags.")
         : (payload.messages || []).filter(m => m.level !== "info")
             .map(m => (m.level === "error" ? "x " : "! ") + m.text).join("\n"));
   });
@@ -762,6 +782,14 @@ async function start() {
     document.getElementById("banner").textContent =
       "Diese Fassung sieht nur die eingehängten Ordner: " + (mounts || "keine")
       + ". Was hier eingegeben wird, liegt auf dem Server, nicht auf diesem Rechner.";
+    // Vorschläge für den Ausgabeordner: nur, was beschreibbar eingehängt ist
+    const outputs = document.getElementById("outputs");
+    for (const mount of info.mounts.mounts || []) {
+      if (!mount.writable) continue;
+      const option = document.createElement("option");
+      option.value = mount.name;
+      outputs.appendChild(option);
+    }
     const select = document.getElementById("template");
     for (const name of info.templates) {
       const option = document.createElement("option");

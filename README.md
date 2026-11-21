@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.26.1:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.0:
 
 ```bash
-chmod +x mp3releaser-0.26.1-x86_64.AppImage
-./mp3releaser-0.26.1-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.26.1-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.27.0-x86_64.AppImage
+./mp3releaser-0.27.0-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.27.0-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 884 Tests
+python3 -m pytest tests -q          # 907 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -80,6 +80,7 @@ releaser/
   checks.py       Vorlagen und fertige Releases pruefen
   provenance.py   woher ein Wert stammt
   undo.py         Umbenennungen zuruecknehmen
+  output.py       fertiges Release in den Ausgabeordner schieben
   fields.py       Feldkatalog: Verwendung, Breite, Herkunft
   browse.py       Dateiauswahl — lokal oder auf eingehängte Ordner beschränkt
   service.py      Abläufe ohne Ausgabe — gemeinsame Basis aller Oberflächen
@@ -895,7 +896,8 @@ Zwei Dateien, übereinander:
 
 **„Als Standard“** in der Kopfzeile der Weboberfläche schreibt Vorlage,
 Gruppe, den gerade offenen Ordner, Verzeichnis- und Dateimuster, die beiden
-Schreibweisen und die Vorsilbe „00-“ in die Einstellungsdatei. Jede neue
+Schreibweisen, die Vorsilbe „00-“ und den Ausgabeordner in die
+Einstellungsdatei. Jede neue
 Sitzung beginnt damit, auch nach `docker compose restart` oder `down`/`up`;
 laufende Sitzungen behalten ihren Stand. Die Werte liegen über denen der
 `config.toml` – was dort steht und in der Oberfläche nicht einstellbar ist
@@ -1025,6 +1027,43 @@ mitgelieferte. Auch hier gilt: Kollidiert das Umbenennen, wird nichts
 geschrieben — `build --tag --rename` hatte bis dahin die Tags schon in die
 Dateien geschrieben.
 
+### Ausgabeordner
+
+Ist ein Ausgabeordner eingestellt, schiebt „Release erstellen“ das fertige
+Release zum Schluss dorthin — im Eingang liegt dann nur noch, was noch zu
+tun ist. Eingestellt wird er im Reiter „Namen“ (Desktop: Feld mit
+„Wählen …“; Web: Feld mit den beschreibbaren Ordnern als Vorschlag und
+„Ordner links“), gespeichert mit „Als Standard“ oder von Hand:
+
+```toml
+[build]
+output_dir = "~/Musik/Fertig"      # im Container: "/data/ausgang"
+```
+
+```bash
+releaser release /pfad/zur/release --output-dir ~/Musik/Fertig
+```
+
+* **Vorher geprüft, wie alles andere.** Gibt es im Ausgabeordner schon einen
+  Ordner mit dem Namen, den das Release *nach* dem Umbenennen trägt, ändert
+  sich gar nichts — keine Tags, keine Umbenennung. Ein fertiges Release, das
+  am Ende doch im Eingang liegen bleibt, gibt es nicht.
+* **Über Laufwerksgrenzen.** Im Container sind Eingang und Ausgang meist
+  zwei Volumes, für den Kernel zwei Dateisysteme; `rename` scheitert dort.
+  Dann wird kopiert und das Original erst nach vollständiger Kopie gelöscht.
+  Scheitert die Kopie (Platte voll), wird der Rest im Ziel entfernt, das
+  Original bleibt unberührt.
+* **Im Container nur, was eingehängt ist** — und beschreibbar. Ein Pfad nur
+  im Container ginge beim nächsten Neubau verloren. `docker-compose.yml`
+  hängt dafür `data/ausgang` unter `/data/ausgang` ein. Gespeichert wird der
+  echte Pfad, angezeigt der der Auswahl (`ausgang`): So versteht ihn auch die
+  Kommandozeile im selben Container.
+* **Nur `release`.** `build` verschiebt nur mit ausdrücklichem
+  `--output-dir` — wer bloß die `.nfo` neu erzeugt, will sein Release nicht
+  verschoben bekommen.
+* Zurückgenommen wird mit `↶` wie alles andere: erst das Verschieben, dann
+  die Umbenennung, dann die Tags.
+
 Das Modul lässt sich **ohne GTK importieren**. `is_available()` sagt, ob die
 Bibliothek da ist, `requirements_hint()` nennt das Paket und einen Weg, der
 ohne Grafikstack funktioniert. Sonst ließe sich das Paket auf einem Server
@@ -1042,6 +1081,7 @@ Der Knopf mit dem Speichern-Symbol in der Kopfleiste merkt sich:
 | Verzeichnis- und Dateimuster | `[naming] dir_pattern`, `file_pattern` |
 | die Schreibweise von Ordner und Dateien (`upper`, `lower` …) | `[naming] case_dir`, `case_file` |
 | das „00-“ vor den Begleitdateien | `[naming] companion_prefix`, `prefix_all` |
+| den Ausgabeordner | `[build] output_dir` |
 
 Ein Fenster bestätigt, was wo gespeichert wurde. Beim nächsten Start — auch
 per Doppelklick auf das AppImage — ist alles wieder eingestellt, und die
@@ -1183,6 +1223,11 @@ Fallstrick, über den ich zuerst gestolpert bin: Der protokollierte Pfad einer
 Datei zeigt auf den *alten* Ordnernamen. Die Vorabprüfung muss deshalb
 nachrechnen, wo die Datei heute liegt — naiv geprüft wäre jede Datei „nicht
 mehr vorhanden".
+
+**Das Verschieben in den Ausgabeordner** steht ebenfalls im Protokoll, als
+eigener Eintrag („1 Verschiebung(en) in den Ausgabeordner“). Die Rücknahme
+holt das Release an seinen alten Platz zurück — über Laufwerksgrenzen per
+Kopie, wie auf dem Hinweg.
 
 ## NFO-Vorschau
 
@@ -1338,7 +1383,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-884 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+907 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1729,7 +1774,7 @@ Umleitung greift.
 * **NFO ohne Blockgrafik.** Ein einziges Zeichen, das CP437 nicht kennt –
   typografischer Apostroph `’`, `™`, Japanisch in einem Titel –, schickte
   die *ganze* NFO durch die ASCII-Umwandlung. Die warf jedes Zeichen über 127
-  weg, also auch Rahmen und Blockgrafik der Vorlage (`█▓▒░╔═╗`). 0.26.1
+  weg, also auch Rahmen und Blockgrafik der Vorlage (`█▓▒░╔═╗`). 0.27.0
   ersetzt nur noch das einzelne Zeichen (`’` → `'`, `™` → `TM`, sonst `?`);
   zerlegte Umlaute aus macOS-Namen werden vorher zusammengesetzt und bleiben
   `ä`. Gilt genauso für .sfv und .m3u.
@@ -1738,6 +1783,10 @@ Umleitung greift.
   nichts mehr abzubrechen war. Meldungen (erstellt, geprüft, gespeichert)
   haben in der Weboberfläche jetzt einen Knopf „OK“, der vorausgewählt ist –
   Enter schließt. Pläne behalten „Abbrechen“ und „Ausführen“.
+* **Ausgabeordner.** Gewünscht war, das fertige Release in einen eigenen
+  Ordner zu schieben. 0.27.0 kann das als letzten Schritt von „Release
+  erstellen“ (siehe [Ausgabeordner](#ausgabeordner)) – vorher geprüft,
+  über Volume-Grenzen hinweg und mit `↶` zurückzunehmen.
 
 ### Was offen ist
 

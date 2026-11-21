@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.26.1 as an example:
+is `SHA256SUMS` with the checksum. Using 0.27.0 as an example:
 
 ```bash
-chmod +x mp3releaser-0.26.1-x86_64.AppImage
-./mp3releaser-0.26.1-x86_64.AppImage              # graphical interface
-./mp3releaser-0.26.1-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.27.0-x86_64.AppImage
+./mp3releaser-0.27.0-x86_64.AppImage              # graphical interface
+./mp3releaser-0.27.0-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 884 tests
+python3 -m pytest tests -q          # 907 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -84,6 +84,7 @@ releaser/
   checks.py       check templates and finished releases
   provenance.py   where a value came from
   undo.py         undo renames and tag runs
+  output.py       move the finished release into the output folder
   fields.py       field catalogue: usage, width, origin
   browse.py       file browser — local, or restricted to mounted folders
   service.py      workflows without output — shared basis of all interfaces
@@ -901,7 +902,7 @@ Two files, one on top of the other:
 
 **"Als Standard"** (save as default) in the web interface's header writes the
 template, group, the folder currently open, directory and file patterns, both
-letter cases and the "00-" prefix to the settings file. Every new session
+letter cases, the "00-" prefix and the output folder to the settings file. Every new session
 starts with them, also after `docker compose restart` or `down`/`up`; running
 sessions keep their state. The values lie on top of those in `config.toml` —
 whatever is set there and cannot be set in the interface (`[tags]`,
@@ -1032,6 +1033,42 @@ Without a template on the command line, `release` uses the saved one,
 otherwise the bundled one. Here too: if renaming would collide, nothing is
 written — `build --tag --rename` used to have written the tags already.
 
+### Output folder
+
+If an output folder is set, "Release erstellen" moves the finished release
+there as its last step — the inbox then only holds what is still to do. It is
+set in the "Namen" tab (desktop: field with "Wählen …"; web: field suggesting
+the writable folders, plus "Ordner links"), saved with "Als Standard" or by
+hand:
+
+```toml
+[build]
+output_dir = "~/Music/Done"      # in the container: "/data/ausgang"
+```
+
+```bash
+releaser release /path/to/release --output-dir ~/Music/Done
+```
+
+* **Checked beforehand, like everything else.** If the output folder already
+  has a folder with the name the release will carry *after* renaming, nothing
+  changes at all — no tags, no rename. A finished release that stays behind in
+  the inbox does not happen.
+* **Across drives.** In the container, inbox and output are usually two
+  volumes, two file systems to the kernel; `rename` fails there. Then the
+  release is copied and the original deleted only after a complete copy. If
+  the copy fails (disk full), the remainder in the target is removed and the
+  original stays untouched.
+* **In the container only what is mounted** — and writable. A path only
+  inside the container would be lost on the next rebuild. `docker-compose.yml`
+  mounts `data/ausgang` at `/data/ausgang` for this. The real path is saved,
+  the selection path (`ausgang`) is shown: that way the command line in the
+  same container understands it too.
+* **Only `release`.** `build` only moves with an explicit `--output-dir` —
+  someone just regenerating the `.nfo` does not want their release moved.
+* Undo with `↶` like everything else: first the move, then the rename, then
+  the tags.
+
 The module can be **imported without GTK**. `is_available()` says whether the
 library is present; `requirements_hint()` names the package and a way that
 works without a graphics stack. Otherwise the package could not even be
@@ -1049,6 +1086,7 @@ The button with the save icon in the header bar remembers:
 | directory and file patterns | `[naming] dir_pattern`, `file_pattern` |
 | the letter case of folder and files (`upper`, `lower` …) | `[naming] case_dir`, `case_file` |
 | the "00-" in front of the companion files | `[naming] companion_prefix`, `prefix_all` |
+| the output folder | `[build] output_dir` |
 
 A window confirms what was saved where. On the next start — including a
 double click on the AppImage — everything is set again, and the file list
@@ -1188,6 +1226,10 @@ folders, finally the files. That is also the reason for a pitfall I tripped
 over first: the logged path of a file points to the *old* folder name. The
 pre-check therefore has to work out where the file is today — checked naively,
 every file would be "no longer present".
+
+**Moving into the output folder** is logged as well, as its own entry
+("1 Verschiebung(en) in den Ausgabeordner"). Undoing it brings the release
+back to where it was — across drives by copying, like on the way there.
 
 ## NFO preview
 
@@ -1345,7 +1387,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 884 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 907 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1723,7 +1765,7 @@ takes effect.
 * **NFO without block graphics.** A single character CP437 does not know —
   typographic apostrophe `’`, `™`, Japanese in a title — sent the *whole* NFO
   through the ASCII conversion. That dropped every character above 127,
-  including the template's frame and block graphics (`█▓▒░╔═╗`). 0.26.1 only
+  including the template's frame and block graphics (`█▓▒░╔═╗`). 0.27.0 only
   replaces the single character (`’` → `'`, `™` → `TM`, otherwise `?`);
   decomposed umlauts from macOS names are composed first and stay `ä`. The
   same applies to .sfv and .m3u.
@@ -1732,6 +1774,10 @@ takes effect.
   nothing left to cancel. Messages (created, checked, saved) now have a
   single "OK" button in the web interface, focused so Enter closes it. Plans
   keep "Cancel" and "Run".
+* **Output folder.** The wish was to move the finished release into a folder
+  of its own. 0.27.0 does that as the last step of "Release erstellen" (see
+  [Output folder](#output-folder)) — checked beforehand, across volume
+  boundaries, and undoable with `↶`.
 
 ### What is open
 

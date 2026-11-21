@@ -89,6 +89,10 @@ class AppState:
     listed_path: Optional[str] = None
     #: wird beim Start geöffnet, sofern gesetzt - siehe :meth:`show_start`
     start_path: Optional[str] = None
+    #: wohin "Release erstellen" das fertige Release schiebt - als Pfad der
+    #: Quelle (lokal der echte Pfad, im Container "ausgang/fertig"). Leer:
+    #: das Release bleibt, wo es ist. Siehe :meth:`set_output`.
+    output_path: Optional[str] = None
     #: aus welcher Datei die Einstellungen stammen; dorthin speichert die
     #: Desktop-Anwendung auch wieder
     config_path: Optional[Path] = None
@@ -223,6 +227,81 @@ class AppState:
             self.say(str(exc), Level.ERROR)
         self._changed()
         return self.entries
+
+    # --------------------------------------------------------- Ausgabeordner
+
+    def set_output(self, value: Optional[str], announce: bool = True) -> bool:
+        """Stellt den Ausgabeordner ein; leer schaltet das Verschieben ab.
+
+        Geprueft wird gleich hier, nicht erst beim Erstellen: Der Ordner muss
+        existieren, ueber die Quelle erreichbar und beschreibbar sein. Im
+        Container heisst das: ein eingehaengter Ordner ohne ``:ro`` - ein
+        Pfad nur im Container ginge beim naechsten Neustart verloren.
+
+        Angenommen wird der Pfad, wie die Auswahl ihn zeigt ("ausgang/neu"),
+        oder der echte Pfad, wie er in der Konfiguration steht
+        ("/data/ausgang/neu") - so gilt ``[build] output_dir`` fuer
+        Kommandozeile, Desktop und Weboberflaeche gleichermassen.
+        """
+        from .browse import MountedSource
+
+        value = (value or "").strip()
+        if not value:
+            self.output_path = None
+            if announce:
+                self.say("Ausgabeordner: keiner - das Release bleibt, wo es ist.")
+            self._changed()
+            return True
+        try:
+            try:
+                real = self.source.resolve(value)
+            except AccessError:
+                if not Path(value).expanduser().is_absolute():
+                    raise
+                real = self.source.resolve(
+                    self.source.to_virtual(Path(value).expanduser()))
+        except AccessError as exc:
+            self.say(f"Ausgabeordner nicht verwendbar: {exc}", Level.ERROR)
+            self._changed()
+            return False
+        if not real.is_dir():
+            self.say(f"Ausgabeordner gibt es nicht: {value}", Level.ERROR)
+            self._changed()
+            return False
+        try:
+            virtual = self.source.to_virtual(real)
+        except AccessError:
+            virtual = value
+        if isinstance(self.source, MountedSource) \
+                and not self.source.is_writable(virtual):
+            self.say(f"Ausgabeordner {virtual} ist nur lesend eingehängt.",
+                     Level.ERROR)
+            self._changed()
+            return False
+        self.output_path = virtual
+        if announce:
+            self.say(f"Ausgabeordner: {virtual}")
+        self._changed()
+        return True
+
+    def output_dir(self) -> Optional[Path]:
+        """Der Ausgabeordner als echter Pfad, oder None."""
+        if not self.output_path:
+            return None
+        try:
+            return self.source.resolve(self.output_path)
+        except AccessError:
+            return None
+
+    def _output_problems(self, future_name: str) -> list[str]:
+        from .output import check_move
+
+        if not self.output_path:
+            return []
+        target = self.output_dir()
+        if target is None:
+            return [f"Ausgabeordner nicht erreichbar: {self.output_path}"]
+        return check_move(self.root, target, future_name)
 
     def parent_path(self) -> Optional[str]:
         """Der übergeordnete Pfad, oder None an der Wurzel."""
@@ -848,6 +927,20 @@ class AppState:
             self._changed()
             return None
 
+        # Auch das Verschieben vorher pruefen - unter dem Namen, den der
+        # Ordner nach dem Umbenennen hat. Sonst stuende am Ende ein fertiges
+        # Release im Eingang, weil im Ausgang schon eins gleichen Namens liegt.
+        future = next((op.dst.name for op in rename_plan.changes
+                       if op.kind == "root"), self.root.name)
+        problems = self._output_problems(future)
+        if problems:
+            for problem in problems:
+                self.say(problem, Level.ERROR)
+            self.say("Nichts geändert: Das Release ließe sich nicht in den "
+                     "Ausgabeordner schieben.", Level.ERROR)
+            self._changed()
+            return None
+
         errors = self._error_count()
         done: list[str] = []
 
@@ -877,9 +970,51 @@ class AppState:
             return self._stopped(done, "beim Erzeugen der Dateien")
         done.append("Erzeugt: " + (", ".join(p.name for p in created)
                                     or "nichts"))
+        if self.output_path:
+            moved = self.move_to_output()
+            if moved is None:
+                return self._stopped(done, "beim Verschieben")
+            done.append(f"Verschoben nach: {self.current_path}" if moved
+                        else "Ausgabeordner: Release lag schon dort")
         self.say(f"Release erstellt: {self.root.name}")
         self._changed()
         return done
+
+    def move_to_output(self) -> Optional[bool]:
+        """Schiebt das geladene Release in den Ausgabeordner.
+
+        Rueckgabe: ``True`` verschoben, ``False`` lag schon dort, ``None``
+        ging nicht - die Meldungen sagen, warum.
+        """
+        from .output import move_release
+
+        target = self.output_dir()
+        if self.release is None or self.root is None or target is None:
+            return None
+        try:
+            new_root, entry = move_release(self.release, self.root, target)
+        except Exception as exc:                # noqa: BLE001 - Anzeige statt Absturz
+            self._failed("Verschieben in den Ausgabeordner", exc)
+            return None
+        self._remember(entry)
+        self.root = new_root
+        try:
+            self.current_path = self.source.to_virtual(new_root)
+        except AccessError:
+            self.current_path = str(new_root)
+        # Die Auswahl links zeigte sonst weiter das Release im Eingang, das
+        # dort nicht mehr liegt.
+        if self.listed_path:
+            try:
+                self.entries = self.source.list(self.listed_path)
+            except AccessError:
+                pass
+            self.selected_path = None
+        if entry is None:
+            self.say("Release liegt bereits im Ausgabeordner.")
+            return False
+        self.say(f"Verschoben nach {self.current_path}")
+        return True
 
     def _error_count(self) -> int:
         return sum(1 for message in self.messages if message.level is Level.ERROR)

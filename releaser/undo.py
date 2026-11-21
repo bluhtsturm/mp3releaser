@@ -1,9 +1,10 @@
 """Rückgängig machen.
 
-Zwei Operationen lassen sich nicht aus den Dateien zurückrechnen: Nach dem
-Umbenennen weiß niemand mehr, wie es vorher hieß, und nach dem Tag-Schreiben
-steht der alte Wert nirgends mehr. Beides wird deshalb protokolliert, bevor es
-passiert.
+Drei Operationen lassen sich nicht aus den Dateien zurückrechnen: Nach dem
+Umbenennen weiß niemand mehr, wie es vorher hieß, nach dem Tag-Schreiben
+steht der alte Wert nirgends mehr, und nach dem Verschieben in den
+Ausgabeordner niemand, wo das Release herkam. Alles wird deshalb
+protokolliert.
 
 **Wo.** Nicht im Releaseverzeichnis - das wird ja selbst umbenannt und beim
 nächsten ``--clean`` womöglich aufgeräumt. Stattdessen im Zustandsverzeichnis
@@ -41,11 +42,15 @@ def journal_path() -> Path:
 class Kind(Enum):
     RENAME = "rename"
     TAGS = "tags"
+    #: in den Ausgabeordner geschoben - laeuft wie ein Umbenennen, nur ueber
+    #: Ordnergrenzen und notfalls Dateisystemgrenzen hinweg
+    MOVE = "move"
 
     @property
     def label(self) -> str:
         return {Kind.RENAME: "Umbenennungen",
-                Kind.TAGS: "getaggte Dateien"}[self]
+                Kind.TAGS: "getaggte Dateien",
+                Kind.MOVE: "Verschiebung(en) in den Ausgabeordner"}[self]
 
 
 @dataclass
@@ -66,7 +71,7 @@ class Entry:
 
     @property
     def count(self) -> int:
-        return len(self.moves) if self.kind is Kind.RENAME else len(self.tags)
+        return len(self.tags) if self.kind is Kind.TAGS else len(self.moves)
 
     def as_dict(self) -> dict:
         return {"timestamp": self.timestamp, "release": self.release,
@@ -145,6 +150,15 @@ def record(moves: Iterable[tuple[Path, Path]], release: str,
                          kind=Kind.RENAME, moves=pairs), path)
 
 
+def record_move(src: Path, dst: Path, release: str,
+                path: Optional[Path] = None) -> Optional[Entry]:
+    """Haelt das Verschieben in den Ausgabeordner fest."""
+    if Path(src) == Path(dst):
+        return None
+    return _append(Entry(timestamp=time.time(), release=release,
+                         kind=Kind.MOVE, moves=[(str(src), str(dst))]), path)
+
+
 def record_tags(previous: dict, release: str,
                 path: Optional[Path] = None) -> Optional[Entry]:
     """Haelt die *vorherigen* Tagwerte fest, bevor geschrieben wird.
@@ -219,13 +233,17 @@ def undo(entry: Entry, path: Optional[Path] = None,
         _forget(entry, path)
         return done
 
+    from .output import move_path
+
     done: list[tuple[Path, Path]] = []
     for src, dst in reversed(entry.moves):
         origin, target = Path(src), Path(dst)
         if not target.exists():
             continue
         origin.parent.mkdir(parents=True, exist_ok=True)
-        target.rename(origin)
+        # Ein Verschieben kann ueber Dateisystemgrenzen gegangen sein (zwei
+        # Volumes im Container) - dann geht der Rueckweg nur per Kopie.
+        move_path(target, origin)
         done.append((target, origin))
 
     _forget(entry, path)

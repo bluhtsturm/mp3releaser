@@ -86,7 +86,7 @@ def test_page_works_in_a_real_browser_engine(served_tree):
     # aussagen, welche nicht, falls doch.
     failed = [line for line in output.splitlines() if "[FEHLER]" in line]
     assert not failed, "\n".join(failed) + "\n" + result.stderr[-2000:]
-    assert "21 von 21 Pruefungen bestanden" in output, output[-2000:]
+    assert "23 von 23 Pruefungen bestanden" in output, output[-2000:]
 
     # Stichproben aus der Ausgabe, damit der Test nicht nur eine Zahl prueft
     for expected in (
@@ -98,6 +98,7 @@ def test_page_works_in_a_real_browser_engine(served_tree):
         "NFO im Raster, Rahmen ohne Luecke",
         "Ein Klick erstellt das Release",
         "Ergebnisfenster schließt mit „OK“",
+        "Release liegt im Ausgabeordner",
         "Tab: Cursor und Getipptes bleiben",
         "Schreibweise wählbar",
         "Als Standard gespeichert",

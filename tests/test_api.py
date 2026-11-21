@@ -401,3 +401,79 @@ def test_render_reports_an_unknown_track_field(tmp_path):
         encoding="utf-8")
     with pytest.raises(SystemExit, match="titel"):
         cli.main(["render", str(template), str(release)])
+
+
+# ========================================================== Ausgabeordner
+
+
+def _cli_release(tmp_path: Path) -> tuple[Path, Path, Path]:
+    root = tmp_path / "eingang" / "Artist-Album-2026-GRP"
+    for no in (1, 2):
+        encode(root / f"0{no}-x.mp3", "-c:a", "libmp3lame",
+               "-metadata", f"title=Titel {no}", "-metadata", "artist=Der Artist",
+               "-metadata", "album=Das Album", "-metadata", f"track={no}/2",
+               "-metadata", "date=2026")
+    template = tmp_path / "t.skl"
+    template.write_bytes("#Release        \n#N #Trk         \n".encode("cp437"))
+    out = tmp_path / "ausgang"
+    out.mkdir()
+    return root, template, out
+
+
+@needs_ffmpeg
+def test_cli_release_moves_into_the_configured_output(tmp_path, capsys):
+    root, template, out = _cli_release(tmp_path)
+    config = tmp_path / "c.toml"
+    config.write_text(f'[build]\noutput_dir = "{out}"\n', encoding="utf-8")
+
+    assert cli.main(["--config", str(config), "release", str(root),
+                     str(template)]) == 0
+    moved = [p for p in out.iterdir()]
+    assert len(moved) == 1 and moved[0].name.lower().startswith("der_artist")
+    assert sorted(p.suffix for p in moved[0].iterdir()) == [
+        ".m3u", ".mp3", ".mp3", ".nfo", ".sfv"]
+    assert list((tmp_path / "eingang").iterdir()) == []
+    err = capsys.readouterr().err
+    assert f"Ordner: {moved[0]}" in err
+    assert "erst das Verschieben" in err
+
+    from releaser import undo
+    assert [e.kind.value for e in undo.load()][-1] == "move"
+
+
+@needs_ffmpeg
+def test_cli_build_ignores_the_configured_output(tmp_path):
+    """Wer mit build nur die .nfo neu erzeugt, will nichts verschoben haben."""
+    root, template, out = _cli_release(tmp_path)
+    config = tmp_path / "c.toml"
+    config.write_text(f'[build]\noutput_dir = "{out}"\n', encoding="utf-8")
+    assert cli.main(["--config", str(config), "build", str(root),
+                     str(template)]) == 0
+    assert root.is_dir() and list(out.iterdir()) == []
+
+
+@needs_ffmpeg
+def test_cli_release_with_taken_output_changes_nothing(tmp_path, capsys):
+    root, template, out = _cli_release(tmp_path)
+    # Erst ohne Ausgabeordner: so steht fest, wie der Ordner danach heisst
+    assert cli.main(["release", str(root), str(template)]) == 0
+    root = next((tmp_path / "eingang").iterdir())
+    (out / root.name).mkdir()                       # im Ausgang schon belegt
+    before = {p.name: p.stat().st_mtime_ns for p in root.iterdir()}
+    capsys.readouterr()
+
+    assert cli.main(["release", str(root), str(template),
+                     "--output-dir", str(out)]) == 1
+    assert {p.name: p.stat().st_mtime_ns for p in root.iterdir()} == before
+    assert f"Im Ausgabeordner gibt es schon {root.name}" in \
+        capsys.readouterr().err
+
+
+def test_cli_missing_output_dir_is_an_error(tmp_path, capsys):
+    root = tmp_path / "rel"
+    root.mkdir()
+    template = tmp_path / "t.skl"
+    template.write_text("#Release\n")
+    assert cli.main(["release", str(root), str(template),
+                     "--output-dir", str(tmp_path / "fehlt")]) == 2
+    assert "Ausgabeordner gibt es nicht" in capsys.readouterr().err

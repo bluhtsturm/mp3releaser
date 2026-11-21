@@ -45,7 +45,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **884 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **907 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash
@@ -84,7 +84,7 @@ RELEASER_MOUNTS="eingang:/tmp/probe" \
 Oder im Container — dann zuerst die Ordner in `docker-compose.yml` anpassen:
 
 ```bash
-mkdir -p data/eingang data/archiv
+mkdir -p data/eingang data/ausgang data/archiv
 cp -r /pfad/zu/einem/release data/eingang/
 # optional: eigene Einstellungen, zum Beispiel die des AppImage
 cp ~/.config/mp3releaser/config.toml config/mp3releaser/config.toml
@@ -95,8 +95,16 @@ Sichtbar ist ausschließlich, was unter `volumes` steht. Die Einstellungen des
 Containers stehen in `config/mp3releaser/config.toml`; gelesen werden sie beim
 Start (`docker compose restart releaser` nach einer Änderung). Was in der
 Weboberfläche mit „Als Standard“ gespeichert wird – Vorlage, Gruppe, Ordner,
-Muster, Schreibweisen –, landet in einer eigenen Datei im Volume `settings`
-(`/settings/settings.toml`) und liegt über der `config.toml`.
+Muster, Schreibweisen, Ausgabeordner –, landet in einer eigenen Datei im
+Volume `settings` (`/settings/settings.toml`) und liegt über der
+`config.toml`.
+
+Der **Ausgabeordner** (Reiter „Namen“, Vorschlag `ausgang`) nimmt das fertige
+Release auf: „Release erstellen“ schiebt es zum Schluss aus dem Eingang
+dorthin. Er muss beschreibbar eingehängt sein; `docker-compose.yml` hängt
+`data/ausgang` dafür unter `/data/ausgang` ein. Eingang und Ausgang dürfen
+auf verschiedenen Laufwerken liegen – dann wird kopiert und erst danach im
+Eingang gelöscht.
 
 Pakete und Basisimage aktualisieren:
 

@@ -72,6 +72,7 @@ KNOWN_KEYS: dict[str, frozenset[str]] = {
     "build": frozenset({
         "audio_crc", "sfv_include", "sfv_comment", "clean", "catalog_no",
         "template", "m3u_windows_paths", "release_date_format",
+        "output_dir",
     }),
     # Nur die Desktop-Anwendung: wo die Auswahl beim Start steht
     "gui": frozenset({"start"}),
@@ -255,6 +256,7 @@ sfv_include = ["log"]
 clean = false
 catalog_no = false
 release_date_format = "%Y-%m-%d"   # leeres Releasedatum = heute; "" schaltet es ab
+# output_dir = "~/Musik/Fertig"    # "Release erstellen" schiebt das Release hierher
 
 [gui]
 start = "~/Musik/Eingang"      # Verzeichnis, das die Auswahl beim Start zeigt

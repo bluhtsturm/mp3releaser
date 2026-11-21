@@ -1256,3 +1256,106 @@ def test_produce_when_everything_is_already_in_place(release_dir, template_file)
     assert again is not None
     assert again[0].startswith("Tags: waren schon")
     assert again[1] == "Namen: passten bereits"
+
+
+# ============================================================= Ausgabeordner
+
+
+def state_with_output(release_dir: Path, writable: bool = True) -> AppState:
+    out = release_dir.parent.parent / "ausgang"
+    out.mkdir(exist_ok=True)
+    return AppState(source=MountedSource([Mount("eingang", release_dir.parent),
+                                          Mount("ausgang", out, writable)]),
+                    naming=NamingProfile(group="GRP"))
+
+
+@needs_ffmpeg
+def test_produce_moves_the_release_into_the_output(release_dir, template_file):
+    state = state_with_output(release_dir)
+    assert state.set_output("ausgang")
+    state.load_template(template_file)
+    state.navigate("eingang")
+    state.load("eingang/Artist-Album-2026-GRP")
+
+    done = state.produce()
+    assert done is not None, [m.text for m in state.messages]
+    assert done[-1] == "Verschoben nach: ausgang/der_artist-das_album-2026-GRP"
+    assert state.current_path == "ausgang/der_artist-das_album-2026-GRP"
+    assert state.root == state.output_dir() / "der_artist-das_album-2026-GRP"
+    assert sorted(p.suffix for p in state.root.iterdir()) == \
+        [".m3u", ".mp3", ".mp3", ".nfo", ".sfv"]
+    # Eingang ist leer, und die Auswahl links zeigt das auch
+    assert list(release_dir.parent.iterdir()) == []
+    assert state.entries == []
+    kinds = [entry.kind.value for entry in state.undo_entries()]
+    assert kinds[-3:] == ["tags", "rename", "move"]
+
+    # Zuruecknehmen: erst das Verschieben, dann die Umbenennung
+    assert state.undo_last()
+    assert (release_dir.parent / "der_artist-das_album-2026-GRP").is_dir()
+    assert state.undo_last()
+    assert release_dir.is_dir()
+
+
+@needs_ffmpeg
+def test_produce_touches_nothing_when_the_output_is_taken(release_dir,
+                                                          template_file):
+    state = state_with_output(release_dir)
+    state.set_output("ausgang")
+    (state.output_dir() / "der_artist-das_album-2026-GRP").mkdir()
+    state.load_template(template_file)
+    state.load("eingang/Artist-Album-2026-GRP")
+    before = sorted(p.name for p in release_dir.iterdir())
+
+    assert state.produce() is None
+    assert sorted(p.name for p in release_dir.iterdir()) == before
+    errors = [m.text for m in state.messages if m.level is Level.ERROR]
+    assert any("gibt es schon der_artist-das_album-2026-GRP" in t for t in errors)
+    assert state.undo_entries() == []
+
+
+@needs_ffmpeg
+def test_without_output_the_release_stays(release_dir, template_file):
+    state = state_with_output(release_dir)
+    state.load_template(template_file)
+    state.load("eingang/Artist-Album-2026-GRP")
+    done = state.produce()
+    assert not any(line.startswith("Verschoben") for line in done)
+    assert state.current_path.startswith("eingang/")
+
+
+def test_output_must_be_a_writable_mounted_folder(tmp_path):
+    (tmp_path / "eingang").mkdir()
+    (tmp_path / "archiv").mkdir()
+    state = AppState(source=MountedSource([
+        Mount("eingang", tmp_path / "eingang"),
+        Mount("archiv", tmp_path / "archiv", writable=False)]))
+    assert not state.set_output("archiv")
+    assert "nur lesend" in state.last_message.text
+    assert not state.set_output("eingang/fehlt")
+    assert "gibt es nicht" in state.last_message.text
+    assert not state.set_output("/etc")
+    assert state.output_path is None
+    assert not state.set_output("eingang/../../etc")
+    assert state.set_output("eingang/")
+    assert state.output_path == "eingang"
+    assert state.set_output("")
+    assert state.output_path is None
+
+
+def test_local_output_is_a_real_path(tmp_path):
+    state = AppState(source=LocalSource(tmp_path))
+    assert state.set_output(str(tmp_path))
+    assert state.output_dir() == tmp_path
+
+
+@needs_ffmpeg
+def test_release_already_in_the_output_is_not_reported_as_moved(release_dir,
+                                                                 template_file):
+    state = state_for(release_dir)
+    assert state.set_output("eingang")          # Ausgang = Eingang
+    state.load_template(template_file)
+    state.load("eingang/Artist-Album-2026-GRP")
+    done = state.produce()
+    assert done[-1] == "Ausgabeordner: Release lag schon dort"
+    assert [e.kind.value for e in state.undo_entries()][-1] == "rename"

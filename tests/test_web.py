@@ -872,3 +872,79 @@ def test_result_dialog_offers_ok_instead_of_cancel():
     produce = page.split('getElementById("produce").onclick', 1)[1] \
         .split("\n});\n", 1)[0]
     assert "showInfo(" in produce
+
+
+# ========================================================== Ausgabeordner
+
+
+def output_client(tree: Path, target: "Path | None" = None,
+                  config=None) -> TestClient:
+    from releaser.service import naming_from_config
+
+    (tree / "ausgang").mkdir(exist_ok=True)
+    (tree / "archiv").mkdir(exist_ok=True)
+    app = create_app(MountedSource([Mount("eingang", tree / "eingang"),
+                                    Mount("ausgang", tree / "ausgang"),
+                                    Mount("archiv", tree / "archiv", False)]),
+                     naming=naming_from_config(group="GRP"),
+                     templates_dir=tree / "vorlagen",
+                     config=config, settings_file=target)
+    return TestClient(app)
+
+
+@needs_ffmpeg
+def test_produce_moves_the_release_to_the_output_folder(tree):
+    client = output_client(tree)
+    client.post("/api/template", json={"name": "vorlage.skl"})
+    state = client.post("/api/pattern",
+                        json={"which": "output", "value": "ausgang"}).json()
+    assert state["names"]["output"] == "ausgang"
+    load_release(client)
+
+    state = client.post("/api/produce", json={}).json()
+    assert state["done"][-1] == \
+        "Verschoben nach: ausgang/Der_Artist-Das_Album-2026-GRP"
+    assert (tree / "ausgang" / "Der_Artist-Das_Album-2026-GRP").is_dir()
+    assert list((tree / "eingang").iterdir()) == []
+    # die Auswahl links zeigt den leeren Eingang, nicht das alte Release
+    assert state["entries"] == []
+    assert str(tree) not in str(state)
+
+
+def test_output_folder_must_be_writable_and_mounted(tree):
+    client = output_client(tree)
+    for value in ("archiv", "geheim", "/etc", "eingang/../../geheim"):
+        state = client.post("/api/pattern",
+                            json={"which": "output", "value": value}).json()
+        assert state["names"]["output"] == "", value
+        assert any(m["level"] == "error" for m in state["messages"]), value
+
+
+def test_output_here_takes_the_folder_shown_on_the_left(tree):
+    client = output_client(tree)
+    state = client.post("/api/pattern", json={"which": "output_here"}).json()
+    assert state["names"]["output"] == ""                # an der Wurzel
+    assert any("Erst links" in m["text"] for m in state["messages"])
+    client.post("/api/browse", json={"path": "ausgang"})
+    state = client.post("/api/pattern", json={"which": "output_here"}).json()
+    assert state["names"]["output"] == "ausgang"
+
+
+def test_saved_output_folder_is_the_real_path(tree, tmp_path):
+    """Gespeichert wird der echte Pfad - die Kommandozeile im selben
+    Container liest dieselbe Datei und kennt "ausgang" nicht. An den
+    Browser geht er trotzdem nicht."""
+    from releaser.config import load
+
+    target = tmp_path / "settings.toml"
+    client = output_client(tree, target)
+    client.post("/api/pattern", json={"which": "output", "value": "ausgang"})
+    saved = client.post("/api/settings", json={}).json()
+    assert "Ausgabeordner        ausgang" in saved["summary"]
+    assert str(tree) not in str(saved)
+    config = load(target)
+    assert config.build["output_dir"] == str((tree / "ausgang").resolve())
+
+    # Neustart mit der gespeicherten Datei: jede Sitzung hat ihn gleich
+    fresh = output_client(tree, target, load(target))
+    assert fresh.get("/api/state").json()["names"]["output"] == "ausgang"

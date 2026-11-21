@@ -52,7 +52,7 @@ from ...naming import NamingProfile, Scope, format_plan as format_rename_plan
 from ...runtime import as_dict as metrics_dict, collect as collect_metrics
 from ...service import BuildOptions
 from ...tagwriter import TagProfile, format_plan as format_tag_plan
-from ...uistate import AppState
+from ...uistate import AppState, Level
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "releaser_session"
@@ -80,8 +80,11 @@ class SessionStore:
                  limit: int = MAX_SESSIONS,
                  default_template: Optional[Path] = None,
                  build_options: Optional[BuildOptions] = None,
-                 start: Optional[str] = None):
+                 start: Optional[str] = None,
+                 output: Optional[str] = None):
         self.source = source
+        #: Ausgabeordner jeder neuen Sitzung - siehe AppState.set_output
+        self.output = output
         #: wird in jeder neuen Sitzung gleich geladen
         self.default_template = default_template
         #: der Ordner, den eine neue Sitzung zeigt (``None``: die Wurzel)
@@ -131,6 +134,10 @@ class SessionStore:
             if self.default_template is not None:
                 state.load_template(self.default_template)
                 state.clear_messages()
+            if self.output:
+                # Leise, solange es klappt - ein fehlender Ausgabeordner
+                # (Volume nicht eingehaengt) soll aber auffallen
+                state.set_output(self.output, announce=False)
             state.show_start()
             self._sessions[key] = Session(state)
             self._expire()
@@ -153,6 +160,7 @@ class SessionStore:
             if state.template_path is not None:
                 self.default_template = state.template_path
             self.start = state.listed_path
+            self.output = state.output_path
 
 
 # --------------------------------------------------------- Einstellungsdatei
@@ -201,7 +209,7 @@ def resolve_template(value: Optional[str],
 
 def save_settings(state: AppState, target: Path,
                   templates: Optional[Path]) -> Path:
-    """Schreibt Vorlage, Gruppe, Ordner, Muster und Schreibweisen.
+    """Schreibt Vorlage, Gruppe, Ordner, Muster, Schreibweisen, Ausgabeordner.
 
     Was sonst in der Datei steht, bleibt erhalten. Die Konfiguration darunter
     wird nicht angefasst - sie ist im Container ohnehin nur lesbar.
@@ -215,6 +223,13 @@ def save_settings(state: AppState, target: Path,
     if state.template_path is not None:
         config.build["template"] = template_value(state.template_path,
                                                   templates)
+    # Der echte Pfad, nicht der der Auswahl: Die Kommandozeile im selben
+    # Container liest dieselbe Datei und kennt "ausgang/..." nicht.
+    output = state.output_dir()
+    if output is not None:
+        config.build["output_dir"] = str(output)
+    else:
+        config.build.pop("output_dir", None)
     config.web = dict(config.web)
     if state.listed_path:
         config.web["start"] = state.listed_path
@@ -234,6 +249,7 @@ def settings_summary(state: AppState) -> str:
         f"{state.template_path.name if state.template_path else '(keine)'}",
         f"Gruppe               {naming.group or '(keine)'}",
         f"Ordner beim Start    {state.listed_path or '(Wurzel)'}",
+        f"Ausgabeordner        {state.output_path or '(keiner)'}",
         f"Verzeichnismuster    {naming.dir_pattern}",
         f"Dateimuster          {naming.file_pattern}",
         f"Schreibweise Ordner  {CASE_LABELS[_case(naming, Scope.DIRECTORY)]}",
@@ -308,6 +324,7 @@ def state_json(state: AppState) -> dict:
             "case_dir": _case(state.naming, Scope.DIRECTORY),
             "case_file": _case(state.naming, Scope.FILENAME),
             "companion_prefix": state.naming.companion_prefix,
+            "output": state.output_path or "",
             "directory": preview["directory"],
             "files": preview["files"],
             # je Datei bearbeitbar - ohne Begrenzung, sonst liessen sich
@@ -369,7 +386,9 @@ def create_app(source: Optional[MountedSource] = None,
                          tags or TagProfile(), default_template=preloaded,
                          build_options=build_options,
                          start=(config.get("web", "start")
-                                if config is not None else None))
+                                if config is not None else None),
+                         output=(config.get("build", "output_dir")
+                                 if config is not None else None))
 
     app = FastAPI(title="mp3releaser", docs_url="/api/docs")
     app.state.store = store
@@ -564,6 +583,15 @@ def create_app(source: Optional[MountedSource] = None,
             state.set_literal_dirname(value)
         elif which == "companion_prefix":
             state.set_companion_prefix(value, include_all=True)
+        elif which == "output":
+            state.set_output(value)
+        elif which == "output_here":
+            # der Ordner, den die Auswahl links gerade zeigt
+            if state.listed_path:
+                state.set_output(state.listed_path)
+            else:
+                state.say("Erst links einen Ordner öffnen, dann „hier“ "
+                          "wählen.", Level.WARNING)
         else:
             state.set_pattern(which, value)
         return answer(response, state)
