@@ -1,3 +1,45 @@
+# Änderungen – 0.27.3: abgelehnte Eingaben bleiben nicht im Feld stehen
+
+Stand: 21.11.2026 · Version 0.27.2 → **0.27.3**
+
+Der Ausgabeordner im Container durchgespielt – mit dem echten Image aus
+`main` (0.27.2), gestartet wie in `docker-compose.yml`: Benutzer 1000, ohne
+Capabilities, Eingang und Ausgang als getrennte Volumes, `archiv` nur
+lesend, Einstellungen im eigenen Volume.
+
+| Schritt | Ergebnis |
+|---|---|
+| Vorschläge für den Ausgabeordner | `eingang`, `ausgang` – `archiv` (nur lesend) nicht |
+| `archiv` eintragen | abgelehnt: „nur lesend eingehängt“ – **aber das Feld zeigte weiter „archiv“** |
+| `ausgang` eintragen, „Als Standard“ | übernommen und gespeichert |
+| „Release erstellen“ | Tags, Umbenennen, NFO/SFV/M3U, Cover, dann über die Volume-Grenze nach `ausgang/` verschoben; Eingang leer |
+| SFV danach (`releaser verify` im Container) | 3 ok |
+| `↶` | „1 Verschiebung(en) in den Ausgabeordner“ – Release wieder im Eingang |
+| Container neu gestartet, neue Sitzung | Ausgabeordner steht auf `ausgang` |
+| Protokoll des Dienstes | keine Fehler |
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 924 | 925 |
+| `pyflakes` | sauber | sauber |
+
+## Änderung
+
+Nach Enter bleibt der Cursor im Feld, und die Seite lässt Felder mit Cursor
+beim Neuzeichnen in Ruhe – sonst ginge Getipptes verloren. Ein abgelehnter
+Wert blieb dadurch stehen. Jetzt setzt jedes Feld im Reiter „Namen“ nach dem
+Abschicken den Wert, den der Dienst übernommen hat: ein abgelehnter
+Ausgabeordner weicht dem eingestellten, `ausgang/` wird zu `ausgang`, ein
+bereinigter Verzeichnisname erscheint bereinigt. Im neu gebauten Container
+nachgeprüft.
+
+## Neue Tests
+
+* `tests/test_web.py`: jedes Feld des Reiters „Namen“ übernimmt nach dem
+  Abschicken den Wert des Dienstes
+
+---
+
 # Änderungen – 0.27.2: Knopf zur Wurzel, Version in der Kopfzeile
 
 Stand: 21.11.2026 · Version 0.27.1 → **0.27.2**

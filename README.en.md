@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.27.2 as an example:
+is `SHA256SUMS` with the checksum. Using 0.27.3 as an example:
 
 ```bash
-chmod +x mp3releaser-0.27.2-x86_64.AppImage
-./mp3releaser-0.27.2-x86_64.AppImage              # graphical interface
-./mp3releaser-0.27.2-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.27.3-x86_64.AppImage
+./mp3releaser-0.27.3-x86_64.AppImage              # graphical interface
+./mp3releaser-0.27.3-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 924 tests
+python3 -m pytest tests -q          # 925 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -1423,7 +1423,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 924 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 925 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1847,6 +1847,11 @@ that fails against the old state:
   code, and the interface showed its version nowhere. 0.27.2 shows it in the
   header, adds "⌂ Wurzel" and also compares on returning to the tab. The
   instructions now say `git pull`.
+* **Output folder walked through in the container** (0.27.3): real image from
+  `main`, inbox and output as separate volumes, `archiv` read-only. Moving,
+  the SFV afterwards, undo and the saved setting across a restart worked.
+  Found: a rejected output folder ("archiv") stayed in its field as if it
+  were set — now every field shows what the service accepted after Enter.
 
 ### What is open
 
