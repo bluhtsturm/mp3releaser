@@ -312,13 +312,8 @@ def settings_summary(state: AppState) -> str:
     ])
 
 
-#: Schreibweisen, wie die Oberfläche sie anbietet
-CASE_LABELS = {
-    "unchanged": "wie eingegeben",
-    "lower": "klein",
-    "upper": "GROSS",
-    "capitalize": "Wörter Groß",
-}
+#: Schreibweisen, wie die Oberfläche sie anbietet - dieselben wie im Desktop
+from ...text import CHARCASE_LABELS as CASE_LABELS  # noqa: E402
 
 
 def _case(naming: NamingProfile, scope: Scope) -> str:

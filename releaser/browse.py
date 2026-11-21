@@ -156,16 +156,19 @@ class Source:
 
     def _entry(self, path: Path) -> Entry:
         virtual = self.to_virtual(path)
+        # Path("/").name ist leer - die oberste Ebene des Desktops zeigte das
+        # Wurzelverzeichnis deshalb ohne Namen
+        name = path.name or str(path)
         if path.is_dir():
             audio = count_audio(path)
             return Entry(
-                name=path.name,
+                name=name,
                 path=virtual,
                 kind=Kind.RELEASE if audio else Kind.DIRECTORY,
                 audio_files=audio,
                 has_children=_has_children(path),
             )
-        return Entry(name=path.name, path=virtual, kind=classify_file(path),
+        return Entry(name=name, path=virtual, kind=classify_file(path),
                      size=path.stat().st_size)
 
     def releases(self, virtual: str) -> list[Entry]:

@@ -843,3 +843,33 @@ def test_cue_with_a_windows_path_is_applied(tmp_path):
         SHORT_CUE.replace('FILE "mix.flac"', 'FILE "C:\\Rips\\mix.flac"'),
         encoding="utf-8")
     assert scan_directory(root).release.total_tracks == 3
+
+
+@needs_ffmpeg
+def test_cue_date_fills_a_missing_year(tmp_path):
+    """Aus dem Test des AppImage: Ein ungetaggtes Image bekam das Jahr nicht
+    aus REM DATE - Verzeichnisname und .nfo blieben ohne Jahr. Und die
+    Hinweise zum Image selbst ("keine Tracknummer") standen weiter da,
+    obwohl das CUE die Trackliste liefert."""
+    from releaser.audio import scan_directory
+    from releaser.provenance import Origin
+
+    root = tmp_path / "rel"
+    encode(root / "mix.flac", "-c:a", "flac", duration="12")
+    (root / "mix.cue").write_text(SHORT_CUE, encoding="utf-8")
+    result = scan_directory(root)
+    assert result.release.year == 2026
+    assert result.origins.get("year") is Origin.CUE
+    assert not any("keine Tracknummer" in w or "Titel aus dem Dateinamen" in w
+                   for w in result.warnings), result.warnings
+
+
+@needs_ffmpeg
+def test_cue_date_does_not_override_a_tagged_year(tmp_path):
+    from releaser.audio import scan_directory
+
+    root = tmp_path / "rel"
+    encode(root / "mix.flac", "-c:a", "flac", "-metadata", "date=1999",
+           duration="12")
+    (root / "mix.cue").write_text(SHORT_CUE, encoding="utf-8")
+    assert scan_directory(root).release.year == 1999

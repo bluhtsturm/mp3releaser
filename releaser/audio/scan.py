@@ -216,6 +216,18 @@ def _apply_cue_sheets(root: Path, release: Release, infos: list[AudioInfo],
         if sheet.genre and not release.genre:
             release.genre = sheet.genre
             origins.set("genre", Origin.CUE)
+        # REM DATE - ohne das fehlte bei einem ungetaggten Image das Jahr im
+        # Verzeichnisnamen und in der .nfo
+        year = sheet.date[:4]
+        if year.isdigit() and not release.year:
+            release.year = int(year)
+            disc.year = disc.year or release.year
+            origins.set("year", Origin.CUE)
+        # Was das Einlesen zum Image selbst angemerkt hat (keine Nummer, Titel
+        # aus dem Dateinamen), ist durch die Trackliste des CUE ueberholt
+        stale = (f"{info.path.name}: keine Tracknummer",
+                 f"{info.path.name}: Titel aus dem Dateinamen")
+        warnings[:] = [w for w in warnings if not w.startswith(stale)]
 
 
 def _cue_basename(name: str) -> str:

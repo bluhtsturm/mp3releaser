@@ -26,6 +26,15 @@ _ASCII_MAP = {
 }
 
 
+#: Schreibweisen, wie die Oberflächen sie anbieten - Web und Desktop gleich
+CHARCASE_LABELS: dict[str, str] = {
+    "unchanged": "wie eingegeben",
+    "lower": "klein",
+    "upper": "GROSS",
+    "capitalize": "Wörter Groß",
+}
+
+
 class CharCase(Enum):
     """Schreibweisen-Regel. Im Original getrennt fuer Dir / Tags / NFO."""
 

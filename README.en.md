@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.27.3 as an example:
+is `SHA256SUMS` with the checksum. Using 0.27.4 as an example:
 
 ```bash
-chmod +x mp3releaser-0.27.3-x86_64.AppImage
-./mp3releaser-0.27.3-x86_64.AppImage              # graphical interface
-./mp3releaser-0.27.3-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.27.4-x86_64.AppImage
+./mp3releaser-0.27.4-x86_64.AppImage              # graphical interface
+./mp3releaser-0.27.4-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 925 tests
+python3 -m pytest tests -q          # 929 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -612,7 +612,9 @@ name** — the CUE refers to it with `FILE`; renamed after the first track, it
 no longer matched and was ignored on the next scan. And it only gets **album
 fields** as tags (album, artist, year, genre, comment) — before, the title and
 number of the *last* track ended up in it. A `FILE` with a Windows path
-(`C:\Rips\mix.flac`) is recognised.
+(`C:\Rips\mix.flac`) is recognised. Since 0.27.4 `REM DATE` provides the year
+when the image carries none — before, it was missing from the folder name and
+the `.nfo`.
 
 ## Dupe check
 
@@ -1423,7 +1425,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 925 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 929 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1852,6 +1854,14 @@ that fails against the old state:
   the SFV afterwards, undo and the saved setting across a restart worked.
   Found: a rejected output folder ("archiv") stayed in its field as if it
   were set — now every field shows what the service accepted after Enter.
+* **AppImage walked through** (0.27.4): command line without Python on the path
+  and the interface on a fresh Ubuntu 24.04 with GTK 4.14, operated by mouse —
+  loading, collision in the output folder, making a release across a file
+  system boundary, undo, "⌂", folder chooser. Found: a CUE image without a year
+  tag did not get the year from `REM DATE`; on the desktop `/` had no name at
+  the top level, "Erzeugt: …" stayed after undo, the window title named no
+  version, and the letter case read "capitalize" instead of the web's
+  "Wörter Groß".
 
 ### What is open
 

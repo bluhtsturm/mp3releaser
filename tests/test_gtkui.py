@@ -1379,3 +1379,50 @@ def test_one_button_makes_the_release(release_tree):
     target = release_tree / "eingang" / "der_artist-das_album-2026-GRP"
     assert sorted(p.suffix for p in target.iterdir()) == [
         ".m3u", ".mp3", ".mp3", ".nfo", ".sfv"]
+
+
+@needs_gtk
+@needs_ffmpeg
+def test_desktop_shows_version_labels_and_no_stale_companions(release_tree):
+    """Aus dem Test des AppImage: Der Fenstertitel nannte keine Fassung, die
+    Schreibweise stand als "capitalize" statt wie im Web als "Wörter Groß",
+    und nach dem Zuruecknehmen stand unter "Kein Release geladen" noch
+    "Erzeugt: …" des vorigen Releases."""
+    result = run_in_display(f"""
+        import sys; sys.path.insert(0, {str(ROOT)!r})
+        import gi; gi.require_version("Gtk", "4.0")
+        from gi.repository import Gio, Gtk
+        import releaser
+        from releaser.browse import Mount, MountedSource
+        from releaser.frontends.gtkui import ReleaserWindow
+        from releaser.naming import NamingProfile
+        from releaser.uistate import AppState
+
+        state = AppState(
+            source=MountedSource([Mount("eingang", {str(release_tree / 'eingang')!r})]),
+            naming=NamingProfile(group="GRP"))
+        app = Gtk.Application(application_id="de.test.labels",
+                              flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+        def activate(a):
+            window = ReleaserWindow(a, state)
+            print("TITLE", window.get_title() == f"mp3releaser {{releaser.__version__}}")
+            model = window.case_dropdowns["case_dir"].get_model()
+            print("LABELS", [model.get_string(i) for i in range(model.get_n_items())])
+            state.load("eingang/Artist-Album-2026-GRP")
+            window.refresh()
+            print("LOADED", bool(window.companions_label.get_text()))
+            state._unload()
+            window.refresh()
+            print("UNLOADED", repr(window.companions_label.get_text()))
+            a.quit()
+
+        app.connect("activate", activate)
+        raise SystemExit(app.run([]))
+    """)
+    assert result.returncode == 0, result.stderr
+    assert "TITLE True" in result.stdout
+    assert ("LABELS ['wie eingegeben', 'klein', 'GROSS', 'Wörter Groß']"
+            in result.stdout)
+    assert "LOADED True" in result.stdout
+    assert "UNLOADED ''" in result.stdout

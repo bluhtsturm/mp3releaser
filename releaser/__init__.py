@@ -61,7 +61,7 @@ from .runtime import Variant, collect_metrics, detect_variant
 from .service import BuildOptions, BuildOutcome, ScanOutcome
 from .config import Config, ConfigError, load_config
 
-__version__ = "0.27.3"
+__version__ = "0.27.4"
 
 __all__ = [
     "__version__",
