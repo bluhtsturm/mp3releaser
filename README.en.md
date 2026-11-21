@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.27.1 as an example:
+is `SHA256SUMS` with the checksum. Using 0.27.2 as an example:
 
 ```bash
-chmod +x mp3releaser-0.27.1-x86_64.AppImage
-./mp3releaser-0.27.1-x86_64.AppImage              # graphical interface
-./mp3releaser-0.27.1-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.27.2-x86_64.AppImage
+./mp3releaser-0.27.2-x86_64.AppImage              # graphical interface
+./mp3releaser-0.27.2-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 921 tests
+python3 -m pytest tests -q          # 924 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -949,9 +949,13 @@ session starts with — a name from `templates/`.
 The Python packages are not pinned to versions in the `Dockerfile`: every
 build fetches the current ones, and `pip` itself is upgraded first. Docker
 reuses cached layers when building, though, and only refreshes the base image
-`python:3.12-slim` when asked. To update:
+`python:3.12-slim` when asked. The image is also built from the local folder
+(`build: .`): a new version only gets in with `git pull` — a mere `git fetch`
+changes no file there. The web interface's header shows which version runs.
+To update:
 
 ```bash
+git pull
 docker compose build --pull --no-cache && docker compose up -d
 docker compose run --rm --entrypoint pip cli list --outdated   # should be empty
 ```
@@ -1399,6 +1403,13 @@ reopening it therefore first compares itself with the disk
 gone is forgotten. The path line and "↑ eine Ebene" follow the folder the
 list shows, not the loaded release.
 
+Since 0.27.2 **"⌂ Wurzel"** (web and desktop) leads from any folder straight to
+the top level. And the web interface also compares when you return to the
+tab — tidying up in the file manager meanwhile no longer needs a page reload.
+Browsing no longer changes which release is loaded: before, a release from a
+read-only mount counted as writable after a click on the roots, and "reload"
+read the folder shown instead.
+
 ## Guided mode
 
 `wizard` guides you through the four steps and shows what would happen before
@@ -1412,7 +1423,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 921 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 924 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1831,6 +1842,11 @@ that fails against the old state:
   0.27.1 compares with the disk on reopening and leads out of vanished
   folders to the nearest existing one (see
   [Folders that no longer exist](#folders-that-no-longer-exist)).
+* **Stuck anyway — and a button to the roots.** The rebuild ran from a
+  checkout only updated with `git fetch`; the container still held the old
+  code, and the interface showed its version nowhere. 0.27.2 shows it in the
+  header, adds "⌂ Wurzel" and also compares on returning to the tab. The
+  instructions now say `git pull`.
 
 ### What is open
 

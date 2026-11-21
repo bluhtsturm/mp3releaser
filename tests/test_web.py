@@ -992,3 +992,22 @@ def test_reopening_the_page_follows_what_happened_on_disk(client, tree):
     state = client.post("/api/browse", json={"path": None}).json()
     assert state["listed_path"] is None
     assert [e["name"] for e in state["entries"]] == ["eingang"]
+
+
+def test_info_names_the_running_version(client):
+    """Nach einem Neubau des Containers die erste Frage: welche Fassung
+    laeuft? Die Seite zeigt sie in der Kopfzeile."""
+    import releaser
+
+    assert client.get("/api/info").json()["version"] == releaser.__version__
+
+
+def test_page_has_a_root_button_and_refreshes_on_return():
+    from releaser.frontends.web.app import STATIC
+
+    page = (STATIC / "index.html").read_text(encoding="utf-8")
+    assert 'id="root"' in page
+    root = page.split('getElementById("root").onclick', 1)[1].split(";", 1)[0]
+    assert '"/api/browse", { path: null }' in root
+    assert '"visibilitychange"' in page and '"pageshow"' in page
+    assert 'id="version"' in page

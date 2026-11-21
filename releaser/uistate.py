@@ -187,7 +187,12 @@ class AppState:
     # ------------------------------------------------------------ Navigation
 
     def show_roots(self) -> list[Entry]:
-        self.current_path = None
+        # current_path gehoert dem eingelesenen Release, solange es eines
+        # gibt - daran haengen Schreibrecht und "Neu einlesen". Frueher
+        # setzte schon das Blaettern es um: Ein Release aus einem nur lesend
+        # eingehaengten Ordner galt dann als beschreibbar.
+        if self.release is None:
+            self.current_path = None
         self.listed_path = None
         self.selected_path = None
         self.entries = self.source.roots()
@@ -233,7 +238,9 @@ class AppState:
             return self.show_roots()
         try:
             self.entries = self.source.list(path)
-            self.current_path = self.listed_path = path
+            self.listed_path = path
+            if self.release is None:
+                self.current_path = path
             self.selected_path = None
         except AccessError as exc:
             ancestor = self._existing_ancestor(path)

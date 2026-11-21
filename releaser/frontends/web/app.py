@@ -473,7 +473,12 @@ def create_app(source: Optional[MountedSource] = None,
 
     @app.get("/api/info")
     def info():
+        from ... import __version__
+
         return {
+            # Nach einem Neubau des Containers die erste Frage: welche
+            # Fassung laeuft? Die Seite zeigt sie in der Kopfzeile.
+            "version": __version__,
             "mounts": describe(store.source),
             "sessions": len(store),
             "templates": ([p.name for p in sorted(templates.glob("*.skl"))]

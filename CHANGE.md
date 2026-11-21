@@ -1,3 +1,62 @@
+# Änderungen – 0.27.2: Knopf zur Wurzel, Version in der Kopfzeile
+
+Stand: 21.11.2026 · Version 0.27.1 → **0.27.2**
+
+Rückmeldung nach dem Neubau des Containers: Die Auswahl blieb weiter im
+gelöschten Ordner stehen; gewünscht ist ein Knopf, der direkt zur obersten
+Ebene führt.
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 921 | 924 |
+| Ergebnis hier (ohne GTK/WebKitGTK, Python 3.12) | 890 grün, 31 übersprungen | 893 grün, 31 übersprungen |
+| Prüfungen im echten Browser (`tools/webcheck.py`) | 23 | 24 |
+| `pyflakes` | sauber | sauber |
+
+## 1. Warum 0.27.1 nicht ankam
+
+`docker-compose.yml` baut aus dem lokalen Ordner (`build: .`). Nach dem
+Release war der Ordner nur per `git fetch` aktualisiert worden – so stand es
+in der Anleitung zum Taggen –, die Dateien darin waren also noch die alten.
+Der Neubau brachte deshalb nicht 0.27.1 in den Container. Erkennen ließ sich
+das nicht: Die Oberfläche zeigte ihre Fassung nirgends.
+
+## 2. Änderungen
+
+* **„⌂ Wurzel“** neben „↑ eine Ebene“ – im Web und im Desktop (Haus-Symbol).
+  Führt aus jedem Ordner direkt zur obersten Ebene, auch aus einem, den es
+  nicht mehr gibt.
+* **Version in der Kopfzeile** der Weboberfläche (`/api/info` liefert sie).
+* **Abgleich beim Zurückkehren in den Tab:** Wer nebenher im Dateimanager
+  aufräumt, bekommt beim Wechsel zurück die aktuelle Liste (über
+  `visibilitychange`; dazu `pageshow`, falls der Browser die Seite aus
+  seinem Zwischenspeicher zurückholt).
+* **Blättern ändert das eingelesene Release nicht mehr.** `navigate` und
+  `show_roots` setzten auch bei eingelesenem Release dessen Pfad
+  (`current_path`) um. Daran hängen Schreibrecht und „Neu einlesen“: Ein
+  Release aus einem nur lesend eingehängten Ordner galt nach einem Klick auf
+  die Wurzel als beschreibbar, und „Neu einlesen“ las den angezeigten
+  Ordner. Aufgefallen beim Einbau des Wurzel-Knopfs, der genau diesen Weg
+  häufiger macht.
+* **Anleitung:** EINRICHTUNG.md und README nennen `git pull` vor dem
+  Neubau des Containers.
+* Im Browser nachgeprüft (Chromium): Version in der Kopfzeile; im
+  Release-Ordner stehen, Ordner nebenher löschen, zurück in den Tab – die
+  Liste zeigt den Eingang mit Hinweis; „⌂ Wurzel“ führt zur obersten Ebene.
+  Keine JavaScript-Fehler.
+
+## 3. Neue Tests
+
+* `tests/test_uistate.py`: Blättern lässt das eingelesene Release, sein
+  Schreibrecht und „Neu einlesen“ unberührt
+* `tests/test_web.py`: Version in `/api/info`; Wurzel-Knopf und Abgleich
+  beim Zurückkehren in der Seite
+* `tools/webcheck.py`: Schritt „⌂ Wurzel“ (24 Prüfungen)
+
+Gegen 0.27.1 laufen gelassen, schlagen alle drei neuen Tests fehl.
+
+---
+
 # Änderungen – 0.27.1: Verzeichnisbaum nach verschwundenen Ordnern
 
 Stand: 21.11.2026 · Version 0.27.0 → **0.27.1**

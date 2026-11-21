@@ -455,7 +455,13 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                           margin_start=6, margin_end=6)
 
             top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=6)
+            # Direkt zur obersten Ebene - wie im Web
+            home = Gtk.Button(icon_name="go-home-symbolic")
+            home.set_tooltip_text("Zurück zur obersten Ebene")
+            home.connect("clicked", lambda *_: self.state.show_roots())
+            top.append(home)
             up = Gtk.Button(icon_name="go-up-symbolic")
+            up.set_tooltip_text("Eine Ebene nach oben")
             up.connect("clicked", lambda *_: self.state.go_up())
             top.append(up)
             self.path_label = Gtk.Label(xalign=0.0, hexpand=True,

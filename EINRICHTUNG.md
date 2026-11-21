@@ -45,7 +45,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **921 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **924 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash
@@ -105,6 +105,18 @@ dorthin. Er muss beschreibbar eingehängt sein; `docker-compose.yml` hängt
 `data/ausgang` dafür unter `/data/ausgang` ein. Eingang und Ausgang dürfen
 auf verschiedenen Laufwerken liegen – dann wird kopiert und erst danach im
 Eingang gelöscht.
+
+**Neue Fassung in den Container:** Gebaut wird aus diesem Ordner
+(`build: .`), nicht aus GitHub. Erst den Stand holen, dann bauen – ein
+bloßes `git fetch` ändert die Dateien hier nicht, und der Container liefe
+weiter mit dem alten Code:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+Welche Fassung läuft, steht in der Weboberfläche oben links neben dem Namen.
 
 Pakete und Basisimage aktualisieren:
 
