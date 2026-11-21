@@ -294,3 +294,13 @@ def test_listing_a_file_is_reported(tree):
     with pytest.raises(AccessError) as error:
         source.list("eingang/Artist-Album-2026-GRP/00-artist-album.nfo")
     assert "kein Verzeichnis" in str(error.value)
+
+
+def test_local_roots_name_the_root_directory():
+    """Path("/").name ist leer - die oberste Ebene des Desktops zeigte das
+    Wurzelverzeichnis ohne Namen."""
+    from releaser.browse import LocalSource
+
+    names = {entry.path: entry.name for entry in LocalSource().roots()}
+    assert names["/"] == "/"
+    assert all(names.values())

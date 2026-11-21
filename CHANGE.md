@@ -1,3 +1,61 @@
+# Änderungen – 0.27.4: aus dem Test des AppImage
+
+Stand: 21.11.2026 · Version 0.27.3 → **0.27.4**
+
+Das veröffentlichte AppImage 0.27.3 durchgespielt: die Kommandozeile in einer
+Umgebung ohne Python im Pfad, die Oberfläche auf einem frischen Ubuntu 24.04
+mit GTK 4.14 (virtueller Bildschirm), per Maus bedient. Eingang auf ext4,
+Ausgang auf tmpfs.
+
+| Ablauf | Ergebnis |
+|---|---|
+| `--version`, `--help`, `metrics` | 0.27.3, alle Kommandos, Start in 290 ms |
+| MP3 ohne Tags (`scan`) | Titel „Intro“, „Outro Teil 2“ – aus dem Dateinamen |
+| `release --output-dir` über die Dateisystemgrenze | verschoben, SFV 3 ok, `check` ohne Beanstandung |
+| `undo --list` / `--apply` | Verschieben, Umbenennen, Taggen einzeln; zurück über die Grenze |
+| CUE-Image mit `FILE "C:\Rips\mix.flac"` | Name bleibt, nur Albumfelder, 3 Tracks nach erneutem Einlesen – **aber ohne Jahr** |
+| `output_dir` in der Konfiguration | `release` verschiebt, `build` nicht |
+| Ziel im Ausgang belegt / Ausgang fehlt | nichts geändert / klare Fehlermeldung |
+| Oberfläche: Start per Doppelklick-Aufruf | Startverzeichnis aus der Konfiguration, ⌂ und ↑ da |
+| Oberfläche: Kollision, Erstellen, ↶, ⌂, „Wählen …“ | wie erwartet; Liste links folgt; keine Fehler im Protokoll |
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 925 | 929 |
+| Ergebnis hier (Python 3.13, ohne GTK) | 894 grün, 31 übersprungen | 897 grün, 32 übersprungen |
+| Desktop-Tests mit echtem GTK 4.14 (Python 3.12) | – | 53 grün |
+| `pyflakes` | sauber | sauber |
+
+## Funde und Behebung
+
+* **CUE-Image ohne Jahr:** `REM DATE` wurde nicht ausgewertet. Trägt das
+  Image keinen Jahres-Tag, fehlte das Jahr im Verzeichnisnamen
+  (`Mix_Artist-Der_Mix-FLAC-GRP`) und in der `.nfo`. Jetzt füllt das CUE ein
+  fehlendes Jahr (Herkunft „aus dem CUE“); ein getaggtes Jahr bleibt. Dazu
+  verschwinden die überholten Hinweise zum Image selbst („keine
+  Tracknummer“, „Titel aus dem Dateinamen“) – die Trackliste kommt ja aus
+  dem CUE.
+* **Desktop, oberste Ebene:** `/` stand ohne Namen da (`Path("/").name` ist
+  leer).
+* **Desktop, Reiter „Namen“:** Nach dem Zurücknehmen stand unter „Kein
+  Release geladen“ noch „Erzeugt: …“ des vorigen Releases.
+* **Desktop, Fenstertitel:** nennt jetzt die Fassung, wie die Kopfzeile im
+  Web.
+* **Desktop, Schreibweise:** zeigte „capitalize“/„lower“; jetzt dieselben
+  Bezeichnungen wie im Web („Wörter Groß“, „klein“ …), an einer Stelle
+  festgelegt (`text.CHARCASE_LABELS`).
+
+## Neue Tests
+
+* `tests/test_extras.py`: Jahr aus `REM DATE`, getaggtes Jahr bleibt
+* `tests/test_browse.py`: `/` hat in der obersten Ebene einen Namen
+* `tests/test_gtkui.py`: Fenstertitel mit Fassung, Bezeichnungen der
+  Schreibweise, keine veraltete „Erzeugt“-Zeile
+
+Gegen 0.27.3 laufen gelassen, schlagen die drei Tests zu den Funden fehl.
+
+---
+
 # Änderungen – 0.27.3: abgelehnte Eingaben bleiben nicht im Feld stehen
 
 Stand: 21.11.2026 · Version 0.27.2 → **0.27.3**

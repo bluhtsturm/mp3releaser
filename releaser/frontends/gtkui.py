@@ -31,7 +31,7 @@ from typing import Optional
 from ..browse import Entry, Kind, LocalSource
 from ..fields import FieldView
 from ..naming import NamingProfile, Scope, format_plan as format_rename_plan
-from ..text import CharCase
+from ..text import CHARCASE_LABELS, CharCase
 from ..tagwriter import format_plan as format_tag_plan
 from ..uistate import Action, AppState, Level
 
@@ -344,7 +344,11 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
 
     class ReleaserWindow(Gtk.ApplicationWindow):
         def __init__(self, application: Gtk.Application, state: AppState):
-            super().__init__(application=application, title="mp3releaser",
+            from .. import __version__
+
+            # Mit Fassung, wie die Kopfzeile im Web
+            super().__init__(application=application,
+                             title=f"mp3releaser {__version__}",
                              default_width=1100, default_height=720)
             self.state = state
             self.state.on_change = self.refresh
@@ -559,7 +563,10 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             for offset, (key, label, scope) in enumerate(
                     (("case_dir", "Schreibweise Verzeichnis", Scope.DIRECTORY),
                      ("case_file", "Schreibweise Dateien", Scope.FILENAME))):
-                dropdown = Gtk.DropDown.new_from_strings(CASE_NAMES)
+                # Angezeigt die Bezeichnungen wie im Web ("Wörter Groß"),
+                # ausgewertet ueber die Position in CASE_NAMES
+                dropdown = Gtk.DropDown.new_from_strings(
+                    [CHARCASE_LABELS[name] for name in CASE_NAMES])
                 # Aus dem Zustand ablesen statt festzulegen - sonst zeigt die
                 # Auswahl etwas anderes an, als tatsaechlich gilt.
                 current = self.state.naming.charcase.get(
@@ -682,6 +689,9 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 self.dirname_entry.set_text("")
                 self.dir_line.set_text("Kein Release geladen.")
                 self.collisions_label.set_text("")
+                # Sonst stand nach dem Zuruecknehmen noch "Erzeugt: …" des
+                # vorigen Releases da
+                self.companions_label.set_text("")
                 self._refresh_file_rows([])
                 return
 
