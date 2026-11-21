@@ -1191,6 +1191,8 @@ def test_summary_names_everything_that_was_saved(tmp_path):
     for part in (str(tmp_path / "c.toml"), "GRP", str(tmp_path),
                  "standard.skl", "capitalize", "lower", "„00-“"):
         assert part in text, part
+    # wie im Auswahlfeld, dahinter der Wert der Konfigurationsdatei
+    assert "Wörter Groß (capitalize)" in text and "klein (lower)" in text
 
 
 @needs_gtk

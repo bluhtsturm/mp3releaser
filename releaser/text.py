@@ -105,6 +105,33 @@ def to_ascii(value: str) -> str:
     return "".join(c for c in decomposed if ord(c) < 128)
 
 
+def fit_codepage(value: str, codepage: str = NFO_CODEPAGE) -> str:
+    """Ersetzt, was die Codepage nicht kennt - als Text, Zeichen für Zeichen.
+
+    Gedacht für den Renderer, *bevor* Werte in ihre Spalten gesetzt werden:
+    Aus "™" wird "TM", zwei Zeichen statt einem. Geschah das erst beim
+    Schreiben der Datei, war die Zeile danach eine Spalte zu breit und der
+    rechte Rahmen sprang aus der Reihe - und die Vorschau zeigte etwas
+    anderes als die Datei.
+    """
+    # NFC vorab: Namen aus macOS kommen zerlegt ("a" + Trema). Zeichenweise
+    # behandelt bliebe sonst nur "a" uebrig, obwohl CP437 ein "ä" hat.
+    value = unicodedata.normalize("NFC", value)
+    try:
+        value.encode(codepage)
+        return value
+    except (UnicodeEncodeError, LookupError):
+        pass
+    out: list[str] = []
+    for char in value:
+        try:
+            char.encode(codepage)
+            out.append(char)
+        except UnicodeEncodeError:
+            out.append(to_ascii(char) or "?")
+    return "".join(out)
+
+
 def to_codepage(value: str, codepage: str = NFO_CODEPAGE) -> bytes:
     """Kodiert nach CP437 und faellt fuer nicht abbildbare Zeichen auf ASCII zurueck.
 
@@ -113,20 +140,7 @@ def to_codepage(value: str, codepage: str = NFO_CODEPAGE) -> bytes:
     Vorlage (``█▓▒░╔═╗``) mitreissen - frueher lief bei einem Fehler die
     komplette NFO durch :func:`to_ascii` und verlor jedes Zeichen ueber 127.
     """
-    # NFC vorab: Namen aus macOS kommen zerlegt ("a" + Trema). Zeichenweise
-    # behandelt bliebe sonst nur "a" uebrig, obwohl CP437 ein "ä" hat.
-    value = unicodedata.normalize("NFC", value)
-    try:
-        return value.encode(codepage)
-    except UnicodeEncodeError:
-        pass
-    out = bytearray()
-    for char in value:
-        try:
-            out += char.encode(codepage)
-        except UnicodeEncodeError:
-            out += to_ascii(char).encode(codepage, errors="replace") or b"?"
-    return bytes(out)
+    return fit_codepage(value, codepage).encode(codepage, errors="replace")
 
 
 def read_template(path: str | Path, codepage: str = NFO_CODEPAGE) -> str:

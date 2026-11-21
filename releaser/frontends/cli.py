@@ -136,7 +136,7 @@ def cmd_nfo(args: argparse.Namespace) -> int:
         _print_warnings(result.warnings)
 
     tpl = Template.from_file(args.template, codepage=args.codepage)
-    text = tpl.render(result.release, Settings())
+    text = tpl.render(result.release, Settings(codepage=args.codepage))
     if args.out:
         write_nfo(args.out, text, codepage=args.codepage)
         print(f"geschrieben: {args.out} ({args.codepage})", file=sys.stderr)
@@ -752,7 +752,9 @@ def cmd_config(args: argparse.Namespace) -> int:
 
 def cmd_render(args: argparse.Namespace) -> int:
     payload = json.loads(Path(args.release).read_text(encoding="utf-8"))
-    settings = settings_from_dict(payload.pop("settings", {}))
+    settings_data = payload.pop("settings", {})
+    settings_data.setdefault("codepage", args.codepage)
+    settings = settings_from_dict(settings_data)
     release = release_from_dict(payload)
 
     tpl = Template.from_file(args.template, codepage=args.codepage)

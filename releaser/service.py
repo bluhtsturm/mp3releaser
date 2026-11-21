@@ -460,7 +460,8 @@ def build(release: Release, root: str | Path, options: BuildOptions,
             raise ValueError("für die .nfo wird eine Vorlage gebraucht")
         template = Template.from_file(options.template, codepage=options.codepage)
         target = root / companion_name(release, ".nfo", naming)
-        write_nfo(target, template.render(release, Settings()),
+        write_nfo(target,
+                  template.render(release, Settings(codepage=options.codepage)),
                   codepage=options.codepage)
         outcome.created.append(target)
 

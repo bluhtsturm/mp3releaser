@@ -632,7 +632,9 @@ class AppState:
                     "Ohne .skl-Vorlage gibt es keine .nfo - nur .sfv und .m3u.")
         if self.release is None:
             return "Kein Release geladen."
-        return self.template.render(self.release, Settings())
+        # Mit der Codepage der Datei - die Vorschau zeigt, was geschrieben wird
+        return self.template.render(
+            self.release, Settings(codepage=self.build_options.codepage))
 
     def truncated_tracks(self) -> list[str]:
         """Tracktitel, die in der .nfo abgeschnitten würden.
@@ -651,7 +653,10 @@ class AppState:
 
         cut: list[str] = []
         for track in self.release.tracks:
-            title = compose_track_title(track, Settings())
+            from .text import fit_codepage
+
+            title = fit_codepage(compose_track_title(track, Settings()),
+                                 self.build_options.codepage)
             if len(title) > width:
                 cut.append(title)
         return cut

@@ -297,3 +297,36 @@ def test_decomposed_umlaut_stays_an_umlaut():
     from releaser.text import to_codepage
 
     assert to_codepage("ä ™").decode("cp437") == "ä TM"
+
+
+def test_expanding_replacements_keep_the_frame_aligned(tmp_path):
+    """Aus dem Test des AppImage 0.27.4: "™" wurde erst beim Schreiben zu
+    "TM" - die Zeile war danach eine Spalte zu breit, der rechte Rahmen
+    sprang aus der Reihe. Und die Vorschau zeigte "™", die Datei "TM"."""
+    from releaser.text import read_template, write_nfo
+
+    skl = Path(__file__).resolve().parent.parent / "templates" / "standard.skl"
+    template = Template.parse(read_template(skl))
+    release = make_release(discs=[Disc(1, tracks=[
+        Track(1, "Don’t Stop – Live™", 60.0),
+        Track(2, "東京 … Nacht", 60.0),
+        Track(3, "Normal", 60.0)])])
+    text = template.render(release)
+    target = tmp_path / "out.nfo"
+    write_nfo(target, text)
+    written = target.read_bytes().decode("cp437").split("\r\n")
+    frame = {len(line) for line in written if line.startswith("║")}
+    assert len(frame) == 1, frame
+    # Was gerendert wird, ist schon das, was in der Datei steht
+    assert written == text.split("\n")
+    assert any("Don't Stop - LiveTM" in line for line in written)
+    assert any("?? ... Nacht" in line for line in written)
+
+
+def test_utf8_keeps_every_character():
+    from releaser.tags import Settings
+
+    template = Template.parse("#Trk                    |")
+    release = make_release(discs=[Disc(1, tracks=[Track(1, "Live™ 東京", 1.0)])])
+    out = template.render(release, Settings(codepage="utf-8"))
+    assert "Live™ 東京" in out
