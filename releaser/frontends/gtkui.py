@@ -1380,6 +1380,11 @@ def save_defaults(state: AppState, path: Optional[Path] = None) -> Path:
     return save(config, target)
 
 
+def _case_label(case: CharCase) -> str:
+    """Wie im Auswahlfeld, dahinter der Wert der Konfigurationsdatei."""
+    return f"{CHARCASE_LABELS[case.value]} ({case.value})"
+
+
 def defaults_summary(state: AppState, target: Path) -> str:
     """Was gespeichert wurde - fuer die Bestaetigung nach dem Speichern."""
     naming = state.naming
@@ -1394,9 +1399,9 @@ def defaults_summary(state: AppState, target: Path) -> str:
         f"Verzeichnismuster    {naming.dir_pattern}",
         f"Dateimuster          {naming.file_pattern}",
         "Schreibweise Ordner  "
-        + naming.charcase.get(Scope.DIRECTORY, CharCase.UNCHANGED).value,
+        + _case_label(naming.charcase.get(Scope.DIRECTORY, CharCase.UNCHANGED)),
         "Schreibweise Dateien "
-        + naming.charcase.get(Scope.FILENAME, CharCase.UNCHANGED).value,
+        + _case_label(naming.charcase.get(Scope.FILENAME, CharCase.UNCHANGED)),
         "Begleitdateien       "
         + (f"beginnen mit „{prefix}“" if prefix else "ohne Vorsilbe"),
         "",

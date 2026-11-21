@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.27.4 as an example:
+is `SHA256SUMS` with the checksum. Using 0.27.5 as an example:
 
 ```bash
-chmod +x mp3releaser-0.27.4-x86_64.AppImage
-./mp3releaser-0.27.4-x86_64.AppImage              # graphical interface
-./mp3releaser-0.27.4-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.27.5-x86_64.AppImage
+./mp3releaser-0.27.5-x86_64.AppImage              # graphical interface
+./mp3releaser-0.27.5-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 929 tests
+python3 -m pytest tests -q          # 931 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -1425,7 +1425,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 929 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 931 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1862,6 +1862,12 @@ that fails against the old state:
   the top level, "Erzeugt: …" stayed after undo, the window title named no
   version, and the letter case read "capitalize" instead of the web's
   "Wörter Groß".
+* **AppImage walked through further** (0.27.5): E-AC-3 5.1 in M4A and as a raw
+  stream, AAC, Ogg, Opus, guided mode, `web`, on the desktop fields, the NFO
+  tab, "Prüfen", "Als Standard". Found: a character CP437 lacks that becomes
+  several ("™" → "TM") was only replaced when writing — the line was one
+  column too wide, the frame jumped, and the preview differed from the file.
+  Now the renderer replaces before aligning.
 
 ### What is open
 

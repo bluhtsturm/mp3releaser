@@ -35,7 +35,7 @@ from .tags import (
     TagDef,
     apply_charcase,
 )
-from .text import read_template, to_ascii, wrap_value
+from .text import fit_codepage, read_template, to_ascii, wrap_value
 
 
 # =============================================================== Zeilen-Parsing
@@ -163,6 +163,8 @@ def render_line(pl: ParsedLine, ctx: Context) -> str:
         value = apply_charcase(f.tag.name, value, ctx.settings)
         if ctx.settings.ascii_conversion:
             value = to_ascii(value)
+        # Vor dem Ausrichten, nicht erst beim Schreiben: aus "™" wird "TM"
+        value = fit_codepage(value, ctx.settings.codepage)
         _place(buf, f, value)
     return "".join(buf)
 
@@ -205,7 +207,10 @@ class TrackBlock(Block):
                 out.append(render_line(self.cont, _with(ctx, track_text=_disc_header(disc, release))))
                 out.append(render_line(self.cont, _with(ctx, track_text="")))
             for track in disc.tracks:
-                title = compose_track_title(track, ctx.settings)
+                # Vor dem Umbrechen anpassen - sonst rechnete der Umbruch mit
+                # "™" und die Zeile wurde mit "TM" zu lang
+                title = fit_codepage(compose_track_title(track, ctx.settings),
+                                     ctx.settings.codepage)
                 if (ctx.settings.wrap_tracklist and self.cont is not None
                         and main_w and cont_w > 0):
                     # Erste Zeile so breit wie das Hauptfeld, der Rest so
@@ -250,7 +255,7 @@ class TextBlock(Block):
         # Umbruchreste der ersten Notiz landen schon in der Fortsetzungszeile
         # und muessen deshalb deren Breite haben.
         wrapped: list[str] = []
-        for line in raw_lines:
+        for line in (fit_codepage(l, ctx.settings.codepage) for l in raw_lines):
             if self.cont is None:
                 width, first = main_w, None
             else:

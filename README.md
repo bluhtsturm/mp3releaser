@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.4:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.5:
 
 ```bash
-chmod +x mp3releaser-0.27.4-x86_64.AppImage
-./mp3releaser-0.27.4-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.27.4-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.27.5-x86_64.AppImage
+./mp3releaser-0.27.5-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.27.5-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 929 Tests
+python3 -m pytest tests -q          # 931 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -1422,7 +1422,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-929 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+931 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1873,6 +1873,13 @@ gegen den alten Stand fehlschlägt:
   ohne Namen in der obersten Ebene, nach dem Zurücknehmen blieb „Erzeugt: …“
   stehen, der Fenstertitel nannte keine Fassung, und die Schreibweise hieß
   „capitalize“ statt wie im Web „Wörter Groß“.
+* **AppImage weiter durchgespielt** (0.27.5): E-AC-3 5.1 im M4A und als
+  roher Stream, AAC, Ogg, Opus, geführter Modus, `web`, im Desktop Felder,
+  NFO-Reiter, „Prüfen“, „Als Standard“. Gefunden: Ein Zeichen, das CP437
+  nicht kennt und das zu mehreren wird („™“ → „TM“), wurde erst beim
+  Schreiben ersetzt – die Zeile war eine Spalte zu breit, der Rahmen sprang,
+  und die Vorschau zeigte etwas anderes als die Datei. Jetzt ersetzt der
+  Renderer vor dem Ausrichten.
 
 ### Was offen ist
 

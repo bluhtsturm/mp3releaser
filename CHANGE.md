@@ -1,3 +1,66 @@
+# Änderungen – 0.27.5: Sonderzeichen verschieben den NFO-Rahmen nicht mehr
+
+Stand: 21.11.2026 · Version 0.27.4 → **0.27.5**
+
+Das AppImage 0.27.4 weiter durchgespielt – was beim ersten Test nicht dran
+war:
+
+| Ablauf | Ergebnis |
+|---|---|
+| E-AC-3 5.1 im M4A (Titel mit `’`, `–`, `™`, `東京`) | Format EAC3, „3/2 + LFE“, 640 kbps; Tags behalten die Originalzeichen; SFV ok; Blockgrafik der Standardvorlage erhalten – **aber die Zeile mit „™“ eine Spalte zu breit** |
+| roher EC-3-Stream ohne Tags | Titel „Intro“, „Zweiter Teil“ aus dem Dateinamen; „.ec3 kann keine Tags tragen“; SFV ok |
+| AAC, Ogg Vorbis, Opus | getaggt, umbenannt, SFV ok |
+| geführter Modus | alle vier Schritte |
+| `web --mounts` aus dem AppImage | läuft, meldet 0.27.4 |
+| Desktop: Felder bearbeiten, Tab, NFO-Vorschau | Vorschau ändert sich mit; zeigte „™“, die Datei aber „TM“ |
+| Desktop: „Prüfen“, „Als Standard“ | Befund richtig; gespeichert samt Ausgabeordner – Bestätigung nannte die Schreibweise noch „capitalize“ |
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 929 | 931 |
+| Ergebnis hier (Python 3.13, ohne GTK) | 897 grün, 32 übersprungen | 899 grün, 32 übersprungen |
+| Desktop-Tests mit echtem GTK 4.14 (Python 3.12) | 53 grün | 53 grün |
+| `pyflakes` | sauber | sauber |
+
+## 1. Rahmen und Sonderzeichen
+
+Zeichen, die CP437 nicht kennt, wurden erst beim Schreiben der Datei
+ersetzt (`to_codepage`). Manche Ersetzungen sind länger als das Original:
+„™“ wird „TM“, „…“ wird „...“. Die Spalten waren da schon ausgerichtet – die
+Zeile wurde länger, der rechte Rahmen sprang aus der Reihe. Und die
+Vorschau zeigte „™“, die Datei „TM“. Der Fehler bestand schon vor 0.27.0;
+damals verschwand die Blockgrafik ganz, und er fiel nicht auf.
+
+Jetzt ersetzt der Renderer selbst (`text.fit_codepage`), bevor Werte in
+ihre Spalten gesetzt und Titel umbrochen werden. Die Codepage steht dafür in
+`Settings.codepage` (Voreinstellung CP437; mit UTF-8 bleibt jedes Zeichen).
+`to_codepage` nutzt dieselbe Funktion. Vorschau (Web und Desktop) und Datei
+sind damit gleich.
+
+## 2. Kleineres
+
+* Desktop, Bestätigung von „Als Standard“: nennt die Schreibweise wie das
+  Auswahlfeld, dahinter den Wert der Datei – „Wörter Groß (capitalize)“.
+
+## 3. Beobachtet, nicht geändert
+
+* Der geführte Modus (`wizard`) schiebt nicht in den Ausgabeordner, auch
+  wenn einer eingestellt ist – das hat er nie gekonnt.
+* Ein E-AC-3-Release ohne Atmos bekommt keine Formatkennung im
+  Verzeichnisnamen (`#Fmt` kennt FLAC, AAC und ATMOS) – so vorgesehen.
+* CJK-Zeichen fallen in Dateinamen weg („東京 Nacht“ → „nacht“) – die
+  Regelkette erzeugt ASCII-Namen.
+
+## 4. Neue Tests
+
+* `tests/test_skl.py`: Rahmen bleibt mit „™“, „…“ und „東京“ bündig, Gerendertes
+  gleich Datei; mit UTF-8 bleibt jedes Zeichen
+* `tests/test_gtkui.py`: Bestätigung nennt „Wörter Groß (capitalize)“
+
+Gegen 0.27.4 laufen gelassen, schlagen die neuen Tests fehl.
+
+---
+
 # Änderungen – 0.27.4: aus dem Test des AppImage
 
 Stand: 21.11.2026 · Version 0.27.3 → **0.27.4**

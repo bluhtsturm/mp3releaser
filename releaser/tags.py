@@ -14,7 +14,7 @@ from enum import Enum
 from typing import Callable, Optional
 
 from .model import Disc, Release, Track
-from .text import CharCase, format_size_mb, format_time
+from .text import NFO_CODEPAGE, CharCase, format_size_mb, format_time
 
 
 class Align(Enum):
@@ -36,6 +36,9 @@ class Settings:
     """Optionen, die das Original ueber die Settings-Tabs anbot."""
 
     nfo_charcase: CharCase = CharCase.UNCHANGED
+    #: Codepage der .nfo - was sie nicht kennt, ersetzt der Renderer schon
+    #: vor dem Ausrichten (siehe text.fit_codepage)
+    codepage: str = NFO_CODEPAGE
     ascii_conversion: bool = False
     strip_leading_zeros_time: bool = False
     decimal_comma: bool = False
