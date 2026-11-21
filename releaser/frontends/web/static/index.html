@@ -643,13 +643,30 @@ for (const tab of document.querySelectorAll(".tab")) {
   };
 }
 
+// Was der Dienst je Feld übernommen hat - danach richtet sich das Feld nach
+// dem Abschicken
+const ACCEPTED = {
+  "p-dir": names => names.dir_pattern,
+  "p-file": names => names.file_pattern,
+  "p-group": names => names.group,
+  "p-dirname": names => names.directory ? names.directory[1] : "",
+  "p-case-dir": names => names.case_dir,
+  "p-case-file": names => names.case_file,
+  "p-output": names => names.output,
+};
 for (const [id, which] of [["p-dir", "dir"], ["p-file", "file"],
                            ["p-group", "group"], ["p-dirname", "dirname"],
                            ["p-case-dir", "case_dir"],
                            ["p-case-file", "case_file"],
                            ["p-output", "output"]]) {
   document.getElementById(id).onchange = event =>
-    call("/api/pattern", { which, value: event.target.value }).then(render);
+    call("/api/pattern", { which, value: event.target.value }).then(state => {
+      render(state);
+      // Nach Enter bleibt der Cursor im Feld, und render() lässt Felder mit
+      // Cursor in Ruhe. Ein abgelehnter Ausgabeordner ("archiv" ist nur
+      // lesend) stand dann weiter da, als wäre er eingestellt.
+      if (state && state.names) event.target.value = ACCEPTED[id](state.names) ?? "";
+    });
 }
 document.getElementById("p-output-here").onclick = () =>
   call("/api/pattern", { which: "output_here" }).then(render);

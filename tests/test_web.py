@@ -1011,3 +1011,18 @@ def test_page_has_a_root_button_and_refreshes_on_return():
     assert '"/api/browse", { path: null }' in root
     assert '"visibilitychange"' in page and '"pageshow"' in page
     assert 'id="version"' in page
+
+
+def test_a_rejected_value_does_not_stay_in_its_field():
+    """"archiv" (nur lesend) wurde als Ausgabeordner abgelehnt, blieb aber
+    im Feld stehen, als waere es eingestellt - render() laesst Felder mit
+    Cursor in Ruhe, und nach Enter steht der Cursor noch darin."""
+    from releaser.frontends.web.app import STATIC
+
+    page = (STATIC / "index.html").read_text(encoding="utf-8")
+    handler = page.split('document.getElementById(id).onchange', 1)[1] \
+        .split("\n}\n", 1)[0]
+    assert "event.target.value = ACCEPTED[id](state.names)" in handler
+    for field in ("p-dir", "p-file", "p-group", "p-dirname", "p-case-dir",
+                  "p-case-file", "p-output"):
+        assert f'"{field}": names =>' in page, field
