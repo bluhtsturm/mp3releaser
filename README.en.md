@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 907 tests
+python3 -m pytest tests -q          # 915 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -607,6 +607,13 @@ list it several times, and the total size would multiply with every track.
 All three places are handled accordingly; the file size is distributed
 proportionally to the duration.
 
+Two more places were added in the review for 0.27.0: the image **keeps its
+name** — the CUE refers to it with `FILE`; renamed after the first track, it
+no longer matched and was ignored on the next scan. And it only gets **album
+fields** as tags (album, artist, year, genre, comment) — before, the title and
+number of the *last* track ended up in it. A `FILE` with a Windows path
+(`C:\Rips\mix.flac`) is recognised.
+
 ## Dupe check
 
 Compares a release name with known ones — a text file or a directory of
@@ -979,7 +986,11 @@ the rig does report errors.
 
 Never a path of the host system. The browser sees
 `incoming/Artist-Album-2026-GRP`; the way back in runs exclusively through
-`MountedSource.resolve()`. Template names must not contain path separators or
+`MountedSource.resolve()`. Messages created deep down with real paths
+("Ziel existiert bereits: …", system errors) still went out like that up to
+0.26.0; since 0.27.0 a middleware passes every JSON response through
+`MountedSource.mask()`, which replaces the mount paths with their names.
+Template names must not contain path separators or
 null bytes, otherwise they would be a second way out.
 
 The container runs as its own user, without capabilities, with
@@ -1387,7 +1398,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 907 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 915 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1778,6 +1789,26 @@ takes effect.
   of its own. 0.27.0 does that as the last step of "Release erstellen" (see
   [Output folder](#output-folder)) — checked beforehand, across volume
   boundaries, and undoable with `↶`.
+
+### Review before 0.27.0
+
+The complete code went through once more; every finding comes with a test
+that fails against the old state:
+
+* **CUE image:** got the title and number of the last track as tags and the
+  name of the first track as file name — after that the CUE no longer
+  matched. See [CUE sheets](#cue-sheets).
+* **MP3 and EC-3 without tags:** the reader set the whole file name as the
+  title; `01 - Intro.mp3` got the title "01 - Intro", origin "tag". Now the
+  scanner derives it as for FLAC: "Intro".
+* **Catalogue number as file name:** went into the SFV and M3U names
+  unfiltered; `ABC/001` aborted the build.
+* **Paths going out:** messages with real paths reached the browser (see
+  [What goes out](#what-goes-out)).
+* **File list after renaming:** still showed the old folder name; clicking it
+  led nowhere.
+* **Desktop:** three fields checked focus on the `Gtk.Entry` instead of its
+  inner text field — so the check was always false.
 
 ### What is open
 

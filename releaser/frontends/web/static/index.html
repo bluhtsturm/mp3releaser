@@ -578,7 +578,10 @@ function renderNames(state) {
     input.dataset.fileIndex = String(row.index);
     input.spellcheck = false;
     input.classList.toggle("manual", row.manual);
-    input.title = row.manual
+    input.readOnly = !!row.locked;
+    input.title = row.locked
+      ? "CUE-Image – behält seinen Namen, das CUE verweist darauf"
+      : row.manual
       ? "von Hand gesetzt – leer lassen oder ↺ für den Namen aus dem Muster"
       : "aus dem Muster – zum Ändern einfach überschreiben";
     input.onchange = () => {

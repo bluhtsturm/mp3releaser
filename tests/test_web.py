@@ -948,3 +948,29 @@ def test_saved_output_folder_is_the_real_path(tree, tmp_path):
     # Neustart mit der gespeicherten Datei: jede Sitzung hat ihn gleich
     fresh = output_client(tree, target, load(target))
     assert fresh.get("/api/state").json()["names"]["output"] == "ausgang"
+
+
+@needs_ffmpeg
+def test_messages_never_carry_a_host_path(client, tree):
+    """"Ziel existiert bereits: /data/eingang/…" und Systemfehler kannten nur
+    echte Pfade und gingen so an den Browser. Jetzt maskiert der Dienst sie
+    an der Ausgangstuer."""
+    (tree / "eingang" / "Der_Artist-Das_Album-2026-GRP").mkdir()
+    load_release(client)
+    client.post("/api/template", json={"name": "vorlage.skl"})
+    response = client.post("/api/produce", json={})
+    assert str(tree) not in response.text
+    texts = [m["text"] for m in response.json()["messages"]]
+    assert any("Ziel existiert bereits: eingang/Der_Artist-Das_Album-2026-GRP"
+               in t for t in texts), texts
+    assert int(response.headers["content-length"]) == len(response.content)
+
+
+def test_mask_only_replaces_whole_mount_paths(tmp_path):
+    (tmp_path / "eingang").mkdir()
+    (tmp_path / "eingang2").mkdir()
+    source = MountedSource([Mount("eingang", tmp_path / "eingang")])
+    real = str((tmp_path / "eingang").resolve())
+    assert source.mask(f"x {real}/a.mp3 y") == "x eingang/a.mp3 y"
+    assert source.mask(f"'{real}'") == "'eingang'"
+    assert source.mask(f"{real}2/a") == f"{real}2/a"

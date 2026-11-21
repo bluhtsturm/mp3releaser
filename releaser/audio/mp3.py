@@ -47,8 +47,9 @@ def read_mp3(path: Path) -> AudioInfo:
     try:
         _apply_id3(ID3(path), info)
     except ID3NoHeaderError:
+        # Titel leer lassen - der Scanner leitet ihn aus dem Dateinamen ab
+        # und trennt dabei die Tracknummer ab ("01 - Intro" -> "Intro").
         info.warnings.append("keine ID3-Tags vorhanden")
-        info.title = path.stem
     return info
 
 

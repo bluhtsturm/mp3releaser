@@ -61,6 +61,56 @@ SESSION_TTL = 3600.0
 MAX_SESSIONS = 64
 
 
+class MaskPaths:
+    """ASGI-Middleware: echte Einhaengepfade in JSON-Antworten maskieren.
+
+    Viele Meldungen kennen nur echte Pfade ("Ziel existiert bereits:
+    /data/eingang/…", Probleme beim Zuruecknehmen, Systemfehler). Statt jede
+    einzeln umzuschreiben - und die naechste zu vergessen -, wird an der
+    Ausgangstuer jede JSON-Antwort durch :meth:`MountedSource.mask`
+    geschickt.
+    """
+
+    def __init__(self, app, mask):
+        self.app = app
+        self.mask = mask
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        start: dict = {}
+        chunks: list[bytes] = []
+
+        async def masked(message):
+            if message["type"] == "http.response.start":
+                start.update(message)
+                return
+            if message["type"] != "http.response.body":
+                await send(message)
+                return
+            headers = dict(start.get("headers", []))
+            is_json = headers.get(b"content-type", b"").startswith(
+                b"application/json")
+            if not is_json:
+                if start:
+                    await send(dict(start))
+                    start.clear()
+                await send(message)
+                return
+            chunks.append(message.get("body", b""))
+            if message.get("more_body"):
+                return
+            body = self.mask(b"".join(chunks).decode("utf-8")).encode("utf-8")
+            start["headers"] = [(k, v) for k, v in start.get("headers", [])
+                                if k != b"content-length"] + [
+                (b"content-length", str(len(body)).encode())]
+            await send(dict(start))
+            await send({"type": "http.response.body", "body": body})
+
+        await self.app(scope, receive, masked)
+
+
 @dataclass
 class Session:
     state: AppState
@@ -392,6 +442,9 @@ def create_app(source: Optional[MountedSource] = None,
 
     app = FastAPI(title="mp3releaser", docs_url="/api/docs")
     app.state.store = store
+    # Nie ein Pfad des Wirtsystems nach aussen - auch nicht in Meldungen,
+    # die tief unten mit echten Pfaden entstehen (siehe MaskPaths)
+    app.add_middleware(MaskPaths, mask=resolved.mask)
 
     def session(response: Response, key: Optional[str]) -> AppState:
         key, state = store.get(key)

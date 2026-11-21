@@ -1359,3 +1359,17 @@ def test_release_already_in_the_output_is_not_reported_as_moved(release_dir,
     done = state.produce()
     assert done[-1] == "Ausgabeordner: Release lag schon dort"
     assert [e.kind.value for e in state.undo_entries()][-1] == "rename"
+
+
+@needs_ffmpeg
+def test_listing_follows_a_rename(release_dir, template_file):
+    """Nach dem Umbenennen stand links noch der alte Ordnername - ein Klick
+    darauf fuehrte ins Leere."""
+    state = state_for(release_dir)
+    state.load_template(template_file)
+    state.navigate("eingang")
+    state.select("eingang/Artist-Album-2026-GRP")
+    state.load("eingang/Artist-Album-2026-GRP")
+    assert state.produce() is not None
+    assert [e.name for e in state.entries] == ["der_artist-das_album-2026-GRP"]
+    assert state.selected_path is None

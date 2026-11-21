@@ -9,8 +9,8 @@ Und gewünscht: ein Ausgabeordner, in den das fertige Release geschoben wird.
 
 | | vorher | nachher |
 |---|---|---|
-| Tests | 880 | 907 |
-| Ergebnis hier (ohne GTK/WebKitGTK, Python 3.12) | – | 876 grün, 31 übersprungen |
+| Tests | 880 | 915 |
+| Ergebnis hier (ohne GTK/WebKitGTK, Python 3.12) | – | 884 grün, 31 übersprungen |
 | Prüfungen im echten Browser (`tools/webcheck.py`) | 20 | 23 |
 | `pyflakes` | sauber | sauber |
 
@@ -94,7 +94,28 @@ Ausgabeordner, sofern einer eingestellt ist. Neues Modul
   Verschiebung(en) in den Ausgabeordner“ an und holt es zurück; keine
   JavaScript-Fehler.
 
-## 5. Neue und geänderte Tests
+## 5. Durchsicht des kompletten Codes
+
+Vor der Veröffentlichung alle Module noch einmal durchgegangen. Jeder Fund
+hat einen Test, der gegen den Stand davor fehlschlägt.
+
+| Fund | Folge | Behebung |
+|---|---|---|
+| CUE-Image: alle Tracks zeigen auf eine Datei; `plan_tags` schrieb je Track | Image bekam Titel und Nummer des *letzten* Tracks, jede Änderung stand mehrfach im Plan | nur Albumfelder, je Datei einmal (`tagwriter.IMAGE_EXEMPT`) |
+| CUE-Image wurde nach dem ersten Track umbenannt | `FILE` im CUE zeigte ins Leere, beim nächsten Einlesen „CUE wird ignoriert“ | Image behält seinen Namen; Vorschau zeigt es gesperrt (Web schreibgeschützt, Desktop nicht editierbar) |
+| `FILE "C:\Rips\mix.flac"` | unter Linux kein Treffer, CUE ignoriert | Dateiname per `PureWindowsPath` |
+| MP3 ohne ID3, roher EC-3-Stream: `title = path.stem` | Titel „01 - Intro“ statt „Intro“, Herkunft „Tag“ statt „Dateiname“ | Titel leer lassen, der Scanner leitet ihn ab |
+| Katalognummer als SFV-/M3U-Name ungefiltert | `ABC/001` → Abbruch beim Erzeugen | wie das Gruppenkürzel bereinigt (`clean_group`) |
+| Meldungen mit echten Pfaden („Ziel existiert bereits“, Rücknahme, Systemfehler, Ausgabeordner) | Wirtspfade im Browser – entgegen „nie ein Pfad des Wirtsystems“ | Middleware `MaskPaths` schickt jede JSON-Antwort durch `MountedSource.mask()` |
+| Auswahl links nach dem Umbenennen | alter Ordnername, Klick ins Leere | `AppState._refresh_listing` nach Umbenennen und Verschieben |
+| Desktop: `entry.has_focus()` an drei Stellen | bei `Gtk.Entry` immer falsch (Fokus liegt am inneren Textfeld) | vorhandener Helfer `_widget_has_focus` |
+
+Durchgesehen ohne Befund: SKL-Parser und Renderer, Regelkette und
+Umbenennungsplan samt Rollback, SFV/M3U, Prüfsummen und Tag-Grenzen,
+Tag-Schreiber, Rückgängig, Konfiguration, Dateiauswahl samt
+Ausbruchsprüfung, Audio-Leser, Kommandozeile, Geführter Modus, Packaging.
+
+## 6. Neue und geänderte Tests
 
 * `tests/test_output.py` (neu, 9): Verschieben, Pfade im Modell,
   simulierter Dateisystemwechsel (`EXDEV`) hin und zurück, abgebrochene
@@ -109,6 +130,10 @@ Ausgabeordner, sofern einer eingestellt ist. Neues Modul
   sie, belegtes Ziel, fehlender Ordner
 * `tools/webcheck.py`: zweiter Einhängepunkt `ausgang`, Schritt
   „Ausgabeordner“, Ergebnis prüft „Verschoben nach“
+* Durchsicht: `test_extras.py` (CUE-Image durch „Release erstellen“, Plan
+  je Datei einmal, Windows-Pfad im CUE), `test_audio.py` (MP3 ohne Tags),
+  `test_sfv_m3u.py` (Katalognummer), `test_web.py` (keine Wirtspfade in
+  Meldungen, `mask`), `test_uistate.py` (Auswahl nach dem Umbenennen)
 * `tests/test_skl.py`:
   `test_one_unmappable_character_keeps_the_block_graphics`,
   `test_standard_template_keeps_its_frame_with_an_unmappable_tag` (die
@@ -119,7 +144,7 @@ Ausgabeordner, sofern einer eingestellt ist. Neues Modul
 * `tools/webcheck.py` (WebKitGTK): Das Ergebnisfenster hat „OK“, ist
   vorausgewählt und schließt; ein Plan hat weiterhin „Abbrechen“
 
-## 6. Dokumentation
+## 7. Dokumentation
 
 README, README.en.md (Abschnitte „Ausgabeordner“, „Rückgängig machen“,
 „Als Standard speichern“, „Aus der sechzehnten Erprobung“, Modulbaum,

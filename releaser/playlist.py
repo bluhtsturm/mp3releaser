@@ -95,7 +95,12 @@ def m3u_name(release: Release, disc: Optional[Disc] = None,
     """Wie ``sfv_name``, damit beide Begleitdateien gleich heissen."""
     base = stem if stem is not None else (release.dirname or release.release_name)
     if use_catalog_no and release.catalog_no:
-        base = release.catalog_no
+        # Die Katalognummer ist frei eingegeben: "ABC/001" ergab sonst einen
+        # Pfad in einen Unterordner, den es nicht gibt, und das Erzeugen
+        # brach ab. Nur das Unmoegliche faellt weg, wie beim Gruppenkuerzel.
+        from .naming import clean_group
+
+        base = clean_group(release.catalog_no) or base
     if disc is not None and release.multi_disc:
         base = f"{base}-cd{disc.number}"
     return f"{base}.m3u"

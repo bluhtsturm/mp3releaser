@@ -392,3 +392,17 @@ def test_sfv_comment_from_a_generator_reaches_every_disc(tmp_path):
     assert len(written) == 2
     for sfv in written:
         assert "; gruss" in sfv.read_text(encoding="cp437")
+
+
+def test_catalog_number_is_made_a_valid_file_name():
+    """Eine Katalognummer mit "/" zeigte in einen Unterordner, den es nicht
+    gibt - das Erzeugen von .sfv und .m3u brach ab."""
+    from releaser.model import Release
+    from releaser.playlist import m3u_name
+    from releaser.sfv import sfv_name
+
+    release = Release(dirname="rel", catalog_no="ABC/001 X")
+    assert sfv_name(release, use_catalog_no=True) == "ABC001_X.sfv"
+    assert m3u_name(release, use_catalog_no=True) == "ABC001_X.m3u"
+    release.catalog_no = "///"
+    assert sfv_name(release, use_catalog_no=True) == "rel.sfv"

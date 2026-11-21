@@ -669,7 +669,7 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             self._refresh_actions()
 
         def _refresh_names(self) -> None:
-            if not self.output_entry.has_focus():
+            if not self._widget_has_focus(self.output_entry):
                 self.output_entry.set_text(self.state.output_path or "")
             preview = self.state.preview_names()
             if preview["directory"] is None:
@@ -680,7 +680,7 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 return
 
             old_dir, new_dir = preview["directory"]
-            if not self.dirname_entry.has_focus():
+            if not self._widget_has_focus(self.dirname_entry):
                 self.dirname_entry.set_text(new_dir)
 
             # Auch die Musterfelder nachziehen: wer den Verzeichnisnamen von
@@ -690,7 +690,8 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                                ("file", self.state.naming.file_pattern),
                                ("group", self.state.naming.group)):
                 entry = self.pattern_entries[key]
-                if not entry.has_focus() and entry.get_text() != value:
+                if (not self._widget_has_focus(entry)
+                        and entry.get_text() != value):
                     entry.set_text(value)
 
             companions = self.state.companion_preview()
@@ -766,8 +767,11 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
 
                 entry = Gtk.Entry(hexpand=True, text=row["stem"])
                 entry.set_tooltip_text(
+                    "CUE-Image - behält seinen Namen, das CUE verweist darauf"
+                    if row.get("locked") else
                     "Name ohne Endung - Eingabetaste übernimmt, "
                     "leer lassen nimmt wieder das Muster")
+                entry.set_editable(not row.get("locked"))
                 index = row["index"]
                 entry.connect("activate",
                               lambda e, i=index: self._on_file_name(e, i))

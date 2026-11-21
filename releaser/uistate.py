@@ -597,6 +597,11 @@ class AppState:
         # eine Datei und zaehlen nur einmal.
         seen: set[tuple[str, str]] = set()
         sources: set[str] = set()
+        from collections import Counter
+
+        shared = {path for path, count in Counter(
+            t.path for t in self.release.tracks if t.path).items()
+            if count > 1}
         for disc in self.release.discs:
             for track in disc.tracks:
                 if track.path and track.path in sources:
@@ -604,8 +609,14 @@ class AppState:
                 if track.path:
                     sources.add(track.path)
                 path = Path(track.path) if track.path else None
-                suffix = path.suffix.lower() if path else ""
-                stem = track_stem(self.release, track, disc, self.naming)
+                # Ein CUE-Image behaelt seinen Namen - wie im echten Plan
+                # (naming.plan_rename), sonst zeigte die Vorschau etwas an,
+                # was nicht passiert.
+                locked = bool(path) and track.path in shared
+                suffix = path.suffix if locked else (
+                    path.suffix.lower() if path else "")
+                stem = (path.stem if locked else
+                        track_stem(self.release, track, disc, self.naming))
                 name = stem + suffix
                 folder = str(path.parent) if path else ""
                 key = (folder, name.lower())
@@ -617,10 +628,13 @@ class AppState:
                     "stem": stem,
                     "suffix": suffix,
                     "new": name,
-                    "pattern": pattern_stem(self.release, track, disc,
-                                            self.naming),
-                    "manual": bool(track.manual_stem),
+                    "pattern": (stem if locked else
+                                pattern_stem(self.release, track, disc,
+                                             self.naming)),
+                    "manual": bool(track.manual_stem) and not locked,
                     "collision": key in seen,
+                    #: CUE-Image - der Name bleibt, das CUE verweist darauf
+                    "locked": locked,
                 }, track))
                 seen.add(key)
         return rows
@@ -642,6 +656,11 @@ class AppState:
             self._changed()
             return False
         row, track = rows[index]
+        if row["locked"]:
+            self.say(f"{row['old']}: CUE-Image behält seinen Namen - das CUE "
+                     "verweist darauf.", Level.WARNING)
+            self._changed()
+            return False
 
         cleaned = clean_manual_stem(text, self.naming, row["suffix"])
         if text.strip() and not cleaned:
@@ -858,6 +877,7 @@ class AppState:
             self.current_path = self.source.to_virtual(new_root)
         except AccessError:
             self.current_path = str(new_root)
+        self._refresh_listing()
         self.rename_plan = None
         self.say(f"{len(plan.changes)} Umbenennung(en) ausgeführt - "
                  f"neuer Ordner: {new_root.name}")
@@ -980,6 +1000,22 @@ class AppState:
         self._changed()
         return done
 
+    def _refresh_listing(self) -> None:
+        """Liest den links gezeigten Ordner neu ein.
+
+        Nach dem Umbenennen oder Verschieben zeigte die Auswahl sonst weiter
+        den alten Ordnernamen - ein Klick darauf fuehrte ins Leere.
+        """
+        if not self.listed_path:
+            return
+        try:
+            self.entries = self.source.list(self.listed_path)
+        except AccessError:
+            return
+        if self.selected_path and all(e.path != self.selected_path
+                                      for e in self.entries):
+            self.selected_path = None
+
     def move_to_output(self) -> Optional[bool]:
         """Schiebt das geladene Release in den Ausgabeordner.
 
@@ -1002,14 +1038,7 @@ class AppState:
             self.current_path = self.source.to_virtual(new_root)
         except AccessError:
             self.current_path = str(new_root)
-        # Die Auswahl links zeigte sonst weiter das Release im Eingang, das
-        # dort nicht mehr liegt.
-        if self.listed_path:
-            try:
-                self.entries = self.source.list(self.listed_path)
-            except AccessError:
-                pass
-            self.selected_path = None
+        self._refresh_listing()
         if entry is None:
             self.say("Release liegt bereits im Ausgabeordner.")
             return False

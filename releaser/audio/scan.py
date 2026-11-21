@@ -14,7 +14,7 @@ from __future__ import annotations
 import re
 from collections import Counter
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PureWindowsPath
 from typing import Iterable, Optional
 
 from ..model import Disc, Release, Track
@@ -161,7 +161,7 @@ def _apply_cue_sheets(root: Path, release: Release, infos: list[AudioInfo],
         warnings.extend(f"{cue_path.name}: {w}" for w in sheet.warnings)
 
         targets = [f for f in sheet.files
-                   if Path(f.name).name.lower() in by_name]
+                   if _cue_basename(f.name).lower() in by_name]
         if len(targets) != 1:
             warnings.append(
                 f"{cue_path.name}: verweist auf {len(sheet.files)} Datei(en), "
@@ -169,9 +169,9 @@ def _apply_cue_sheets(root: Path, release: Release, infos: list[AudioInfo],
             continue
 
         cue_file = targets[0]
-        info = by_name[Path(cue_file.name).name.lower()]
+        info = by_name[_cue_basename(cue_file.name).lower()]
         close_durations(sheet, {cue_file.name: info.duration,
-                                Path(cue_file.name).name: info.duration})
+                                _cue_basename(cue_file.name): info.duration})
 
         target_path = str(info.path)
         disc = next((d for d in release.discs
@@ -216,6 +216,15 @@ def _apply_cue_sheets(root: Path, release: Release, infos: list[AudioInfo],
         if sheet.genre and not release.genre:
             release.genre = sheet.genre
             origins.set("genre", Origin.CUE)
+
+
+def _cue_basename(name: str) -> str:
+    """Dateiname aus einer FILE-Zeile - auch aus einem Windows-Pfad.
+
+    Unter Linux trennt ``Path`` nur an "/", ein ``C:\\rips\\mix.flac`` blieb
+    dann ein einziger Name, und das CUE wurde ignoriert.
+    """
+    return PureWindowsPath(name).name
 
 
 def _build_release(root: Path, infos: list[AudioInfo], warnings: list[str],

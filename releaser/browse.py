@@ -323,6 +323,22 @@ class MountedSource(Source):
         name = PurePosixPath(str(virtual).strip("/")).parts[0]
         return self.mount_for(name).writable
 
+    def mask(self, text: str) -> str:
+        """Ersetzt echte Einhaengepfade in einem Text durch ihre Namen.
+
+        Meldungen entstehen tief unten (Umbenennungsplan, Rueckgaengig,
+        Systemfehler wie "Permission denied: '/data/eingang/…'") und kennen
+        nur echte Pfade. Bevor sie den Dienst verlassen, werden sie hiermit
+        in die Form gebracht, die der Browser auch sonst sieht.
+        """
+        import re
+
+        for mount in sorted(self.mounts, key=lambda m: len(str(m.path)),
+                            reverse=True):
+            text = re.sub(re.escape(str(mount.path)) + r"(?=/|\b|$)",
+                          lambda _m, name=mount.name: name, text)
+        return text
+
 
 def from_environment(value: Optional[str] = None) -> MountedSource:
     """Baut die Quelle aus einer Umgebungsvariablen.

@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 907 Tests
+python3 -m pytest tests -q          # 915 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -605,6 +605,13 @@ anfassen, die M3U sie mehrfach listen und die Gesamtgröße sich mit jedem
 Track vervielfachen. Alle drei Stellen sind entsprechend behandelt, die
 Dateigröße wird anteilig nach Laufzeit verteilt.
 
+Zwei weitere Stellen kamen bei der Durchsicht für 0.27.0 dazu: Das Image
+**behält seinen Namen** – das CUE verweist mit `FILE` darauf; umbenannt nach
+dem ersten Track, passte es nicht mehr und wurde beim nächsten Einlesen
+ignoriert. Und es bekommt **nur Albumfelder** als Tags (Album, Artist, Jahr,
+Genre, Kommentar) – vorher landeten Titel und Nummer des *letzten* Tracks
+darin. Ein `FILE` mit Windows-Pfad (`C:\Rips\mix.flac`) wird erkannt.
+
 ## Dupe-Prüfung
 
 Vergleicht einen Releasenamen gegen bekannte — eine Textdatei oder ein
@@ -975,7 +982,10 @@ jetzt, dass der Prüfstand Fehler auch meldet.
 
 Nie ein Pfad des Wirtsystems. Der Browser sieht
 `eingang/Artist-Album-2026-GRP`, der Weg zurück läuft ausschließlich über
-`MountedSource.resolve()`. Vorlagennamen dürfen keine Pfadtrenner und keine
+`MountedSource.resolve()`. Meldungen, die tief unten mit echten Pfaden
+entstehen („Ziel existiert bereits: …“, Systemfehler), gingen bis 0.26.0
+trotzdem so hinaus; seit 0.27.0 schickt eine Middleware jede JSON-Antwort
+durch `MountedSource.mask()`, das die Einhängepfade durch ihre Namen ersetzt. Vorlagennamen dürfen keine Pfadtrenner und keine
 Null-Bytes enthalten, sonst wären sie ein zweiter Weg nach draußen.
 
 Der Container läuft als eigener Benutzer, ohne Capabilities, mit
@@ -1383,7 +1393,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-907 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+915 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1787,6 +1797,26 @@ Umleitung greift.
   Ordner zu schieben. 0.27.0 kann das als letzten Schritt von „Release
   erstellen“ (siehe [Ausgabeordner](#ausgabeordner)) – vorher geprüft,
   über Volume-Grenzen hinweg und mit `↶` zurückzunehmen.
+
+### Durchsicht vor 0.27.0
+
+Der komplette Code noch einmal durchgegangen; jeder Fund mit einem Test, der
+gegen den alten Stand fehlschlägt:
+
+* **CUE-Image:** bekam Titel und Nummer des letzten Tracks als Tag und den
+  Namen des ersten Tracks als Dateinamen – danach passte das CUE nicht mehr.
+  Siehe [CUE-Sheets](#cue-sheets).
+* **MP3 und EC-3 ohne Tags:** Der Leser setzte den ganzen Dateinamen als
+  Titel; aus `01 - Intro.mp3` wurde der Titel „01 - Intro“, als Herkunft
+  stand „Tag“. Jetzt leitet der Scanner ihn ab wie bei FLAC: „Intro“.
+* **Katalognummer als Dateiname:** ging ungefiltert in den Namen von SFV und
+  M3U; `ABC/001` brach das Erzeugen ab.
+* **Pfade nach außen:** Meldungen mit echten Pfaden erreichten den Browser
+  (siehe [Was nach außen geht](#was-nach-außen-geht)).
+* **Auswahl links nach dem Umbenennen:** zeigte weiter den alten
+  Ordnernamen; ein Klick darauf führte ins Leere.
+* **Desktop:** Drei Felder prüften den Fokus am `Gtk.Entry` statt an dessen
+  innerem Textfeld – die Prüfung war dadurch immer falsch.
 
 ### Was offen ist
 
