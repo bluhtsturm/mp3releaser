@@ -1450,3 +1450,27 @@ def test_up_follows_the_listed_folder_not_the_loaded_release(release_dir):
     assert state.parent_path() is None
     state.go_up()
     assert state.listed_path is None
+
+
+@needs_ffmpeg
+def test_browsing_does_not_change_which_release_is_loaded(release_dir, tmp_path):
+    """Blaettern setzte den Pfad des eingelesenen Releases um: Ein Release
+    aus einem nur lesend eingehaengten Ordner galt nach einem Klick auf die
+    Wurzel als beschreibbar, und "Neu einlesen" las den angezeigten Ordner."""
+    (tmp_path / "frei").mkdir()
+    state = AppState(source=MountedSource([
+        Mount("eingang", release_dir.parent, writable=False),
+        Mount("frei", tmp_path / "frei")]))
+    state.load("eingang/Artist-Album-2026-GRP")
+    assert not state.writable
+
+    state.show_roots()
+    assert state.listed_path is None
+    assert state.current_path == "eingang/Artist-Album-2026-GRP"
+    assert not state.writable and not state.enabled()[Action.PRODUCE]
+
+    state.navigate("frei")
+    assert state.listed_path == "frei"
+    assert not state.writable
+    assert state.reload()
+    assert state.root == release_dir.resolve()

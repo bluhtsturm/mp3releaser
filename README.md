@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.1:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.2:
 
 ```bash
-chmod +x mp3releaser-0.27.1-x86_64.AppImage
-./mp3releaser-0.27.1-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.27.1-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.27.2-x86_64.AppImage
+./mp3releaser-0.27.2-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.27.2-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 921 Tests
+python3 -m pytest tests -q          # 924 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -945,9 +945,13 @@ mit der jede Sitzung beginnt – ein Name aus `templates/`.
 Die Python-Pakete sind im `Dockerfile` nicht auf Fassungen festgeschrieben:
 Jeder Bau holt die aktuellen, `pip` selbst wird vorher angehoben. Docker
 verwendet beim Bauen aber Zwischenstände wieder, und das Basisimage
-`python:3.12-slim` erneuert es nur auf Nachfrage. Zum Aktualisieren:
+`python:3.12-slim` erneuert es nur auf Nachfrage. Gebaut wird außerdem aus
+dem lokalen Ordner (`build: .`): Eine neue Fassung kommt erst mit
+`git pull` hinein – ein bloßes `git fetch` ändert dort keine Datei. Welche
+Fassung läuft, zeigt die Kopfzeile der Weboberfläche. Zum Aktualisieren:
 
 ```bash
+git pull
 docker compose build --pull --no-cache && docker compose up -d
 docker compose run --rm --entrypoint pip cli list --outdated   # sollte leer sein
 ```
@@ -1394,6 +1398,14 @@ Release, das nicht mehr da ist, wird vergessen. Pfadzeile und „↑ eine Ebene�
 richten sich nach dem Ordner, den die Liste zeigt, nicht nach dem
 eingelesenen Release.
 
+Seit 0.27.2 führt **„⌂ Wurzel“** (Web und Desktop) aus jedem Ordner direkt zur
+obersten Ebene. Und die Weboberfläche gleicht auch ab, wenn man zum Tab
+zurückkehrt – wer nebenher im Dateimanager aufräumt, muss die Seite nicht
+neu laden. Blättern ändert nichts mehr daran, welches Release eingelesen
+ist: Vorher galt ein Release aus einem nur lesend eingehängten Ordner nach
+einem Klick auf die Wurzel als beschreibbar, und „Neu einlesen“ las den
+angezeigten Ordner.
+
 ## Geführter Modus
 
 `wizard` führt durch die vier Schritte und zeigt vor jeder verändernden
@@ -1408,7 +1420,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-921 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+924 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1840,6 +1852,11 @@ gegen den alten Stand fehlschlägt:
   mehr gab. 0.27.1 gleicht beim Wiederöffnen mit der Platte ab und führt
   aus verschwundenen Ordnern zum nächsten vorhandenen (siehe
   [Ordner, die es nicht mehr gibt](#ordner-die-es-nicht-mehr-gibt)).
+* **Trotzdem hängen geblieben – und ein Knopf zur Wurzel.** Der Neubau lief
+  aus einem Checkout, der nur per `git fetch` aktualisiert war; im Container
+  steckte weiter der alte Code, und die Oberfläche zeigte ihre Fassung
+  nirgends. 0.27.2 zeigt sie in der Kopfzeile, bringt „⌂ Wurzel“ und gleicht
+  auch beim Zurückkehren in den Tab ab. Die Anleitung nennt jetzt `git pull`.
 
 ### Was offen ist
 

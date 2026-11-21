@@ -471,6 +471,23 @@ def build_steps(checker: Checker) -> None:
                                 "Ergebnisfenster schließt mit „OK“"),
                        c.next())))
 
+    def step_root_button():
+        # "⌂ Wurzel" fuehrt aus jedem Ordner direkt zur obersten Ebene;
+        # die Kopfzeile nennt die laufende Fassung
+        c.js("document.getElementById('root').click(); 'ok'", lambda _: None)
+        c.wait("JSON.stringify(document.getElementById('crumbs').textContent"
+               " === '(Wurzel)')",
+               lambda _: c.js("""
+                   JSON.stringify({
+                     entries: document.querySelectorAll('.entry').length,
+                     disabled: document.getElementById('root').disabled,
+                     version: document.getElementById('version').textContent})
+                   """, lambda got: (
+                       c.report(got.get("entries") == 2 and got.get("disabled")
+                                and bool(got.get("version")),
+                                f"„⌂ Wurzel“ führt zur obersten Ebene ({got})"),
+                       c.next())))
+
     c.steps = [step_loaded, step_banner, step_buttons_disabled, step_select,
                step_open_and_select_release, step_template,
                step_load_release, step_groups,
@@ -479,7 +496,8 @@ def build_steps(checker: Checker) -> None:
                step_counter_turns_red, step_plan_dialog,
                step_cancel_changes_nothing, step_file_name_by_hand,
                step_letter_case, step_save_settings,
-               step_nfo_tab, step_status, step_output, step_produce]
+               step_nfo_tab, step_status, step_output, step_produce,
+               step_root_button]
 
 
 def main() -> int:

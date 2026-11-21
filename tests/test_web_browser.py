@@ -86,7 +86,7 @@ def test_page_works_in_a_real_browser_engine(served_tree):
     # aussagen, welche nicht, falls doch.
     failed = [line for line in output.splitlines() if "[FEHLER]" in line]
     assert not failed, "\n".join(failed) + "\n" + result.stderr[-2000:]
-    assert "23 von 23 Pruefungen bestanden" in output, output[-2000:]
+    assert "24 von 24 Pruefungen bestanden" in output, output[-2000:]
     assert "abgebrochen" not in output, output[-2000:]
     assert result.returncode == 0, output[-2000:]
 
@@ -101,6 +101,7 @@ def test_page_works_in_a_real_browser_engine(served_tree):
         "Ein Klick erstellt das Release",
         "Ergebnisfenster schließt mit „OK“",
         "Release liegt im Ausgabeordner",
+        "„⌂ Wurzel“ führt zur obersten Ebene",
         "Tab: Cursor und Getipptes bleiben",
         "Schreibweise wählbar",
         "Als Standard gespeichert",

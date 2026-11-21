@@ -22,6 +22,8 @@
     background: var(--panel);
   }
   header h1 { font-size: 15px; margin: 0 12px 0 0; font-weight: 600; }
+  /* Welche Fassung läuft - nach einem Neubau des Containers die erste Frage */
+  header h1 #version { color: var(--dim); font-weight: 400; font-size: 12px; }
   header .spacer { flex: 1; }
   button, select {
     background: #263039; color: var(--text); border: 1px solid var(--line);
@@ -139,7 +141,8 @@
 </head>
 <body>
 <header>
-  <h1>mp3releaser</h1>
+  <h1>mp3releaser <span id="version"></span></h1>
+  <button id="root" title="Zurück zur obersten Ebene: die eingehängten Ordner">⌂ Wurzel</button>
   <button id="up">↑ eine Ebene</button>
   <button id="load">Einlesen</button>
   <select id="template"><option value="">Vorlage …</option></select>
@@ -320,6 +323,7 @@ function render(state) {
   document.getElementById("build").disabled = !enabled.build;
   document.getElementById("produce").disabled = !enabled.produce;
   document.getElementById("up").disabled = !state.listed_path;
+  document.getElementById("root").disabled = !state.listed_path;
 }
 
 // Die Felder werden einmal gebaut und danach an Ort und Stelle
@@ -701,6 +705,9 @@ function showPlan(payload, kind) {
               plan.text, kind, plan.safe);
 }
 
+// Direkt zur obersten Ebene - auch aus einem Ordner, den es nicht mehr gibt
+document.getElementById("root").onclick = () =>
+  call("/api/browse", { path: null }).then(render);
 document.getElementById("up").onclick = () => {
   const path = current && current.listed_path;
   const parent = path && path.includes("/")
@@ -781,6 +788,7 @@ document.getElementById("planApply").onclick = () => {
 async function start() {
   const info = await call("/api/info");
   if (info) {
+    document.getElementById("version").textContent = info.version || "";
     const mounts = (info.mounts.mounts || [])
       .map(m => m.name + (m.writable ? "" : " (nur lesen)")).join(", ");
     document.getElementById("scope").textContent =
@@ -824,6 +832,18 @@ async function start() {
   render(await call("/api/state"));
 }
 start();
+
+// Zurück im Tab, etwa nach dem Aufräumen im Dateimanager: Der Dienst gleicht
+// beim Abruf des Zustands mit der Platte ab (AppState.revisit) - sonst zeigte
+// die Liste weiter Ordner, die es nicht mehr gibt, bis man die Seite neu lud.
+// "pageshow" mit persisted: Die Seite kam aus dem Zwischenspeicher des
+// Browsers zurück, ohne dass start() erneut lief.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") call("/api/state").then(render);
+});
+window.addEventListener("pageshow", event => {
+  if (event.persisted) call("/api/state").then(render);
+});
 </script>
 </body>
 </html>
