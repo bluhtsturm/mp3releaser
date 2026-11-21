@@ -129,7 +129,10 @@ Ausbruchsprüfung, Audio-Leser, Kommandozeile, Geführter Modus, Packaging.
 * `tests/test_api.py` (4): `release` mit Konfiguration, `build` ignoriert
   sie, belegtes Ziel, fehlender Ordner
 * `tools/webcheck.py`: zweiter Einhängepunkt `ausgang`, Schritt
-  „Ausgabeordner“, Ergebnis prüft „Verschoben nach“
+  „Ausgabeordner“, Ergebnis prüft „Verschoben nach“. Gezählt wird jetzt je
+  gemeldeter Prüfung, nicht je Schritt – ein Schritt darf mehrere melden
+  (der erste Lauf im Workflow meldete „23 von 21“). Ob alle Schritte
+  durchliefen, sagt ein eigenes Kennzeichen; ein Abbruch wird genannt.
 * Durchsicht: `test_extras.py` (CUE-Image durch „Release erstellen“, Plan
   je Datei einmal, Windows-Pfad im CUE), `test_audio.py` (MP3 ohne Tags),
   `test_sfv_m3u.py` (Katalognummer), `test_web.py` (keine Wirtspfade in
