@@ -18,6 +18,7 @@ das Release zurueck an seinen alten Platz.
 from __future__ import annotations
 
 import errno
+import os
 import shutil
 from pathlib import Path
 from typing import Optional
@@ -59,6 +60,16 @@ def move_path(src: Path, dst: Path) -> None:
         src.unlink()
 
 
+def writable_dir(path: Path) -> bool:
+    """Darf dieser Prozess im Ordner anlegen, umbenennen und loeschen?
+
+    Der Schalter ``:ro`` eines Einhaengepunkts sagt das nicht vollstaendig:
+    Ein mit ``sudo`` angelegter Ordner gehoert root, und der Dienst im
+    Container (Benutzer 1000) darf trotzdem nicht hinein.
+    """
+    return os.access(path, os.W_OK | os.X_OK)
+
+
 def target_for(root: Path, output_dir: Path, name: Optional[str] = None) -> Path:
     """Wo das Release nach dem Verschieben liegt."""
     return Path(output_dir) / (name or Path(root).name)
@@ -87,6 +98,14 @@ def check_move(root: Path, output_dir: Path,
     target = target_for(root, output_dir, name)
     if target.exists() or target.is_symlink():
         return [f"Im Ausgabeordner gibt es schon {target.name}"]
+    # Die Rechte erst jetzt - aber vor jedem Schritt von "Release erstellen":
+    # Frueher fiel ein fehlendes Schreibrecht erst beim Verschieben auf, mit
+    # Tags und Umbenennung schon erledigt - ein halb fertiges Release.
+    if not writable_dir(output_dir):
+        return [f"Ausgabeordner ist nicht beschreibbar: {output_dir}"]
+    if not writable_dir(here.parent):
+        return [f"Das Release kann nicht aus {here.parent} heraus verschoben "
+                "werden - dort fehlt das Schreibrecht"]
     return []
 
 

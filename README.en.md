@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.27.5 as an example:
+is `SHA256SUMS` with the checksum. Using 0.27.6 as an example:
 
 ```bash
-chmod +x mp3releaser-0.27.5-x86_64.AppImage
-./mp3releaser-0.27.5-x86_64.AppImage              # graphical interface
-./mp3releaser-0.27.5-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.27.6-x86_64.AppImage
+./mp3releaser-0.27.6-x86_64.AppImage              # graphical interface
+./mp3releaser-0.27.6-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 931 tests
+python3 -m pytest tests -q          # 936 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -1425,7 +1425,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 931 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 936 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1868,6 +1868,14 @@ that fails against the old state:
   several ("™" → "TM") was only replaced when writing — the line was one
   column too wide, the frame jumped, and the preview differed from the file.
   Now the renderer replaces before aligning.
+* **Container variants walked through** (0.27.6): output folder in the same
+  volume (`eingang/fertig`) and nested (`ausgang/2026`), 1 GB across a mount
+  point (1.4 s, the service kept answering), two sessions with separate undo —
+  all fine. Found: an output folder owned by root only showed up when moving —
+  tags, renaming and companion files were already done. Now "Release
+  erstellen" checks the actual write permissions (output, release folder,
+  files) beforehand, and entering the output folder already says what is
+  missing.
 
 ### What is open
 

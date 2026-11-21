@@ -378,11 +378,52 @@ class AppState:
                      Level.ERROR)
             self._changed()
             return False
+        from .output import writable_dir
+
+        if not writable_dir(real):
+            self.say(f"Ausgabeordner {virtual} ist nicht beschreibbar"
+                     + self._rights_hint(), Level.ERROR)
+            self._changed()
+            return False
         self.output_path = virtual
         if announce:
             self.say(f"Ausgabeordner: {virtual}")
         self._changed()
         return True
+
+    def _rights_hint(self) -> str:
+        """Wer hier schreibt - im Container der Benutzer des Dienstes."""
+        import os
+
+        from .browse import MountedSource
+
+        if not isinstance(self.source, MountedSource) or not hasattr(os, "getuid"):
+            return " - es fehlt das Schreibrecht."
+        return (f" - der Dienst läuft als Benutzer {os.getuid()}, der Ordner "
+                "auf dem Wirt muss für ihn beschreibbar sein "
+                f"(etwa: sudo chown {os.getuid()}:{os.getgid()} <Ordner>).")
+
+    def _write_problems(self, rename_plan) -> list[str]:
+        """Was "Release erstellen" an fehlenden Schreibrechten scheitern liesse.
+
+        Vorher geprueft wie Kollisionen: Tags brauchen die Dateien, die
+        Begleitdateien den Ordner, das Umbenennen auch den Ordner darueber.
+        """
+        import os
+
+        from .output import writable_dir
+
+        problems: list[str] = []
+        if not writable_dir(self.root):
+            problems.append(f"keine Schreibrechte im Release-Ordner: {self.root}")
+        if any(op.kind == "root" for op in rename_plan.changes) \
+                and not writable_dir(self.root.parent):
+            problems.append("keine Schreibrechte zum Umbenennen des Ordners in "
+                            f"{self.root.parent}")
+        for path in sorted({t.path for t in self.release.tracks if t.path}):
+            if not os.access(path, os.W_OK):
+                problems.append(f"keine Schreibrechte für {Path(path).name}")
+        return problems
 
     def output_dir(self) -> Optional[Path]:
         """Der Ausgabeordner als echter Pfad, oder None."""
@@ -1055,6 +1096,15 @@ class AppState:
             self.say("Nichts geändert: Beim Umbenennen gäbe es eine "
                      "Namenskollision (siehe Reiter „Namen“).", Level.ERROR)
             self.rename_plan = rename_plan
+            self._changed()
+            return None
+
+        problems = self._write_problems(rename_plan)
+        if problems:
+            for problem in problems:
+                self.say(problem, Level.ERROR)
+            self.say("Nichts geändert: Es fehlen Schreibrechte"
+                     + self._rights_hint(), Level.ERROR)
             self._changed()
             return None
 

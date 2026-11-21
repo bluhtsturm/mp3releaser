@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.5:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.6:
 
 ```bash
-chmod +x mp3releaser-0.27.5-x86_64.AppImage
-./mp3releaser-0.27.5-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.27.5-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.27.6-x86_64.AppImage
+./mp3releaser-0.27.6-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.27.6-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 931 Tests
+python3 -m pytest tests -q          # 936 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -1422,7 +1422,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-931 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+936 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1880,6 +1880,14 @@ gegen den alten Stand fehlschlägt:
   Schreiben ersetzt – die Zeile war eine Spalte zu breit, der Rahmen sprang,
   und die Vorschau zeigte etwas anderes als die Datei. Jetzt ersetzt der
   Renderer vor dem Ausrichten.
+* **Container-Varianten durchgespielt** (0.27.6): Ausgabeordner im selben
+  Volume (`eingang/fertig`) und verschachtelt (`ausgang/2026`), 1 GB über
+  einen Einhängepunkt (1,4 s, der Dienst antwortete weiter), zwei Sitzungen
+  mit getrennter Rücknahme – alles in Ordnung. Gefunden: Ein Ausgang, der
+  root gehört, fiel erst beim Verschieben auf – Tags, Umbenennung und
+  Begleitdateien waren da schon erledigt. Jetzt prüft „Release erstellen“
+  die echten Schreibrechte (Ausgang, Release-Ordner, Dateien) vorher, und
+  schon das Eintragen des Ausgabeordners sagt, was fehlt.
 
 ### Was offen ist
 
