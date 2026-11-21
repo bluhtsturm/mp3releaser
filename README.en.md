@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 883 tests
+python3 -m pytest tests -q          # 884 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -1345,7 +1345,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 883 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 884 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1727,6 +1727,11 @@ takes effect.
   replaces the single character (`’` → `'`, `™` → `TM`, otherwise `?`);
   decomposed umlauts from macOS names are composed first and stay `ä`. The
   same applies to .sfv and .m3u.
+* **Result window with only "Cancel".** After "Create release" the summary
+  window stayed open offering only "Cancel" (Abbrechen), although there was
+  nothing left to cancel. Messages (created, checked, saved) now have a
+  single "OK" button in the web interface, focused so Enter closes it. Plans
+  keep "Cancel" and "Run".
 
 ### What is open
 

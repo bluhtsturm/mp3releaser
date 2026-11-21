@@ -1,15 +1,19 @@
-# Änderungen – 0.26.1: Blockgrafik der NFO bleibt erhalten
+# Änderungen – 0.26.1: Blockgrafik der NFO, „OK“ im Ergebnisfenster
 
 Stand: 21.11.2026 · Version 0.26.0 → **0.26.1**
 
 Rückmeldung aus der Erprobung der Container-Fassung mit einem Atmos-Album:
-In der erzeugten .nfo fehlten alle Zeichen der Blockgrafik.
+In der erzeugten .nfo fehlten alle Zeichen der Blockgrafik. Und nach
+„Release erstellen“ blieb das Ergebnisfenster mit nur einem Knopf
+„Abbrechen“ stehen.
 
 | | vorher | nachher |
 |---|---|---|
-| Tests | 880 | 883 |
+| Tests | 880 | 884 |
+| Prüfungen im echten Browser (`tools/webcheck.py`) | 20 | 21 |
 
-Gegen 0.26.0 laufen gelassen, schlagen die drei neuen Tests fehl.
+Gegen 0.26.0 laufen gelassen, schlagen die vier neuen Tests und ein
+angepasster fehl.
 
 ## 1. Ursache
 
@@ -31,14 +35,36 @@ Apostroph `’`, ein Halbgeviertstrich `–`, `™`, `東` oder ein Emoji.
 * Betrifft .nfo, .sfv und .m3u gleichermaßen (alle schreiben über
   `to_codepage`), Desktop, Kommandozeile und Weboberfläche.
 
-## 3. Neue Tests (`tests/test_skl.py`)
+## 3. Ergebnisfenster mit „OK“ statt „Abbrechen“
 
-* `test_one_unmappable_character_keeps_the_block_graphics`
-* `test_standard_template_keeps_its_frame_with_an_unmappable_tag` – die
-  mitgelieferte `standard.skl` mit einem Tag wie aus der Erprobung
-* `test_decomposed_umlaut_stays_an_umlaut`
+Die Weboberfläche hat einen Dialog für zwei Zwecke: Pläne („Umbenennen“,
+„Tags schreiben“, „Zurücknehmen“) mit „Abbrechen“ und „Ausführen“, und
+Meldungen („Release erstellt“, „Release/Vorlage geprüft“, „Als Standard
+gespeichert“). Bei Meldungen wurde nur „Ausführen“ ausgeblendet – übrig
+blieb „Abbrechen“, als liefe noch etwas.
 
-## 4. Dokumentation
+* Zwei Funktionen statt fünf Kopien: `showInfo` (ein Knopf „OK“,
+  hervorgehoben und vorausgewählt, Enter schließt) und `showConfirm`
+  („Abbrechen“ und „Ausführen“).
+* Der Desktop war nicht betroffen – dort hat die Meldung schon immer
+  „Schließen“.
+* Im Browser nachgeprüft (Chromium): Plan zeigt „Abbrechen“/„Ausführen“,
+  das Ergebnis von „Release erstellen“ nur „OK“, Enter schließt es,
+  „Zurücknehmen“ zeigt danach wieder beide Knöpfe; keine JavaScript-Fehler.
+
+## 4. Neue und geänderte Tests
+
+* `tests/test_skl.py`:
+  `test_one_unmappable_character_keeps_the_block_graphics`,
+  `test_standard_template_keeps_its_frame_with_an_unmappable_tag` (die
+  mitgelieferte `standard.skl` mit einem Tag wie aus der Erprobung),
+  `test_decomposed_umlaut_stays_an_umlaut`
+* `tests/test_web.py`: neu `test_result_dialog_offers_ok_instead_of_cancel`;
+  `test_plan_dialog_shows_the_apply_button_again` prüft jetzt `showConfirm`
+* `tools/webcheck.py` (WebKitGTK): Das Ergebnisfenster hat „OK“, ist
+  vorausgewählt und schließt; ein Plan hat weiterhin „Abbrechen“
+
+## 5. Dokumentation
 
 README, README.en.md (Abschnitt „Aus der sechzehnten Erprobung“,
 Testzahl, Versionsbeispiel), EINRICHTUNG.md (Testzahl), GITHUB.md.

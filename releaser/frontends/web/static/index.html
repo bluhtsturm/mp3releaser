@@ -634,12 +634,37 @@ document.getElementById("p-prefix").onchange = event =>
 document.getElementById("saveDefaults").onclick = async () => {
   const data = await call("/api/settings", {});
   if (!data) return;
-  pendingPlan = null;
-  document.getElementById("planTitle").textContent = "Als Standard gespeichert";
-  document.getElementById("planText").textContent = data.summary;
-  document.getElementById("planApply").style.display = "none";
-  document.getElementById("plan").showModal();
+  showInfo("Als Standard gespeichert", data.summary);
 };
+
+// Ein Dialog fuer zwei Zwecke. Eine Meldung ("Release erstellt", "geprüft",
+// "gespeichert") hat nichts abzubrechen - dort stand frueher trotzdem nur
+// "Abbrechen". Jetzt: Meldung -> ein Knopf "OK", Plan -> "Abbrechen" und
+// "Ausführen".
+function showInfo(title, text) {
+  pendingPlan = null;
+  document.getElementById("planTitle").textContent = title;
+  document.getElementById("planText").textContent = text;
+  document.getElementById("planApply").style.display = "none";
+  const close = document.getElementById("planCancel");
+  close.textContent = "OK";
+  close.classList.add("primary");
+  document.getElementById("plan").showModal();
+  close.focus();
+}
+
+function showConfirm(title, text, kind, allowed = true) {
+  pendingPlan = kind;
+  document.getElementById("planTitle").textContent = title;
+  document.getElementById("planText").textContent = text;
+  const apply = document.getElementById("planApply");
+  apply.style.display = "";
+  apply.disabled = !allowed;
+  const cancel = document.getElementById("planCancel");
+  cancel.textContent = "Abbrechen";
+  cancel.classList.remove("primary");
+  document.getElementById("plan").showModal();
+}
 
 function showPlan(payload, kind) {
   // Bei einem Fehler liefert call() null - die Meldung steht dann schon da.
@@ -647,16 +672,10 @@ function showPlan(payload, kind) {
   render(payload);
   const plan = payload.plan;
   if (!plan || !plan.changes) return;
-  pendingPlan = kind;
-  document.getElementById("planTitle").textContent =
-    kind === "tags" ? "Tags schreiben" : "Umbenennen";
-  document.getElementById("planText").textContent = plan.text;
-  const apply = document.getElementById("planApply");
-  // "Prüfen" blendet den Knopf aus - hier muss er wieder sichtbar werden,
-  // sonst ließ sich nach einer Prüfung kein Plan mehr ausführen.
-  apply.style.display = "";
-  apply.disabled = !plan.safe;
-  document.getElementById("plan").showModal();
+  // showConfirm blendet "Ausführen" wieder ein - nach einer Meldung ließ
+  // sich sonst kein Plan mehr ausführen.
+  showConfirm(kind === "tags" ? "Tags schreiben" : "Umbenennen",
+              plan.text, kind, plan.safe);
 }
 
 document.getElementById("up").onclick = () => {
@@ -678,16 +697,12 @@ document.getElementById("produce").onclick = () =>
   call("/api/produce", {}).then(payload => {
     if (!payload) return;
     render(payload);
-    pendingPlan = null;
-    document.getElementById("planTitle").textContent =
-      payload.done ? "Release erstellt" : "Release nicht erstellt";
-    document.getElementById("planText").textContent = payload.done
-      ? payload.done.join("\n")
-        + "\n\nZurücknehmen mit ↶ – erst die Umbenennung, dann die Tags."
-      : (payload.messages || []).filter(m => m.level !== "info")
-          .map(m => (m.level === "error" ? "x " : "! ") + m.text).join("\n");
-    document.getElementById("planApply").style.display = "none";
-    document.getElementById("plan").showModal();
+    showInfo(payload.done ? "Release erstellt" : "Release nicht erstellt",
+      payload.done
+        ? payload.done.join("\n")
+          + "\n\nZurücknehmen mit ↶ – erst die Umbenennung, dann die Tags."
+        : (payload.messages || []).filter(m => m.level !== "info")
+            .map(m => (m.level === "error" ? "x " : "! ") + m.text).join("\n"));
   });
 function showSteps(open) {
   document.getElementById("stepsMenu").classList.toggle("hidden", !open);
@@ -710,12 +725,8 @@ document.getElementById("check").onclick = async () => {
   if (!data) return;
   for (const message of data.messages || []) note(message.level, message.text);
   if (!data.text) return;
-  pendingPlan = null;
-  document.getElementById("planTitle").textContent =
-    what === "release" ? "Release geprüft" : "Vorlage geprüft";
-  document.getElementById("planText").textContent = data.text;
-  document.getElementById("planApply").style.display = "none";
-  document.getElementById("plan").showModal();
+  showInfo(what === "release" ? "Release geprüft" : "Vorlage geprüft",
+           data.text);
 };
 
 document.getElementById("undo").onclick = async () => {
@@ -723,15 +734,10 @@ document.getElementById("undo").onclick = async () => {
   if (!data) return;
   if (!data.entries.length) { note("warning", "Nichts rückgängig zu machen."); return; }
   const last = data.entries[data.entries.length - 1];
-  pendingPlan = "undo";
   // Zurückgenommen werden Umbenennungen wie auch geschriebene Tags
-  document.getElementById("planTitle").textContent = "Zurücknehmen";
-  document.getElementById("planText").textContent =
-    `${last.when}  ${last.release}  (${last.count} ${last.label || "Einträge"})`;
-  const apply = document.getElementById("planApply");
-  apply.style.display = "";
-  apply.disabled = false;
-  document.getElementById("plan").showModal();
+  showConfirm("Zurücknehmen",
+    `${last.when}  ${last.release}  (${last.count} ${last.label || "Einträge"})`,
+    "undo");
 };
 
 document.getElementById("template").onchange = event => {

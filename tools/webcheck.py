@@ -290,6 +290,8 @@ def build_steps(checker: Checker) -> None:
 
     def step_cancel_changes_nothing():
         c.js("""
+             if (document.getElementById('planCancel').textContent
+                 !== 'Abbrechen') throw new Error('Plan ohne Abbrechen');
              document.getElementById('planCancel').click();
              JSON.stringify(document.getElementById('plan').open)
              """,
@@ -414,13 +416,28 @@ def build_steps(checker: Checker) -> None:
              lambda _: None)
         c.wait("JSON.stringify(document.getElementById('plan').open)",
                lambda _: c.js("""
-                   JSON.stringify({
+                   const close = document.getElementById('planCancel');
+                   const apply = document.getElementById('planApply');
+                   const got = {
                      title: document.getElementById('planTitle').textContent,
-                     text: document.getElementById('planText').textContent})
+                     text: document.getElementById('planText').textContent,
+                     button: close.textContent,
+                     focused: document.activeElement === close,
+                     apply: getComputedStyle(apply).display};
+                   close.click();
+                   got.closed = !document.getElementById('plan').open;
+                   JSON.stringify(got)
                    """, lambda got: (
                        c.report(got.get("title") == "Release erstellt"
                                 and "Erzeugt:" in (got.get("text") or ""),
                                 f"Ein Klick erstellt das Release ({got})"),
+                       # Eine Meldung hat nichts abzubrechen: ein Knopf "OK",
+                       # vorausgewaehlt, und er schliesst das Fenster
+                       c.report(got.get("button") == "OK"
+                                and got.get("focused")
+                                and got.get("apply") == "none"
+                                and got.get("closed"),
+                                "Ergebnisfenster schließt mit „OK“"),
                        c.next())))
 
     c.steps = [step_loaded, step_banner, step_buttons_disabled, step_select,

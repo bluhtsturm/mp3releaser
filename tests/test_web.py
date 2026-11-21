@@ -844,5 +844,31 @@ def test_plan_dialog_shows_the_apply_button_again():
 
     page = (STATIC / "index.html").read_text(encoding="utf-8")
     show_plan = page.split("function showPlan", 1)[1].split("\n}\n", 1)[0]
-    assert 'style.display = ""' in show_plan
+    assert "showConfirm(" in show_plan
     assert "if (!payload) return;" in show_plan
+    confirm = page.split("function showConfirm", 1)[1].split("\n}\n", 1)[0]
+    assert 'style.display = ""' in confirm
+    assert 'textContent = "Abbrechen"' in confirm
+
+
+def test_result_dialog_offers_ok_instead_of_cancel():
+    """Nach "Release erstellen" stand im Ergebnisfenster nur "Abbrechen" -
+    obwohl nichts mehr abzubrechen war. Meldungen zeigen jetzt einen Knopf
+    "OK", und jede Meldung geht ueber showInfo."""
+    from releaser.frontends.web.app import STATIC
+
+    page = (STATIC / "index.html").read_text(encoding="utf-8")
+    info = page.split("function showInfo", 1)[1].split("\n}\n", 1)[0]
+    assert 'textContent = "OK"' in info
+    assert '.style.display = "none"' in info
+    assert ".focus()" in info
+    # Ausser in showInfo blendet niemand "Ausführen" aus und oeffnet selbst
+    rest = page.replace(info, "")
+    assert '"planApply").style.display = "none"' not in rest
+    assert rest.count(".showModal()") == 1          # nur showConfirm
+    for title in ("Release erstellt", "Release geprüft",
+                  "Als Standard gespeichert"):
+        assert title in page
+    produce = page.split('getElementById("produce").onclick', 1)[1] \
+        .split("\n});\n", 1)[0]
+    assert "showInfo(" in produce
