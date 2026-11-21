@@ -77,6 +77,9 @@ class Checker:
         self.results: list[tuple[bool, str]] = []
         self.steps: list = []
         self.index = 0
+        #: alle Schritte durchgelaufen - nicht aus der Zahl der Ergebnisse
+        #: ableitbar, weil ein Schritt mehrere Pruefungen melden darf
+        self.finished = False
 
     def report(self, ok: bool, text: str) -> None:
         self.results.append((ok, text))
@@ -130,6 +133,7 @@ class Checker:
 
     def next(self, *_args) -> None:
         if self.index >= len(self.steps):
+            self.finished = True
             self.loop.quit()
             return
         step = self.steps[self.index]
@@ -507,11 +511,16 @@ def main() -> int:
 
     failed = [text for ok, text in checker.results if not ok]
     print()
-    print(f"{len(checker.results) - len(failed)} von {len(checker.steps)} "
+    print(f"{len(checker.results) - len(failed)} von {len(checker.results)} "
           f"Pruefungen bestanden")
+    if not checker.finished:
+        # Zeitueberschreitung: Die fehlenden Schritte sind nicht bestanden,
+        # nur nicht gelaufen - das muss trotzdem auffallen.
+        print(f"  abgebrochen nach Schritt {checker.index} von "
+              f"{len(checker.steps)}")
     for text in failed:
         print(f"  fehlgeschlagen: {text}")
-    return 0 if not failed and len(checker.results) == len(checker.steps) else 1
+    return 0 if not failed and checker.finished else 1
 
 
 if __name__ == "__main__":
