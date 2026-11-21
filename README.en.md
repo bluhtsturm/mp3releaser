@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.27.0 as an example:
+is `SHA256SUMS` with the checksum. Using 0.27.1 as an example:
 
 ```bash
-chmod +x mp3releaser-0.27.0-x86_64.AppImage
-./mp3releaser-0.27.0-x86_64.AppImage              # graphical interface
-./mp3releaser-0.27.0-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.27.1-x86_64.AppImage
+./mp3releaser-0.27.1-x86_64.AppImage              # graphical interface
+./mp3releaser-0.27.1-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 915 tests
+python3 -m pytest tests -q          # 921 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -1385,6 +1385,20 @@ that lead out of the mount point. The last case is the least conspicuous: the
 path looks harmless until it is resolved, which is why the check happens
 afterwards, not before.
 
+### Folders that no longer exist
+
+The file list shows what was on disk when it was last read. Meanwhile a
+folder may have disappeared: renamed, moved into the output folder, deleted
+by hand. Opening it now leads to the nearest folder above that still exists,
+the roots at worst, with a notice. Up to 0.27.0 nothing changed, and every
+click ended in an error message.
+
+The web interface keeps its session even when the page is closed. On
+reopening it therefore first compares itself with the disk
+(`AppState.revisit`): the list is read again, and a loaded release that is
+gone is forgotten. The path line and "↑ eine Ebene" follow the folder the
+list shows, not the loaded release.
+
 ## Guided mode
 
 `wizard` guides you through the four steps and shows what would happen before
@@ -1398,7 +1412,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 915 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 921 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1809,6 +1823,14 @@ that fails against the old state:
   led nowhere.
 * **Desktop:** three fields checked focus on the `Gtk.Entry` instead of its
   inner text field — so the check was always false.
+
+### From the seventeenth trial (container)
+
+* **No way back to the roots.** After closing and reopening the page, the
+  file list still stood in the last folder shown, which no longer existed.
+  0.27.1 compares with the disk on reopening and leads out of vanished
+  folders to the nearest existing one (see
+  [Folders that no longer exist](#folders-that-no-longer-exist)).
 
 ### What is open
 

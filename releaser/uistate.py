@@ -32,6 +32,11 @@ from .tags import Settings
 from .tagwriter import TagPlan, TagProfile
 
 
+#: Rueckgabe von AppState._existing_ancestor: der Pfad fehlt nicht, er ist
+#: unzulaessig oder unlesbar
+_NOT_MISSING = object()
+
+
 class Level(Enum):
     INFO = "info"
     WARNING = "warning"
@@ -216,7 +221,14 @@ class AppState:
         self._changed()
 
     def navigate(self, path: Optional[str]) -> list[Entry]:
-        """Öffnet ein Verzeichnis in der Auswahl."""
+        """Öffnet ein Verzeichnis in der Auswahl.
+
+        Gibt es das Verzeichnis nicht mehr - umbenannt, verschoben, von
+        Hand gelöscht -, geht es zum nächsten vorhandenen darüber, notfalls
+        zur Wurzel. Früher blieb dann alles, wie es war: Die Liste zeigte
+        weiter Ordner, die es nicht mehr gab, und jeder Klick endete in
+        einer Fehlermeldung.
+        """
         if path is None:
             return self.show_roots()
         try:
@@ -224,9 +236,90 @@ class AppState:
             self.current_path = self.listed_path = path
             self.selected_path = None
         except AccessError as exc:
-            self.say(str(exc), Level.ERROR)
+            ancestor = self._existing_ancestor(path)
+            if ancestor is _NOT_MISSING:
+                self.say(str(exc), Level.ERROR)
+            else:
+                self.say(f"{path} gibt es nicht mehr - zurück zu "
+                         f"{ancestor or 'der Wurzel'}", Level.WARNING)
+                return self.navigate(ancestor)
         self._changed()
         return self.entries
+
+    def _existing_ancestor(self, path: str):
+        """Der nächste vorhandene Ordner über einem verschwundenen Pfad.
+
+        ``None`` heißt: die Wurzel. ``_NOT_MISSING``, wenn der Pfad gar nicht
+        fehlt, sondern unzulässig oder unlesbar ist - dann bleibt es bei der
+        Fehlermeldung, statt still woandershin zu springen.
+        """
+        try:
+            if self.source.resolve(path).exists():
+                return _NOT_MISSING
+        except AccessError:
+            return _NOT_MISSING
+        current = path.rstrip("/")
+        while True:
+            parent = current.rsplit("/", 1)[0]
+            if not parent or parent == current:
+                return None
+            current = parent
+            try:
+                if self.source.resolve(current).is_dir():
+                    return current
+            except AccessError:
+                return None
+
+    def revisit(self) -> None:
+        """Gleicht die Sitzung mit dem Dateisystem ab - beim Wiederöffnen.
+
+        Die Weboberfläche behält eine Sitzung, auch wenn die Seite
+        geschlossen wird. Inzwischen kann sich auf der Platte einiges getan
+        haben: das Release wurde verschoben, ein Ordner gelöscht. Die
+        gemerkte Liste zeigte das nicht, und wer nur verschwundene Ordner
+        sah, kam nicht mehr zur Wurzel zurück.
+        """
+        if self.release is not None and self.root is not None \
+                and not self.root.is_dir():
+            self.say(f"Das eingelesene Release gibt es nicht mehr: "
+                     f"{self.current_path or self.root.name}", Level.WARNING)
+            self._unload()
+        selected = self.selected_path
+        if self.listed_path is None:
+            self.entries = self.source.roots()
+            if self.release is None:
+                self.current_path = None
+        elif self.release is None:
+            self.navigate(self.listed_path)
+        else:
+            # Ein Release ist eingelesen - nur die Liste nachziehen, der Pfad
+            # des Releases (current_path) bleibt.
+            try:
+                self.entries = self.source.list(self.listed_path)
+            except AccessError:
+                ancestor = self._existing_ancestor(self.listed_path)
+                self.say(f"{self.listed_path} gibt es nicht mehr",
+                         Level.WARNING)
+                self.listed_path = (None if ancestor is _NOT_MISSING
+                                    else ancestor)
+                self.entries = (self.source.list(self.listed_path)
+                                if self.listed_path else self.source.roots())
+        if selected and any(e.path == selected for e in self.entries):
+            self.selected_path = selected
+        elif self.selected_path and all(e.path != self.selected_path
+                                        for e in self.entries):
+            self.selected_path = None
+        self._changed()
+
+    def _unload(self) -> None:
+        """Vergisst das eingelesene Release - es gibt es nicht mehr."""
+        self.release = None
+        self.root = None
+        self.origins = OriginMap()
+        self.modified.clear()
+        self.rename_plan = None
+        self.tag_plan = None
+        self.current_path = self.listed_path
 
     # --------------------------------------------------------- Ausgabeordner
 
@@ -304,11 +397,17 @@ class AppState:
         return check_move(self.root, target, future_name)
 
     def parent_path(self) -> Optional[str]:
-        """Der übergeordnete Pfad, oder None an der Wurzel."""
-        if not self.current_path:
+        """Der Ordner über dem, den die Auswahl zeigt - None an der Wurzel.
+
+        Maßgeblich ist der angezeigte Ordner, nicht das eingelesene
+        Release: Sonst führte "nach oben" nach dem Einlesen erst einmal in
+        den Ordner, den man ohnehin schon sah.
+        """
+        base = self.listed_path
+        if not base:
             return None
-        parent = self.current_path.rsplit("/", 1)[0]
-        return None if parent == self.current_path else (parent or None)
+        parent = base.rstrip("/").rsplit("/", 1)[0]
+        return None if parent == base else (parent or None)
 
     def go_up(self) -> list[Entry]:
         return self.navigate(self.parent_path())

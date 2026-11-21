@@ -1373,3 +1373,80 @@ def test_listing_follows_a_rename(release_dir, template_file):
     assert state.produce() is not None
     assert [e.name for e in state.entries] == ["der_artist-das_album-2026-GRP"]
     assert state.selected_path is None
+
+
+# ================================================= verschwundene Ordner
+
+
+def test_navigating_to_a_vanished_folder_goes_to_the_nearest_existing(tmp_path):
+    """Ein Ordner, den es nicht mehr gibt, liess die Auswahl stehen - jeder
+    Klick endete in einer Fehlermeldung, die Wurzel war nicht erreichbar."""
+    (tmp_path / "eingang" / "a").mkdir(parents=True)
+    state = AppState(source=MountedSource([Mount("eingang",
+                                                 tmp_path / "eingang")]))
+    state.navigate("eingang/a/b/weg")
+    assert state.listed_path == state.current_path == "eingang/a"
+    assert state.last_message.level is Level.WARNING
+    assert "gibt es nicht mehr" in state.last_message.text
+
+    (tmp_path / "eingang" / "a").rmdir()
+    state.navigate("eingang/a")
+    assert state.listed_path == "eingang"
+    state.go_up()
+    assert state.listed_path is None and [e.name for e in state.entries] == \
+        ["eingang"]
+
+
+def test_revisit_follows_a_folder_removed_from_outside(tmp_path):
+    (tmp_path / "eingang" / "rel" / "CD1").mkdir(parents=True)
+    state = AppState(source=MountedSource([Mount("eingang",
+                                                 tmp_path / "eingang")]))
+    state.navigate("eingang/rel/CD1")
+    (tmp_path / "eingang" / "rel" / "CD1").rmdir()
+    (tmp_path / "eingang" / "rel").rename(tmp_path / "eingang" / "neu")
+
+    state.revisit()
+    assert state.listed_path == state.current_path == "eingang"
+    assert [e.name for e in state.entries] == ["neu"]
+    assert state.parent_path() is None
+
+
+@needs_ffmpeg
+def test_revisit_forgets_a_release_that_was_moved_away(release_dir):
+    state = state_for(release_dir)
+    state.navigate("eingang")
+    state.select("eingang/Artist-Album-2026-GRP")
+    state.load("eingang/Artist-Album-2026-GRP")
+    release_dir.rename(release_dir.parent.parent / "woanders")
+
+    state.revisit()
+    assert state.release is None and state.root is None
+    assert state.listed_path == state.current_path == "eingang"
+    assert state.entries == [] and state.selected_path is None
+    assert any("gibt es nicht mehr" in m.text for m in state.messages)
+    assert not state.enabled()[Action.PRODUCE]
+
+
+@needs_ffmpeg
+def test_revisit_keeps_a_loaded_release_and_refreshes_the_list(release_dir):
+    state = state_for(release_dir)
+    state.navigate("eingang")
+    state.load("eingang/Artist-Album-2026-GRP")
+    (release_dir.parent / "Neu").mkdir()
+
+    state.revisit()
+    assert state.release is not None
+    assert state.current_path == "eingang/Artist-Album-2026-GRP"
+    assert [e.name for e in state.entries] == ["Artist-Album-2026-GRP", "Neu"]
+
+
+@needs_ffmpeg
+def test_up_follows_the_listed_folder_not_the_loaded_release(release_dir):
+    """Nach dem Einlesen fuehrte "nach oben" erst in den Ordner, den man
+    ohnehin sah."""
+    state = state_for(release_dir)
+    state.navigate("eingang")
+    state.load("eingang/Artist-Album-2026-GRP")
+    assert state.parent_path() is None
+    state.go_up()
+    assert state.listed_path is None

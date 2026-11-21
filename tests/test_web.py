@@ -974,3 +974,21 @@ def test_mask_only_replaces_whole_mount_paths(tmp_path):
     assert source.mask(f"x {real}/a.mp3 y") == "x eingang/a.mp3 y"
     assert source.mask(f"'{real}'") == "'eingang'"
     assert source.mask(f"{real}2/a") == f"{real}2/a"
+
+
+@needs_ffmpeg
+def test_reopening_the_page_follows_what_happened_on_disk(client, tree):
+    """Die Sitzung ueberlebt das Schliessen der Seite. Beim Wiederoeffnen
+    zeigte die Liste noch Ordner, die es nicht mehr gab, und die Wurzel war
+    nicht mehr erreichbar."""
+    client.post("/api/browse", json={"path": "eingang/Artist-Album-2026-GRP"})
+    release = tree / "eingang" / "Artist-Album-2026-GRP"
+    release.rename(tree / "eingang" / "Anders")
+
+    state = client.get("/api/state").json()
+    assert state["listed_path"] == "eingang"
+    assert [e["name"] for e in state["entries"]] == ["Anders"]
+    assert any("gibt es nicht mehr" in m["text"] for m in state["messages"])
+    state = client.post("/api/browse", json={"path": None}).json()
+    assert state["listed_path"] is None
+    assert [e["name"] for e in state["entries"]] == ["eingang"]

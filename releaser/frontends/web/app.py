@@ -385,6 +385,9 @@ def state_json(state: AppState) -> dict:
             "covers": [p.name for p in state.covers()],
         },
         "current_path": state.current_path,
+        #: der Ordner, den die Liste zeigt - danach richten sich Pfadzeile
+        #: und "eine Ebene nach oben"
+        "listed_path": state.listed_path,
         "selected_path": state.selected_path,
         "entries": [entry_json(e) for e in state.entries],
         "groups": groups,
@@ -521,7 +524,15 @@ def create_app(source: Optional[MountedSource] = None,
     @app.get("/api/state")
     def read_state(response: Response,
                    releaser_session: Optional[str] = Cookie(default=None)):
-        return answer(response, session(response, releaser_session))
+        """Der Zustand beim (Wieder-)Öffnen der Seite.
+
+        Die Sitzung überlebt das Schließen der Seite. Was sie sich gemerkt
+        hat, wird deshalb erst mit der Platte abgeglichen - sonst zeigte die
+        Liste Ordner, die es inzwischen nicht mehr gibt.
+        """
+        state = session(response, releaser_session)
+        state.revisit()
+        return answer(response, state)
 
     @app.post("/api/browse")
     def browse(response: Response, path: Optional[str] = Body(None, embed=True),
