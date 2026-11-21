@@ -45,7 +45,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **915 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **921 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash

@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.0:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.1:
 
 ```bash
-chmod +x mp3releaser-0.27.0-x86_64.AppImage
-./mp3releaser-0.27.0-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.27.0-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.27.1-x86_64.AppImage
+./mp3releaser-0.27.1-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.27.1-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 915 Tests
+python3 -m pytest tests -q          # 921 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -1379,6 +1379,21 @@ Einhängepunkte, Null-Bytes — und **Symlinks**, die aus dem Einhängepunkt
 herausführen. Der letzte Fall ist der unauffälligste: Der Pfad sieht bis zum
 Auflösen harmlos aus, deshalb wird erst danach geprüft, nicht davor.
 
+### Ordner, die es nicht mehr gibt
+
+Die Auswahl zeigt, was beim letzten Blick auf der Platte lag. Inzwischen
+kann ein Ordner verschwunden sein: umbenannt, in den Ausgabeordner
+geschoben, von Hand gelöscht. Wer ihn öffnen will, landet im nächsten noch
+vorhandenen Ordner darüber, notfalls an der Wurzel, mit einem Hinweis.
+Bis 0.27.0 blieb alles stehen, und jeder Klick endete in einer Fehlermeldung.
+
+Die Weboberfläche behält ihre Sitzung, auch wenn die Seite geschlossen wird.
+Beim Wiederöffnen gleicht sie sich deshalb erst mit der Platte ab
+(`AppState.revisit`): Die Liste wird neu gelesen, und ein eingelesenes
+Release, das nicht mehr da ist, wird vergessen. Pfadzeile und „↑ eine Ebene“
+richten sich nach dem Ordner, den die Liste zeigt, nicht nach dem
+eingelesenen Release.
+
 ## Geführter Modus
 
 `wizard` führt durch die vier Schritte und zeigt vor jeder verändernden
@@ -1393,7 +1408,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-915 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+921 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1817,6 +1832,14 @@ gegen den alten Stand fehlschlägt:
   Ordnernamen; ein Klick darauf führte ins Leere.
 * **Desktop:** Drei Felder prüften den Fokus am `Gtk.Entry` statt an dessen
   innerem Textfeld – die Prüfung war dadurch immer falsch.
+
+### Aus der siebzehnten Erprobung (Container)
+
+* **Kein Weg zurück zur Wurzel.** Nach dem Schließen und Wiederöffnen der
+  Seite stand die Auswahl noch im zuletzt gezeigten Ordner, den es nicht
+  mehr gab. 0.27.1 gleicht beim Wiederöffnen mit der Platte ab und führt
+  aus verschwundenen Ordnern zum nächsten vorhandenen (siehe
+  [Ordner, die es nicht mehr gibt](#ordner-die-es-nicht-mehr-gibt)).
 
 ### Was offen ist
 

@@ -848,7 +848,8 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                     else "Dieser Ordner ist nur lesend eingehängt.")
 
         def _refresh_browser(self) -> None:
-            self.path_label.set_text(self.state.current_path or "(Wurzel)")
+            # Der Ordner, den die Liste zeigt - nicht das eingelesene Release
+            self.path_label.set_text(self.state.listed_path or "(Wurzel)")
             self.scope_label.set_text(
                 f"Sichtbar: {self.state.source.description}")
 

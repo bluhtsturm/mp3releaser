@@ -277,7 +277,10 @@ function render(state) {
   if (!state) return;
   current = state;
 
-  document.getElementById("crumbs").textContent = state.current_path || "(Wurzel)";
+  // Der Ordner, den die Liste zeigt - nicht das eingelesene Release. Nach
+  // dem Verschieben stand hier sonst "ausgang/…", während die Liste den
+  // Eingang zeigte.
+  document.getElementById("crumbs").textContent = state.listed_path || "(Wurzel)";
   const list = document.getElementById("entries");
   list.replaceChildren();
   for (const entry of state.entries) {
@@ -316,7 +319,7 @@ function render(state) {
   document.getElementById("rename").disabled = !enabled.preview_rename;
   document.getElementById("build").disabled = !enabled.build;
   document.getElementById("produce").disabled = !enabled.produce;
-  document.getElementById("up").disabled = !state.current_path;
+  document.getElementById("up").disabled = !state.listed_path;
 }
 
 // Die Felder werden einmal gebaut und danach an Ort und Stelle
@@ -699,7 +702,7 @@ function showPlan(payload, kind) {
 }
 
 document.getElementById("up").onclick = () => {
-  const path = current && current.current_path;
+  const path = current && current.listed_path;
   const parent = path && path.includes("/")
     ? path.slice(0, path.lastIndexOf("/")) : null;
   call("/api/browse", { path: parent }).then(render);

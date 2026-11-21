@@ -1,3 +1,65 @@
+# Änderungen – 0.27.1: Verzeichnisbaum nach verschwundenen Ordnern
+
+Stand: 21.11.2026 · Version 0.27.0 → **0.27.1**
+
+Rückmeldung aus der Erprobung des Containers: Nach dem Schließen und
+Wiederöffnen der Seite stand der Verzeichnisbaum noch im zuletzt gezeigten
+Ordner, den es inzwischen nicht mehr gab – die Wurzel war nicht mehr
+erreichbar.
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 915 | 921 |
+| Ergebnis hier (ohne GTK/WebKitGTK, Python 3.12) | 884 grün, 31 übersprungen | 890 grün, 31 übersprungen |
+| `pyflakes` | sauber | sauber |
+
+Gegen 0.27.0 laufen gelassen, schlagen alle sechs neuen Tests fehl.
+
+## 1. Ursache
+
+Die Weboberfläche behält ihre Sitzung über das Schließen der Seite hinaus
+(Cookie, eine Stunde). Beim Wiederöffnen lieferte sie die Verzeichnisliste,
+die sich die Sitzung zuletzt gemerkt hatte – ohne nachzusehen, ob es die
+Ordner noch gibt. Wurde ein Ordner inzwischen umbenannt, verschoben oder
+gelöscht, endete jeder Klick in „kein Verzeichnis“, und `navigate` ließ den
+Zustand dann unverändert. Dazu richteten sich Pfadzeile und „↑ eine Ebene“
+nach dem eingelesenen Release statt nach dem angezeigten Ordner: Nach dem
+Verschieben stand oben „ausgang/…“, während die Liste den Eingang zeigte.
+
+## 2. Änderung
+
+* `AppState.navigate`: Fehlt der Ordner, geht es zum nächsten vorhandenen
+  darüber, notfalls zur Wurzel – mit Hinweis. Unzulässige Pfade (außerhalb
+  des Einhängepunkts) bleiben ein Fehler.
+* `AppState.revisit` (neu): gleicht die Sitzung mit der Platte ab. Die Liste
+  wird neu gelesen, ein verschwundener Ordner führt zum nächsten
+  vorhandenen, ein eingelesenes Release, das es nicht mehr gibt, wird
+  vergessen. Die Weboberfläche ruft das beim (Wieder-)Öffnen der Seite
+  (`GET /api/state`).
+* Pfadzeile und „↑ eine Ebene“ (Web und Desktop) folgen dem angezeigten
+  Ordner (`listed_path`), nicht dem eingelesenen Release.
+* Im Browser nachgeprüft (Chromium): Im Release-Ordner stehen, Release
+  außerhalb der Oberfläche in den Ausgang räumen, Seite schließen und wieder
+  öffnen – die Liste zeigt den Eingang mit Hinweis, „↑“ führt zur Wurzel;
+  ebenso nach „Release erstellen“ mit Ausgabeordner. Keine
+  JavaScript-Fehler.
+
+## 3. Neue Tests
+
+* `tests/test_uistate.py`: verschwundener Ordner beim Öffnen, `revisit`
+  nach Umbenennen von außen, verschobenes Release wird vergessen,
+  eingelesenes Release bleibt und die Liste wird frisch, „↑“ nach dem
+  angezeigten Ordner
+* `tests/test_web.py`: Wiederöffnen nach einer Änderung auf der Platte
+
+## 4. Dokumentation
+
+README, README.en.md (Abschnitt „Ordner, die es nicht mehr gibt“,
+„Aus der siebzehnten Erprobung“, Testzahl, Versionsbeispiel),
+EINRICHTUNG.md (Testzahl), GITHUB.md.
+
+---
+
 # Änderungen – 0.27.0: Ausgabeordner, Blockgrafik der NFO, „OK“ im Ergebnisfenster
 
 Stand: 21.11.2026 · Version 0.26.0 → **0.27.0**
