@@ -1474,3 +1474,68 @@ def test_browsing_does_not_change_which_release_is_loaded(release_dir, tmp_path)
     assert not state.writable
     assert state.reload()
     assert state.root == release_dir.resolve()
+
+
+@pytest.fixture
+def no_write(monkeypatch):
+    """Siehe tests/test_output.py - Schreibrecht gezielt verweigern."""
+    import os
+
+    denied: set[str] = set()
+    real = os.access
+
+    def access(path, mode, *args, **kwargs):
+        if str(Path(path).resolve()) in denied and mode & os.W_OK:
+            return False
+        return real(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "access", access)
+    return lambda path: denied.add(str(Path(path).resolve()))
+
+
+@needs_ffmpeg
+def test_unwritable_output_changes_nothing(release_dir, template_file,
+                                           no_write):
+    """Aus dem Test im Container: Ein Ausgang, der root gehoert, fiel erst
+    beim Verschieben auf - Tags, Umbenennung und Begleitdateien waren da
+    schon erledigt, das Release lag halb fertig im Eingang."""
+    state = state_with_output(release_dir)
+    assert state.set_output("ausgang")
+    no_write(state.output_dir())
+    state.load_template(template_file)
+    state.load("eingang/Artist-Album-2026-GRP")
+    track = sorted(release_dir.glob("*.mp3"))[0]
+    before = (sorted(p.name for p in release_dir.iterdir()), _tags_of(track))
+
+    assert state.produce() is None
+    assert (sorted(p.name for p in release_dir.iterdir()),
+            _tags_of(track)) == before
+    errors = [m.text for m in state.messages if m.level is Level.ERROR]
+    assert any("Ausgabeordner ist nicht beschreibbar" in t for t in errors)
+    assert state.undo_entries() == []
+
+
+@needs_ffmpeg
+def test_unwritable_output_is_rejected_when_set(release_dir, no_write):
+    state = state_with_output(release_dir)
+    no_write(release_dir.parent.parent / "ausgang")
+    assert not state.set_output("ausgang")
+    assert state.output_path is None
+    text = state.last_message.text
+    assert "nicht beschreibbar" in text and "Benutzer" in text
+
+
+@needs_ffmpeg
+def test_unwritable_track_is_found_before_tagging(release_dir, template_file,
+                                                  no_write):
+    state = state_for(release_dir)
+    state.load_template(template_file)
+    state.load("eingang/Artist-Album-2026-GRP")
+    first, second = sorted(release_dir.glob("*.mp3"))
+    no_write(second)
+    before = _tags_of(first)
+    assert state.produce() is None
+    assert _tags_of(first) == before          # auch die erste Datei nicht
+    errors = [m.text for m in state.messages if m.level is Level.ERROR]
+    assert any(f"keine Schreibrechte für {second.name}" in t for t in errors)
+    assert any("Nichts geändert: Es fehlen Schreibrechte" in t for t in errors)

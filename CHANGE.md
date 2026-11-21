@@ -1,3 +1,57 @@
+# Änderungen – 0.27.6: Schreibrechte werden vorher geprüft
+
+Stand: 21.11.2026 · Version 0.27.5 → **0.27.6**
+
+Den Ausgabeordner im Container in Varianten durchgespielt, die im echten
+Docker-Betrieb vorkommen – mit dem Image aus `v0.27.5`, Dienst als Benutzer
+1000.
+
+| Variante | Ergebnis |
+|---|---|
+| Ausgang gehört root (mit `sudo` angelegt) | **eingetragen ohne Einwand; beim Erstellen erst Tags, Umbenennung und Begleitdateien, dann „Permission denied“ beim Verschieben – ein halb fertiges Release im Eingang** |
+| Ausgabeordner im selben Volume (`eingang/fertig`) | verschoben, Liste links aktuell |
+| verschachtelt (`ausgang/2026`) | verschoben |
+| 1 GB (4 × 250 MB) über einen Einhängepunkt | 1,4 s samt Tags und Prüfsummen; eine zweite Sitzung bekam ihre Antworten in höchstens 49 ms; SFV 4 ok |
+| zwei Sitzungen | jede sieht und nimmt nur die eigenen Schritte zurück |
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 931 | 936 |
+| Desktop-Tests mit echtem GTK 4.14 (Python 3.12) | 53 grün | 53 grün |
+| `pyflakes` | sauber | sauber |
+
+## Änderung
+
+Der Schalter `:ro` eines Einhängepunkts sagt nicht, ob der Dienst wirklich
+schreiben darf. Jetzt:
+
+* **Beim Eintragen des Ausgabeordners** (Web und Desktop): nicht
+  beschreibbar → abgelehnt, im Container mit Hinweis auf den Benutzer des
+  Dienstes und `sudo chown 1000:1000 <Ordner>`.
+* **Vor „Release erstellen“** – neben Kollisionen und Ausgang: Schreibrecht
+  im Release-Ordner (Begleitdateien), im Ordner darüber (Umbenennen,
+  Verschieben), an jeder Audiodatei (Tags) und im Ausgabeordner. Fehlt
+  etwas, wird nichts angefasst. Gilt auch für `release` auf der
+  Kommandozeile (`output.check_move`).
+* Im neu gebauten Container nachgeprüft: Ausgang root → beim Eintragen
+  abgelehnt; Recht nachträglich entzogen → „Nichts geändert“, Eingang
+  unverändert; Recht wieder da → verschoben; eine Audiodatei root → „keine
+  Schreibrechte für 02 - T 2.mp3“, nichts geändert.
+* EINRICHTUNG.md: Hinweis auf die Rechte der `data/`-Ordner.
+
+## Neue Tests
+
+* `tests/test_output.py`: Ausgang und Ordner um das Release nicht beschreibbar
+* `tests/test_uistate.py`: nicht beschreibbarer Ausgang ändert nichts und wird
+  beim Eintragen abgelehnt; nicht beschreibbare Audiodatei wird vor dem
+  Taggen erkannt
+
+Die Tests verweigern das Schreibrecht über `os.access` – sie laufen auch als
+root, und root darf alles. Gegen 0.27.5 laufen gelassen, schlagen alle fünf
+fehl.
+
+---
+
 # Änderungen – 0.27.5: Sonderzeichen verschieben den NFO-Rahmen nicht mehr
 
 Stand: 21.11.2026 · Version 0.27.4 → **0.27.5**

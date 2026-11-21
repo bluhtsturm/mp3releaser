@@ -130,3 +130,35 @@ def test_release_already_in_the_output_stays(tmp_path):
     new_root, entry = move_release(release, root, root.parent)
     assert new_root == root and entry is None
     assert root.is_dir()
+
+
+@pytest.fixture
+def no_write(monkeypatch):
+    """Verweigert das Schreibrecht fuer bestimmte Pfade - wie ein Ordner, der
+    root gehoert, waehrend der Dienst als Benutzer 1000 laeuft. Ueber
+    os.access, weil die Tests auch als root laufen, und root darf alles."""
+    import os
+
+    denied: set[str] = set()
+    real = os.access
+
+    def access(path, mode, *args, **kwargs):
+        if str(Path(path).resolve()) in denied and mode & os.W_OK:
+            return False
+        return real(path, mode, *args, **kwargs)
+
+    monkeypatch.setattr(os, "access", access)
+    return lambda path: denied.add(str(Path(path).resolve()))
+
+
+def test_unwritable_output_is_found_before_anything_happens(tmp_path, no_write):
+    root, out, _ = make_tree(tmp_path)
+    no_write(out)
+    assert check_move(root, out) == [
+        f"Ausgabeordner ist nicht beschreibbar: {out}"]
+
+
+def test_unwritable_source_folder_is_found_too(tmp_path, no_write):
+    root, out, _ = make_tree(tmp_path)
+    no_write(root.parent)
+    assert "dort fehlt das Schreibrecht" in check_move(root, out)[0]

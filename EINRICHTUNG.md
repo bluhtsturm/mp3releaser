@@ -45,7 +45,7 @@ pip install pytest
 python3 -m pytest tests -q
 ```
 
-Erwartet: **931 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
+Erwartet: **936 bestanden**. Tests, deren Werkzeug fehlt, werden übersprungen
 statt zu scheitern. Für den vollen Umfang:
 
 ```bash
@@ -90,6 +90,17 @@ cp -r /pfad/zu/einem/release data/eingang/
 cp ~/.config/mp3releaser/config.toml config/mp3releaser/config.toml
 docker compose up --build
 ```
+
+Der Dienst läuft im Container als Benutzer 1000. Die Ordner unter `data/`
+müssen für ihn beschreibbar sein – als normaler Benutzer angelegt sind sie
+das meist schon; mit `sudo` angelegt gehören sie root:
+
+```bash
+sudo chown -R 1000:1000 data/eingang data/ausgang
+```
+
+Fehlt das Recht, meldet die Oberfläche das beim Eintragen des
+Ausgabeordners und vor „Release erstellen“ – es wird dann nichts angefasst.
 
 Sichtbar ist ausschließlich, was unter `volumes` steht. Die Einstellungen des
 Containers stehen in `config/mp3releaser/config.toml`; gelesen werden sie beim
