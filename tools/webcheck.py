@@ -44,7 +44,11 @@ def start_server(mount: Path, templates: Path) -> threading.Thread:
 
     from releaser.frontends.web.app import create_app
 
-    app = create_app(MountedSource([Mount("eingang", mount)]),
+    # Daneben ein Ausgang - wie in docker-compose.yml
+    output = mount.parent / "ausgang"
+    output.mkdir(exist_ok=True)
+    app = create_app(MountedSource([Mount("eingang", mount),
+                                    Mount("ausgang", output)]),
                      naming=NamingProfile(group="GRP"),
                      templates_dir=templates, settings_file=SETTINGS)
     config = uvicorn.Config(app, host="127.0.0.1", port=PORT, log_level="error")
@@ -138,7 +142,8 @@ def build_steps(checker: Checker) -> None:
 
     def step_loaded():
         c.wait("JSON.stringify(document.querySelectorAll('.entry').length)",
-               lambda n: (c.report(n == 1, f"Auswahl zeigt {n} Eintrag (eingang)"),
+               lambda n: (c.report(n == 2, f"Auswahl zeigt {n} Einträge "
+                                           "(eingang, ausgang)"),
                           c.next()))
 
     def step_banner():
@@ -290,6 +295,8 @@ def build_steps(checker: Checker) -> None:
 
     def step_cancel_changes_nothing():
         c.js("""
+             if (document.getElementById('planCancel').textContent
+                 !== 'Abbrechen') throw new Error('Plan ohne Abbrechen');
              document.getElementById('planCancel').click();
              JSON.stringify(document.getElementById('plan').open)
              """,
@@ -407,6 +414,23 @@ def build_steps(checker: Checker) -> None:
                                     f"Statuszeile: {text}"),
                            c.next()))
 
+    def step_output():
+        # Reiter "Namen": Ausgabeordner eintragen - der Vorschlag kommt aus
+        # den beschreibbaren Einhaengepunkten
+        c.js("""
+             const field = document.getElementById('p-output');
+             field.value = 'ausgang';
+             field.dispatchEvent(new Event('change'));
+             JSON.stringify([...document.querySelectorAll('#outputs option')]
+                              .map(o => o.value))
+             """, lambda options: c.wait("""
+             JSON.stringify(document.getElementById('messages').textContent
+                 .includes('Ausgabeordner: ausgang'))
+             """, lambda _: (
+                 c.report(options == ["eingang", "ausgang"],
+                          f"Ausgabeordner gesetzt, Vorschläge {options}"),
+                 c.next())))
+
     def step_produce():
         # Zuletzt, weil es die Dateien wirklich umbenennt: ein Klick auf
         # "Release erstellen", danach das Ergebnisfenster.
@@ -414,13 +438,33 @@ def build_steps(checker: Checker) -> None:
              lambda _: None)
         c.wait("JSON.stringify(document.getElementById('plan').open)",
                lambda _: c.js("""
-                   JSON.stringify({
+                   const close = document.getElementById('planCancel');
+                   const apply = document.getElementById('planApply');
+                   const got = {
                      title: document.getElementById('planTitle').textContent,
-                     text: document.getElementById('planText').textContent})
+                     text: document.getElementById('planText').textContent,
+                     button: close.textContent,
+                     focused: document.activeElement === close,
+                     apply: getComputedStyle(apply).display};
+                   close.click();
+                   got.closed = !document.getElementById('plan').open;
+                   JSON.stringify(got)
                    """, lambda got: (
                        c.report(got.get("title") == "Release erstellt"
                                 and "Erzeugt:" in (got.get("text") or ""),
                                 f"Ein Klick erstellt das Release ({got})"),
+                       c.report("Verschoben nach: ausgang/"
+                                in (got.get("text") or "")
+                                and "erst das Verschieben"
+                                in (got.get("text") or ""),
+                                "Release liegt im Ausgabeordner"),
+                       # Eine Meldung hat nichts abzubrechen: ein Knopf "OK",
+                       # vorausgewaehlt, und er schliesst das Fenster
+                       c.report(got.get("button") == "OK"
+                                and got.get("focused")
+                                and got.get("apply") == "none"
+                                and got.get("closed"),
+                                "Ergebnisfenster schließt mit „OK“"),
                        c.next())))
 
     c.steps = [step_loaded, step_banner, step_buttons_disabled, step_select,
@@ -431,7 +475,7 @@ def build_steps(checker: Checker) -> None:
                step_counter_turns_red, step_plan_dialog,
                step_cancel_changes_nothing, step_file_name_by_hand,
                step_letter_case, step_save_settings,
-               step_nfo_tab, step_status, step_produce]
+               step_nfo_tab, step_status, step_output, step_produce]
 
 
 def main() -> int:

@@ -30,6 +30,9 @@ docker compose logs releaser | grep Konfiguration
 Im Container wirken `[naming]`, `[tags]`, `[build]` und `[web]`. `[gui]` gilt
 nur für die Desktop-Anwendung. `[build] template` nennt die Vorlage, mit der
 jede Sitzung beginnt – ein Name aus dem Ordner `templates/`.
+`[build] output_dir` ist der Ausgabeordner, als Pfad im Container
+(`/data/ausgang`). Ein Pfad aus der Desktop-Fassung (`~/Musik/Fertig`) gilt
+hier nicht – die Weboberfläche meldet ihn dann als nicht erreichbar.
 
 ## Was die Weboberfläche speichert
 

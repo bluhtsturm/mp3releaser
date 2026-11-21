@@ -12,9 +12,15 @@ services:
       - "127.0.0.1:8000:8000"      # nur lokal erreichbar
     environment:
       # name:pfad[:ro] - mehrere durch Komma getrennt
-      RELEASER_MOUNTS: "eingang:/data/eingang,archiv:/data/archiv:ro"
+      RELEASER_MOUNTS: "eingang:/data/eingang,ausgang:/data/ausgang,archiv:/data/archiv:ro"
     volumes:
       - ./data/eingang:/data/eingang
+      # Ausgabeordner: "Release erstellen" schiebt das fertige Release
+      # hierher, sofern im Reiter "Namen" eingestellt (oder in der
+      # config.toml: [build] output_dir = "/data/ausgang"). Muss
+      # beschreibbar eingehaengt sein - ein Ordner nur im Container ginge
+      # beim naechsten Neubau verloren.
+      - ./data/ausgang:/data/ausgang
       - ./data/archiv:/data/archiv:ro
       - ./templates:/app/templates:ro
       # Einstellungen: config/mp3releaser/config.toml neben dieser Datei.
@@ -46,9 +52,10 @@ services:
     image: mp3releaser:latest
     profiles: ["tools"]
     environment:
-      RELEASER_MOUNTS: "eingang:/data/eingang"
+      RELEASER_MOUNTS: "eingang:/data/eingang,ausgang:/data/ausgang"
     volumes:
       - ./data/eingang:/data/eingang
+      - ./data/ausgang:/data/ausgang
       - ./config:/config:ro
       # dieselben gespeicherten Einstellungen wie die Oberflaeche
       - settings:/settings:ro

@@ -529,6 +529,15 @@ def plan_rename(release: Release, root: str | Path,
     root = Path(root)
     plan = RenamePlan()
 
+    # Ein CUE-Image (mehrere Tracks, eine Datei) behaelt seinen Namen: Das CUE
+    # verweist mit "FILE" darauf. Umbenannt passte es nicht mehr und wuerde
+    # beim naechsten Einlesen ignoriert. Frueher hiess das Image danach wie
+    # sein *erster* Track.
+    counts: dict[str, int] = {}
+    for track in release.tracks:
+        if track.path:
+            counts[track.path] = counts.get(track.path, 0) + 1
+
     # --- Stufe 1: Dateien --------------------------------------------------
     per_directory: dict[Path, set[str]] = {}
     for disc in release.discs:
@@ -538,6 +547,15 @@ def plan_rename(release: Release, root: str | Path,
                     f"Track {disc.number}-{track.no} hat keinen Dateipfad, übersprungen")
                 continue
             src = Path(track.path)
+            if counts.get(track.path, 0) > 1:
+                if not any(op.src == src for op in plan.ops):
+                    plan.ops.append(RenameOp(src, src, "file"))
+                    per_directory.setdefault(src.parent, set()).add(
+                        src.name.lower())
+                    plan.warnings.append(
+                        f"{src.name}: CUE-Image behält seinen Namen - das CUE "
+                        "verweist darauf")
+                continue
             stem = track_stem(release, track, disc, profile)
             name = f"{stem}{src.suffix.lower()}"
 

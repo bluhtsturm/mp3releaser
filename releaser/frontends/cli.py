@@ -334,6 +334,10 @@ def _add_build_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--m3u-windows-paths", action="store_true",
                         help="Rueckwaerts-Schraegstriche in der M3U wie im "
                              "Original")
+    parser.add_argument("--output-dir", metavar="ORDNER",
+                        help="das fertige Release zum Schluss in diesen "
+                             "Ordner schieben (release: Standard aus "
+                             "[build] output_dir; \"\" schaltet es ab)")
 
 
 def cmd_release(args: argparse.Namespace) -> int:
@@ -354,18 +358,25 @@ def cmd_release(args: argparse.Namespace) -> int:
             return 2
         args.template = str(found)
         print(f"Vorlage: {found}", file=sys.stderr)
+    if args.output_dir is None:
+        # Nur "release" nimmt den Ausgabeordner aus der Konfiguration: Wer mit
+        # "build" bloss die .nfo neu erzeugt, will sein Release nicht
+        # verschoben bekommen.
+        args.output_dir = args._config.get("build", "output_dir")
     args.tag = args.rename = True
     code = cmd_build(args)
     if code == 0:
+        steps = ("erst das Verschieben, dann die Umbenennung, dann die Tags"
+                 if args.output_dir else "erst die Umbenennung, dann die Tags")
         print("Release erstellt. Zuruecknehmen mit: releaser undo --apply "
-              "(erst die Umbenennung, dann die Tags)", file=sys.stderr)
+              f"({steps})", file=sys.stderr)
     return code
 
 
 def cmd_build(args: argparse.Namespace) -> int:
     """Der komplette Ablauf. Die Arbeit macht die Dienstschicht."""
     from ..config import resolve
-    from ..service import BuildOptions, _as_list, process
+    from ..service import BuildOptions, _as_list, output_dir_setting, process
 
     cfg = args._config
     pick = lambda key, value, default: resolve(cfg, "build", key, value, default)
@@ -386,7 +397,12 @@ def cmd_build(args: argparse.Namespace) -> int:
         m3u_windows_paths=build_pick_bool("m3u_windows_paths",
                                           args.m3u_windows_paths),
         release_date_format=_release_date_format(args),
+        output_dir=output_dir_setting(getattr(args, "output_dir", None)),
     )
+    if options.output_dir is not None and not options.output_dir.is_dir():
+        print(f"Fehler: Ausgabeordner gibt es nicht: {options.output_dir}",
+              file=sys.stderr)
+        return 2
 
     outcome = process(
         args.directory, options,
@@ -406,9 +422,9 @@ def cmd_build(args: argparse.Namespace) -> int:
     root = outcome.root
     for path in outcome.created:
         print(path.relative_to(root) if path.is_relative_to(root) else path)
-    if args.rename:
-        # Der Ordner heisst jetzt anders - wer weitermachen will (verify,
-        # undo), braucht den neuen Namen
+    if args.rename or options.output_dir is not None:
+        # Der Ordner heisst jetzt anders oder liegt woanders - wer
+        # weitermachen will (verify, undo), braucht den neuen Pfad
         print(f"Ordner: {root}", file=sys.stderr)
     return 0
 

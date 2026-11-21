@@ -699,3 +699,24 @@ def test_flac_from_the_reference_encoder_without_any_tags(tmp_path):
 
     assert read_file(root / "01-titel.flac").encoder == f"FLAC {version}"
     assert scan_directory(root).release.encoder == f"FLAC {version}"
+
+
+@needs_ffmpeg
+def test_untagged_mp3_title_comes_from_the_parsed_file_name(tmp_path):
+    """Ohne ID3 setzte der Leser den ganzen Dateinamen als Titel - die
+    Tracknummer blieb darin stehen ("01 - Intro"), und als Herkunft stand
+    "Tag" statt "Dateiname"."""
+    from releaser.audio import scan_directory
+    from releaser.provenance import Origin
+
+    root = tmp_path / "rel"
+    root.mkdir()
+    subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error",
+                    "-f", "lavfi", "-i", "sine=duration=1", "-c:a", "libmp3lame",
+                    "-map_metadata", "-1", "-write_id3v1", "0",
+                    "-id3v2_version", "0", str(root / "01 - Intro.mp3"), "-y"],
+                   check=True)
+    result = scan_directory(root)
+    track = result.release.tracks[0]
+    assert (track.title, track.no) == ("Intro", 1)
+    assert result.origins.get_track(1, 1, "title") is Origin.FILENAME

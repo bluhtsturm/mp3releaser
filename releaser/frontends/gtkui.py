@@ -572,6 +572,29 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 bool(self.state.naming.companion_prefix))
             self.prefix_check.connect("toggled", self._on_prefix)
             grid.attach(self.prefix_check, 1, 5, 1, 1)
+
+            # Wohin "Release erstellen" das fertige Release schiebt
+            output_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL,
+                                 spacing=8)
+            self.output_entry = Gtk.Entry(
+                hexpand=True, text=self.state.output_path or "",
+                placeholder_text="leer – das Release bleibt, wo es ist")
+            self.output_entry.set_tooltip_text(
+                "„Release erstellen“ schiebt das fertige Release zum Schluss "
+                "hierher. Liegt dort schon ein gleichnamiges, ändert sich "
+                "gar nichts. ↶ holt es zurück.")
+            self.output_entry.connect("activate", self._on_output)
+            focus = Gtk.EventControllerFocus()
+            focus.connect("leave", lambda *_a: self._on_output(
+                self.output_entry))
+            self.output_entry.add_controller(focus)
+            output_box.append(self.output_entry)
+            choose = Gtk.Button(label="Wählen …")
+            choose.connect("clicked", self._on_choose_output)
+            output_box.append(choose)
+            grid.attach(Gtk.Label(label="Ausgabeordner", xalign=0.0),
+                        0, 6, 1, 1)
+            grid.attach(output_box, 1, 6, 1, 1)
             box.append(grid)
 
             hint = Gtk.Label(
@@ -646,6 +669,8 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             self._refresh_actions()
 
         def _refresh_names(self) -> None:
+            if not self._widget_has_focus(self.output_entry):
+                self.output_entry.set_text(self.state.output_path or "")
             preview = self.state.preview_names()
             if preview["directory"] is None:
                 self.dirname_entry.set_text("")
@@ -655,7 +680,7 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 return
 
             old_dir, new_dir = preview["directory"]
-            if not self.dirname_entry.has_focus():
+            if not self._widget_has_focus(self.dirname_entry):
                 self.dirname_entry.set_text(new_dir)
 
             # Auch die Musterfelder nachziehen: wer den Verzeichnisnamen von
@@ -665,7 +690,8 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                                ("file", self.state.naming.file_pattern),
                                ("group", self.state.naming.group)):
                 entry = self.pattern_entries[key]
-                if not entry.has_focus() and entry.get_text() != value:
+                if (not self._widget_has_focus(entry)
+                        and entry.get_text() != value):
                     entry.set_text(value)
 
             companions = self.state.companion_preview()
@@ -741,8 +767,11 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
 
                 entry = Gtk.Entry(hexpand=True, text=row["stem"])
                 entry.set_tooltip_text(
+                    "CUE-Image - behält seinen Namen, das CUE verweist darauf"
+                    if row.get("locked") else
                     "Name ohne Endung - Eingabetaste übernimmt, "
                     "leer lassen nimmt wieder das Muster")
+                entry.set_editable(not row.get("locked"))
                 index = row["index"]
                 entry.connect("activate",
                               lambda e, i=index: self._on_file_name(e, i))
@@ -988,6 +1017,20 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 "00-" if check.get_active() else "", include_all=True)
 
         @guarded
+        def _on_output(self, entry) -> None:
+            value = entry.get_text().strip()
+            if value != (self.state.output_path or ""):
+                self.state.set_output(value)
+
+        def _on_choose_output(self, *_args) -> None:
+            def chosen(path):
+                if path:
+                    self.state.set_output(path)
+                    self.refresh()
+
+            _open_folder_dialog(self, "Ausgabeordner wählen", chosen)
+
+        @guarded
         def _on_dirname(self, entry) -> None:
             self.state.set_literal_dirname(entry.get_text())
 
@@ -1099,9 +1142,12 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             before = len(self.state.messages)
             done = self.state.produce()
             if done is not None:
+                moved = any(line.startswith("Verschoben") for line in done)
                 _inform(self, "Release erstellt", "\n".join(done) + "\n\n"
-                        "Zurücknehmen mit ↶ - erst die Umbenennung, dann die "
-                        "Tags.")
+                        "Zurücknehmen mit ↶ - "
+                        + ("erst das Verschieben, dann die Umbenennung, dann "
+                           "die Tags." if moved else
+                           "erst die Umbenennung, dann die Tags."))
                 return
             reasons = [f"{LEVEL_PREFIX[m.level]}{m.text}"
                        for m in self.state.messages[before:]
@@ -1196,6 +1242,35 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
         chooser.show()
 
 
+    def _open_folder_dialog(parent, title: str, callback) -> None:
+        """Ordnerauswahl - wie :func:`_open_file_dialog`, nur fuer Ordner."""
+        if hasattr(Gtk, "FileDialog"):
+            dialog = Gtk.FileDialog(title=title)
+
+            def done(source, result):
+                try:
+                    chosen = source.select_folder_finish(result)
+                except GLib.Error:
+                    return
+                callback(chosen.get_path() if chosen else None)
+
+            dialog.select_folder(parent, None, done)
+            return
+
+        chooser = Gtk.FileChooserNative(
+            title=title, transient_for=parent,
+            action=Gtk.FileChooserAction.SELECT_FOLDER)
+
+        def responded(source, response):
+            if response == Gtk.ResponseType.ACCEPT:
+                chosen = source.get_file()
+                callback(chosen.get_path() if chosen else None)
+            source.destroy()
+
+        chooser.connect("response", responded)
+        chooser.show()
+
+
 # ------------------------------------------------------------- Einstiegspunkt
 
 
@@ -1275,6 +1350,11 @@ def save_defaults(state: AppState, path: Optional[Path] = None) -> Path:
         config.build["template"] = template_setting(state.template_path)
     # Das Verzeichnis, das die Auswahl zeigt. An der Wurzel gibt es keins -
     # dann startet auch das naechste Mal an der Wurzel.
+    output = state.output_dir()
+    if output is not None:
+        config.build["output_dir"] = str(output)
+    else:
+        config.build.pop("output_dir", None)
     config.gui = dict(config.gui)
     if state.listed_path:
         config.gui["start"] = state.listed_path
@@ -1293,6 +1373,7 @@ def defaults_summary(state: AppState, target: Path) -> str:
         f"Vorlage              {state.template_path or '(keine)'}",
         f"Gruppe               {naming.group or '(keine)'}",
         f"Verzeichnis          {state.listed_path or '(Wurzel)'}",
+        f"Ausgabeordner        {state.output_path or '(keiner)'}",
         f"Verzeichnismuster    {naming.dir_pattern}",
         f"Dateimuster          {naming.file_pattern}",
         "Schreibweise Ordner  "
@@ -1362,6 +1443,10 @@ def build_state(start: Optional[str] = None, mounts: Optional[str] = None,
         state.start_path = (str(Path(start_dir).expanduser().absolute())
                             if isinstance(source, LocalSource)
                             else str(start_dir))
+
+    if build_options.output_dir is not None:
+        # Leise, solange es klappt; fehlt der Ordner, steht es in den Meldungen
+        state.set_output(str(build_options.output_dir), announce=False)
 
     prefix = naming_cfg.get("companion_prefix", NamingProfile.companion_prefix)
     if prefix:

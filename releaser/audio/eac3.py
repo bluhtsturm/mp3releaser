@@ -384,7 +384,9 @@ def read_raw_ec3(path: Path) -> AudioInfo:
         tagless=True,
         warnings=list(summary.warnings),
     )
-    info.title = path.stem
+    # Kein Titel hier: Den leitet der Scanner aus dem Dateinamen ab
+    # (parse_filename) - samt Tracknummer. Mit dem blossen Dateinamen als
+    # "Tag" hiess Track 1 sonst "01-intro" statt "intro".
     info.warnings.append(
         "roher EC-3-Stream: keine Tags im Format - Titel stammt aus dem Dateinamen"
     )

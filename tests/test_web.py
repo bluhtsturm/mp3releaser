@@ -844,5 +844,133 @@ def test_plan_dialog_shows_the_apply_button_again():
 
     page = (STATIC / "index.html").read_text(encoding="utf-8")
     show_plan = page.split("function showPlan", 1)[1].split("\n}\n", 1)[0]
-    assert 'style.display = ""' in show_plan
+    assert "showConfirm(" in show_plan
     assert "if (!payload) return;" in show_plan
+    confirm = page.split("function showConfirm", 1)[1].split("\n}\n", 1)[0]
+    assert 'style.display = ""' in confirm
+    assert 'textContent = "Abbrechen"' in confirm
+
+
+def test_result_dialog_offers_ok_instead_of_cancel():
+    """Nach "Release erstellen" stand im Ergebnisfenster nur "Abbrechen" -
+    obwohl nichts mehr abzubrechen war. Meldungen zeigen jetzt einen Knopf
+    "OK", und jede Meldung geht ueber showInfo."""
+    from releaser.frontends.web.app import STATIC
+
+    page = (STATIC / "index.html").read_text(encoding="utf-8")
+    info = page.split("function showInfo", 1)[1].split("\n}\n", 1)[0]
+    assert 'textContent = "OK"' in info
+    assert '.style.display = "none"' in info
+    assert ".focus()" in info
+    # Ausser in showInfo blendet niemand "Ausführen" aus und oeffnet selbst
+    rest = page.replace(info, "")
+    assert '"planApply").style.display = "none"' not in rest
+    assert rest.count(".showModal()") == 1          # nur showConfirm
+    for title in ("Release erstellt", "Release geprüft",
+                  "Als Standard gespeichert"):
+        assert title in page
+    produce = page.split('getElementById("produce").onclick', 1)[1] \
+        .split("\n});\n", 1)[0]
+    assert "showInfo(" in produce
+
+
+# ========================================================== Ausgabeordner
+
+
+def output_client(tree: Path, target: "Path | None" = None,
+                  config=None) -> TestClient:
+    from releaser.service import naming_from_config
+
+    (tree / "ausgang").mkdir(exist_ok=True)
+    (tree / "archiv").mkdir(exist_ok=True)
+    app = create_app(MountedSource([Mount("eingang", tree / "eingang"),
+                                    Mount("ausgang", tree / "ausgang"),
+                                    Mount("archiv", tree / "archiv", False)]),
+                     naming=naming_from_config(group="GRP"),
+                     templates_dir=tree / "vorlagen",
+                     config=config, settings_file=target)
+    return TestClient(app)
+
+
+@needs_ffmpeg
+def test_produce_moves_the_release_to_the_output_folder(tree):
+    client = output_client(tree)
+    client.post("/api/template", json={"name": "vorlage.skl"})
+    state = client.post("/api/pattern",
+                        json={"which": "output", "value": "ausgang"}).json()
+    assert state["names"]["output"] == "ausgang"
+    load_release(client)
+
+    state = client.post("/api/produce", json={}).json()
+    assert state["done"][-1] == \
+        "Verschoben nach: ausgang/Der_Artist-Das_Album-2026-GRP"
+    assert (tree / "ausgang" / "Der_Artist-Das_Album-2026-GRP").is_dir()
+    assert list((tree / "eingang").iterdir()) == []
+    # die Auswahl links zeigt den leeren Eingang, nicht das alte Release
+    assert state["entries"] == []
+    assert str(tree) not in str(state)
+
+
+def test_output_folder_must_be_writable_and_mounted(tree):
+    client = output_client(tree)
+    for value in ("archiv", "geheim", "/etc", "eingang/../../geheim"):
+        state = client.post("/api/pattern",
+                            json={"which": "output", "value": value}).json()
+        assert state["names"]["output"] == "", value
+        assert any(m["level"] == "error" for m in state["messages"]), value
+
+
+def test_output_here_takes_the_folder_shown_on_the_left(tree):
+    client = output_client(tree)
+    state = client.post("/api/pattern", json={"which": "output_here"}).json()
+    assert state["names"]["output"] == ""                # an der Wurzel
+    assert any("Erst links" in m["text"] for m in state["messages"])
+    client.post("/api/browse", json={"path": "ausgang"})
+    state = client.post("/api/pattern", json={"which": "output_here"}).json()
+    assert state["names"]["output"] == "ausgang"
+
+
+def test_saved_output_folder_is_the_real_path(tree, tmp_path):
+    """Gespeichert wird der echte Pfad - die Kommandozeile im selben
+    Container liest dieselbe Datei und kennt "ausgang" nicht. An den
+    Browser geht er trotzdem nicht."""
+    from releaser.config import load
+
+    target = tmp_path / "settings.toml"
+    client = output_client(tree, target)
+    client.post("/api/pattern", json={"which": "output", "value": "ausgang"})
+    saved = client.post("/api/settings", json={}).json()
+    assert "Ausgabeordner        ausgang" in saved["summary"]
+    assert str(tree) not in str(saved)
+    config = load(target)
+    assert config.build["output_dir"] == str((tree / "ausgang").resolve())
+
+    # Neustart mit der gespeicherten Datei: jede Sitzung hat ihn gleich
+    fresh = output_client(tree, target, load(target))
+    assert fresh.get("/api/state").json()["names"]["output"] == "ausgang"
+
+
+@needs_ffmpeg
+def test_messages_never_carry_a_host_path(client, tree):
+    """"Ziel existiert bereits: /data/eingang/…" und Systemfehler kannten nur
+    echte Pfade und gingen so an den Browser. Jetzt maskiert der Dienst sie
+    an der Ausgangstuer."""
+    (tree / "eingang" / "Der_Artist-Das_Album-2026-GRP").mkdir()
+    load_release(client)
+    client.post("/api/template", json={"name": "vorlage.skl"})
+    response = client.post("/api/produce", json={})
+    assert str(tree) not in response.text
+    texts = [m["text"] for m in response.json()["messages"]]
+    assert any("Ziel existiert bereits: eingang/Der_Artist-Das_Album-2026-GRP"
+               in t for t in texts), texts
+    assert int(response.headers["content-length"]) == len(response.content)
+
+
+def test_mask_only_replaces_whole_mount_paths(tmp_path):
+    (tmp_path / "eingang").mkdir()
+    (tmp_path / "eingang2").mkdir()
+    source = MountedSource([Mount("eingang", tmp_path / "eingang")])
+    real = str((tmp_path / "eingang").resolve())
+    assert source.mask(f"x {real}/a.mp3 y") == "x eingang/a.mp3 y"
+    assert source.mask(f"'{real}'") == "'eingang'"
+    assert source.mask(f"{real}2/a") == f"{real}2/a"

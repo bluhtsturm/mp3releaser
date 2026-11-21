@@ -52,13 +52,63 @@ from ...naming import NamingProfile, Scope, format_plan as format_rename_plan
 from ...runtime import as_dict as metrics_dict, collect as collect_metrics
 from ...service import BuildOptions
 from ...tagwriter import TagProfile, format_plan as format_tag_plan
-from ...uistate import AppState
+from ...uistate import AppState, Level
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "releaser_session"
 #: Sitzungen werden verworfen, wenn sie lange nicht benutzt wurden.
 SESSION_TTL = 3600.0
 MAX_SESSIONS = 64
+
+
+class MaskPaths:
+    """ASGI-Middleware: echte Einhaengepfade in JSON-Antworten maskieren.
+
+    Viele Meldungen kennen nur echte Pfade ("Ziel existiert bereits:
+    /data/eingang/…", Probleme beim Zuruecknehmen, Systemfehler). Statt jede
+    einzeln umzuschreiben - und die naechste zu vergessen -, wird an der
+    Ausgangstuer jede JSON-Antwort durch :meth:`MountedSource.mask`
+    geschickt.
+    """
+
+    def __init__(self, app, mask):
+        self.app = app
+        self.mask = mask
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        start: dict = {}
+        chunks: list[bytes] = []
+
+        async def masked(message):
+            if message["type"] == "http.response.start":
+                start.update(message)
+                return
+            if message["type"] != "http.response.body":
+                await send(message)
+                return
+            headers = dict(start.get("headers", []))
+            is_json = headers.get(b"content-type", b"").startswith(
+                b"application/json")
+            if not is_json:
+                if start:
+                    await send(dict(start))
+                    start.clear()
+                await send(message)
+                return
+            chunks.append(message.get("body", b""))
+            if message.get("more_body"):
+                return
+            body = self.mask(b"".join(chunks).decode("utf-8")).encode("utf-8")
+            start["headers"] = [(k, v) for k, v in start.get("headers", [])
+                                if k != b"content-length"] + [
+                (b"content-length", str(len(body)).encode())]
+            await send(dict(start))
+            await send({"type": "http.response.body", "body": body})
+
+        await self.app(scope, receive, masked)
 
 
 @dataclass
@@ -80,8 +130,11 @@ class SessionStore:
                  limit: int = MAX_SESSIONS,
                  default_template: Optional[Path] = None,
                  build_options: Optional[BuildOptions] = None,
-                 start: Optional[str] = None):
+                 start: Optional[str] = None,
+                 output: Optional[str] = None):
         self.source = source
+        #: Ausgabeordner jeder neuen Sitzung - siehe AppState.set_output
+        self.output = output
         #: wird in jeder neuen Sitzung gleich geladen
         self.default_template = default_template
         #: der Ordner, den eine neue Sitzung zeigt (``None``: die Wurzel)
@@ -131,6 +184,10 @@ class SessionStore:
             if self.default_template is not None:
                 state.load_template(self.default_template)
                 state.clear_messages()
+            if self.output:
+                # Leise, solange es klappt - ein fehlender Ausgabeordner
+                # (Volume nicht eingehaengt) soll aber auffallen
+                state.set_output(self.output, announce=False)
             state.show_start()
             self._sessions[key] = Session(state)
             self._expire()
@@ -153,6 +210,7 @@ class SessionStore:
             if state.template_path is not None:
                 self.default_template = state.template_path
             self.start = state.listed_path
+            self.output = state.output_path
 
 
 # --------------------------------------------------------- Einstellungsdatei
@@ -201,7 +259,7 @@ def resolve_template(value: Optional[str],
 
 def save_settings(state: AppState, target: Path,
                   templates: Optional[Path]) -> Path:
-    """Schreibt Vorlage, Gruppe, Ordner, Muster und Schreibweisen.
+    """Schreibt Vorlage, Gruppe, Ordner, Muster, Schreibweisen, Ausgabeordner.
 
     Was sonst in der Datei steht, bleibt erhalten. Die Konfiguration darunter
     wird nicht angefasst - sie ist im Container ohnehin nur lesbar.
@@ -215,6 +273,13 @@ def save_settings(state: AppState, target: Path,
     if state.template_path is not None:
         config.build["template"] = template_value(state.template_path,
                                                   templates)
+    # Der echte Pfad, nicht der der Auswahl: Die Kommandozeile im selben
+    # Container liest dieselbe Datei und kennt "ausgang/..." nicht.
+    output = state.output_dir()
+    if output is not None:
+        config.build["output_dir"] = str(output)
+    else:
+        config.build.pop("output_dir", None)
     config.web = dict(config.web)
     if state.listed_path:
         config.web["start"] = state.listed_path
@@ -234,6 +299,7 @@ def settings_summary(state: AppState) -> str:
         f"{state.template_path.name if state.template_path else '(keine)'}",
         f"Gruppe               {naming.group or '(keine)'}",
         f"Ordner beim Start    {state.listed_path or '(Wurzel)'}",
+        f"Ausgabeordner        {state.output_path or '(keiner)'}",
         f"Verzeichnismuster    {naming.dir_pattern}",
         f"Dateimuster          {naming.file_pattern}",
         f"Schreibweise Ordner  {CASE_LABELS[_case(naming, Scope.DIRECTORY)]}",
@@ -308,6 +374,7 @@ def state_json(state: AppState) -> dict:
             "case_dir": _case(state.naming, Scope.DIRECTORY),
             "case_file": _case(state.naming, Scope.FILENAME),
             "companion_prefix": state.naming.companion_prefix,
+            "output": state.output_path or "",
             "directory": preview["directory"],
             "files": preview["files"],
             # je Datei bearbeitbar - ohne Begrenzung, sonst liessen sich
@@ -369,10 +436,15 @@ def create_app(source: Optional[MountedSource] = None,
                          tags or TagProfile(), default_template=preloaded,
                          build_options=build_options,
                          start=(config.get("web", "start")
-                                if config is not None else None))
+                                if config is not None else None),
+                         output=(config.get("build", "output_dir")
+                                 if config is not None else None))
 
     app = FastAPI(title="mp3releaser", docs_url="/api/docs")
     app.state.store = store
+    # Nie ein Pfad des Wirtsystems nach aussen - auch nicht in Meldungen,
+    # die tief unten mit echten Pfaden entstehen (siehe MaskPaths)
+    app.add_middleware(MaskPaths, mask=resolved.mask)
 
     def session(response: Response, key: Optional[str]) -> AppState:
         key, state = store.get(key)
@@ -564,6 +636,15 @@ def create_app(source: Optional[MountedSource] = None,
             state.set_literal_dirname(value)
         elif which == "companion_prefix":
             state.set_companion_prefix(value, include_all=True)
+        elif which == "output":
+            state.set_output(value)
+        elif which == "output_here":
+            # der Ordner, den die Auswahl links gerade zeigt
+            if state.listed_path:
+                state.set_output(state.listed_path)
+            else:
+                state.say("Erst links einen Ordner öffnen, dann „hier“ "
+                          "wählen.", Level.WARNING)
         else:
             state.set_pattern(which, value)
         return answer(response, state)

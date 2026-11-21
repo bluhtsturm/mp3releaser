@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.26.0:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.0:
 
 ```bash
-chmod +x mp3releaser-0.26.0-x86_64.AppImage
-./mp3releaser-0.26.0-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.26.0-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.27.0-x86_64.AppImage
+./mp3releaser-0.27.0-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.27.0-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 880 Tests
+python3 -m pytest tests -q          # 915 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -80,6 +80,7 @@ releaser/
   checks.py       Vorlagen und fertige Releases pruefen
   provenance.py   woher ein Wert stammt
   undo.py         Umbenennungen zuruecknehmen
+  output.py       fertiges Release in den Ausgabeordner schieben
   fields.py       Feldkatalog: Verwendung, Breite, Herkunft
   browse.py       Dateiauswahl — lokal oder auf eingehängte Ordner beschränkt
   service.py      Abläufe ohne Ausgabe — gemeinsame Basis aller Oberflächen
@@ -604,6 +605,13 @@ anfassen, die M3U sie mehrfach listen und die Gesamtgröße sich mit jedem
 Track vervielfachen. Alle drei Stellen sind entsprechend behandelt, die
 Dateigröße wird anteilig nach Laufzeit verteilt.
 
+Zwei weitere Stellen kamen bei der Durchsicht für 0.27.0 dazu: Das Image
+**behält seinen Namen** – das CUE verweist mit `FILE` darauf; umbenannt nach
+dem ersten Track, passte es nicht mehr und wurde beim nächsten Einlesen
+ignoriert. Und es bekommt **nur Albumfelder** als Tags (Album, Artist, Jahr,
+Genre, Kommentar) – vorher landeten Titel und Nummer des *letzten* Tracks
+darin. Ein `FILE` mit Windows-Pfad (`C:\Rips\mix.flac`) wird erkannt.
+
 ## Dupe-Prüfung
 
 Vergleicht einen Releasenamen gegen bekannte — eine Textdatei oder ein
@@ -895,7 +903,8 @@ Zwei Dateien, übereinander:
 
 **„Als Standard“** in der Kopfzeile der Weboberfläche schreibt Vorlage,
 Gruppe, den gerade offenen Ordner, Verzeichnis- und Dateimuster, die beiden
-Schreibweisen und die Vorsilbe „00-“ in die Einstellungsdatei. Jede neue
+Schreibweisen, die Vorsilbe „00-“ und den Ausgabeordner in die
+Einstellungsdatei. Jede neue
 Sitzung beginnt damit, auch nach `docker compose restart` oder `down`/`up`;
 laufende Sitzungen behalten ihren Stand. Die Werte liegen über denen der
 `config.toml` – was dort steht und in der Oberfläche nicht einstellbar ist
@@ -973,7 +982,10 @@ jetzt, dass der Prüfstand Fehler auch meldet.
 
 Nie ein Pfad des Wirtsystems. Der Browser sieht
 `eingang/Artist-Album-2026-GRP`, der Weg zurück läuft ausschließlich über
-`MountedSource.resolve()`. Vorlagennamen dürfen keine Pfadtrenner und keine
+`MountedSource.resolve()`. Meldungen, die tief unten mit echten Pfaden
+entstehen („Ziel existiert bereits: …“, Systemfehler), gingen bis 0.26.0
+trotzdem so hinaus; seit 0.27.0 schickt eine Middleware jede JSON-Antwort
+durch `MountedSource.mask()`, das die Einhängepfade durch ihre Namen ersetzt. Vorlagennamen dürfen keine Pfadtrenner und keine
 Null-Bytes enthalten, sonst wären sie ein zweiter Weg nach draußen.
 
 Der Container läuft als eigener Benutzer, ohne Capabilities, mit
@@ -1025,6 +1037,43 @@ mitgelieferte. Auch hier gilt: Kollidiert das Umbenennen, wird nichts
 geschrieben — `build --tag --rename` hatte bis dahin die Tags schon in die
 Dateien geschrieben.
 
+### Ausgabeordner
+
+Ist ein Ausgabeordner eingestellt, schiebt „Release erstellen“ das fertige
+Release zum Schluss dorthin — im Eingang liegt dann nur noch, was noch zu
+tun ist. Eingestellt wird er im Reiter „Namen“ (Desktop: Feld mit
+„Wählen …“; Web: Feld mit den beschreibbaren Ordnern als Vorschlag und
+„Ordner links“), gespeichert mit „Als Standard“ oder von Hand:
+
+```toml
+[build]
+output_dir = "~/Musik/Fertig"      # im Container: "/data/ausgang"
+```
+
+```bash
+releaser release /pfad/zur/release --output-dir ~/Musik/Fertig
+```
+
+* **Vorher geprüft, wie alles andere.** Gibt es im Ausgabeordner schon einen
+  Ordner mit dem Namen, den das Release *nach* dem Umbenennen trägt, ändert
+  sich gar nichts — keine Tags, keine Umbenennung. Ein fertiges Release, das
+  am Ende doch im Eingang liegen bleibt, gibt es nicht.
+* **Über Laufwerksgrenzen.** Im Container sind Eingang und Ausgang meist
+  zwei Volumes, für den Kernel zwei Dateisysteme; `rename` scheitert dort.
+  Dann wird kopiert und das Original erst nach vollständiger Kopie gelöscht.
+  Scheitert die Kopie (Platte voll), wird der Rest im Ziel entfernt, das
+  Original bleibt unberührt.
+* **Im Container nur, was eingehängt ist** — und beschreibbar. Ein Pfad nur
+  im Container ginge beim nächsten Neubau verloren. `docker-compose.yml`
+  hängt dafür `data/ausgang` unter `/data/ausgang` ein. Gespeichert wird der
+  echte Pfad, angezeigt der der Auswahl (`ausgang`): So versteht ihn auch die
+  Kommandozeile im selben Container.
+* **Nur `release`.** `build` verschiebt nur mit ausdrücklichem
+  `--output-dir` — wer bloß die `.nfo` neu erzeugt, will sein Release nicht
+  verschoben bekommen.
+* Zurückgenommen wird mit `↶` wie alles andere: erst das Verschieben, dann
+  die Umbenennung, dann die Tags.
+
 Das Modul lässt sich **ohne GTK importieren**. `is_available()` sagt, ob die
 Bibliothek da ist, `requirements_hint()` nennt das Paket und einen Weg, der
 ohne Grafikstack funktioniert. Sonst ließe sich das Paket auf einem Server
@@ -1042,6 +1091,7 @@ Der Knopf mit dem Speichern-Symbol in der Kopfleiste merkt sich:
 | Verzeichnis- und Dateimuster | `[naming] dir_pattern`, `file_pattern` |
 | die Schreibweise von Ordner und Dateien (`upper`, `lower` …) | `[naming] case_dir`, `case_file` |
 | das „00-“ vor den Begleitdateien | `[naming] companion_prefix`, `prefix_all` |
+| den Ausgabeordner | `[build] output_dir` |
 
 Ein Fenster bestätigt, was wo gespeichert wurde. Beim nächsten Start — auch
 per Doppelklick auf das AppImage — ist alles wieder eingestellt, und die
@@ -1183,6 +1233,11 @@ Fallstrick, über den ich zuerst gestolpert bin: Der protokollierte Pfad einer
 Datei zeigt auf den *alten* Ordnernamen. Die Vorabprüfung muss deshalb
 nachrechnen, wo die Datei heute liegt — naiv geprüft wäre jede Datei „nicht
 mehr vorhanden".
+
+**Das Verschieben in den Ausgabeordner** steht ebenfalls im Protokoll, als
+eigener Eintrag („1 Verschiebung(en) in den Ausgabeordner“). Die Rücknahme
+holt das Release an seinen alten Platz zurück — über Laufwerksgrenzen per
+Kopie, wie auf dem Hinweg.
 
 ## NFO-Vorschau
 
@@ -1338,7 +1393,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-880 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+915 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1723,6 +1778,45 @@ Umleitung greift.
   neuesten Fassung; nur das `pip` des Basisimages war alt und hatte bekannte
   Lücken. Der Bau hebt es jetzt an (siehe
   [Pakete im Container aktuell halten](#pakete-im-container-aktuell-halten)).
+
+### Aus der sechzehnten Erprobung (Container, Atmos-Album)
+
+* **NFO ohne Blockgrafik.** Ein einziges Zeichen, das CP437 nicht kennt –
+  typografischer Apostroph `’`, `™`, Japanisch in einem Titel –, schickte
+  die *ganze* NFO durch die ASCII-Umwandlung. Die warf jedes Zeichen über 127
+  weg, also auch Rahmen und Blockgrafik der Vorlage (`█▓▒░╔═╗`). 0.27.0
+  ersetzt nur noch das einzelne Zeichen (`’` → `'`, `™` → `TM`, sonst `?`);
+  zerlegte Umlaute aus macOS-Namen werden vorher zusammengesetzt und bleiben
+  `ä`. Gilt genauso für .sfv und .m3u.
+* **Ergebnisfenster nur mit „Abbrechen“.** Nach „Release erstellen“ blieb das
+  Fenster mit der Zusammenfassung stehen und bot nur „Abbrechen“ an, obwohl
+  nichts mehr abzubrechen war. Meldungen (erstellt, geprüft, gespeichert)
+  haben in der Weboberfläche jetzt einen Knopf „OK“, der vorausgewählt ist –
+  Enter schließt. Pläne behalten „Abbrechen“ und „Ausführen“.
+* **Ausgabeordner.** Gewünscht war, das fertige Release in einen eigenen
+  Ordner zu schieben. 0.27.0 kann das als letzten Schritt von „Release
+  erstellen“ (siehe [Ausgabeordner](#ausgabeordner)) – vorher geprüft,
+  über Volume-Grenzen hinweg und mit `↶` zurückzunehmen.
+
+### Durchsicht vor 0.27.0
+
+Der komplette Code noch einmal durchgegangen; jeder Fund mit einem Test, der
+gegen den alten Stand fehlschlägt:
+
+* **CUE-Image:** bekam Titel und Nummer des letzten Tracks als Tag und den
+  Namen des ersten Tracks als Dateinamen – danach passte das CUE nicht mehr.
+  Siehe [CUE-Sheets](#cue-sheets).
+* **MP3 und EC-3 ohne Tags:** Der Leser setzte den ganzen Dateinamen als
+  Titel; aus `01 - Intro.mp3` wurde der Titel „01 - Intro“, als Herkunft
+  stand „Tag“. Jetzt leitet der Scanner ihn ab wie bei FLAC: „Intro“.
+* **Katalognummer als Dateiname:** ging ungefiltert in den Namen von SFV und
+  M3U; `ABC/001` brach das Erzeugen ab.
+* **Pfade nach außen:** Meldungen mit echten Pfaden erreichten den Browser
+  (siehe [Was nach außen geht](#was-nach-außen-geht)).
+* **Auswahl links nach dem Umbenennen:** zeigte weiter den alten
+  Ordnernamen; ein Klick darauf führte ins Leere.
+* **Desktop:** Drei Felder prüften den Fokus am `Gtk.Entry` statt an dessen
+  innerem Textfeld – die Prüfung war dadurch immer falsch.
 
 ### Was offen ist
 

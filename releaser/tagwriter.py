@@ -15,6 +15,7 @@ Formate: MP3 (ID3v2 plus optional ID3v1), FLAC (Vorbis-Comments), MP4/M4A
 
 from __future__ import annotations
 
+from collections import Counter
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional
@@ -28,6 +29,10 @@ FIELDS: tuple[str, ...] = (
     "title", "artist", "albumartist", "album", "date", "genre",
     "comment", "tracknumber", "discnumber",
 )
+
+#: Felder, die ein CUE-Image nicht bekommt: es enthaelt viele Tracks, und
+#: deren Titel und Nummern stehen im CUE.
+IMAGE_EXEMPT: frozenset[str] = frozenset({"title", "tracknumber"})
 
 #: Felder, deren Schreibweise die Charcase-Regel nicht anfasst. Das Original
 #: hatte dafür eine eigene Option ("dont touch Comment tag's charcase field").
@@ -200,12 +205,23 @@ def plan_tags(release: Release, profile: Optional[TagProfile] = None) -> TagPlan
     profile = profile or TagProfile()
     plan = TagPlan()
 
+    # Bei einem CUE-Image zeigen mehrere Tracks auf dieselbe Datei. Sie
+    # bekommt nur, was fuer das ganze Album gilt - frueher landeten Titel und
+    # Nummer des *letzten* Tracks darin, und jede Aenderung stand mehrfach im
+    # Plan.
+    shared = {path for path, count in Counter(
+        t.path for t in release.tracks if t.path).items() if count > 1}
+    seen: set[str] = set()
+
     for disc in release.discs:
         for track in disc.tracks:
             if not track.path:
                 plan.warnings.append(
                     f"Track {disc.number}-{track.no} hat keinen Dateipfad")
                 continue
+            if track.path in seen:
+                continue
+            seen.add(track.path)
             path = Path(track.path)
             if path.suffix.lower() not in WRITERS:
                 plan.skipped.append(path)
@@ -226,6 +242,15 @@ def plan_tags(release: Release, profile: Optional[TagProfile] = None) -> TagPlan
                     plan.warnings.append(warning)
 
             target = desired_tags(release, disc, track, profile)
+            if track.path in shared:
+                for name in IMAGE_EXEMPT:
+                    target.pop(name, None)
+                if "artist" in target:
+                    target["artist"] = target.get("albumartist", "") \
+                        or release.artist
+                plan.warnings.append(
+                    f"{path.name}: CUE-Image - nur Albumfelder geschrieben, "
+                    "Titel und Tracknummern stehen im CUE")
             plan.targets[path] = target
             existing = current_tags(info, profile)
             for name, new in target.items():

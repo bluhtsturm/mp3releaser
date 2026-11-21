@@ -279,6 +279,62 @@ def test_cue_size_is_not_multiplied(tmp_path):
     assert abs(release.size_bytes - audio.stat().st_size) < 10
 
 
+@needs_ffmpeg
+def test_cue_image_survives_making_the_release(tmp_path):
+    """Ein CUE-Image bekam Titel und Nummer des *letzten* Tracks als Tag und
+    beim Umbenennen den Namen des *ersten* - danach passte das CUE nicht
+    mehr und wurde beim naechsten Einlesen ignoriert."""
+    from mutagen.flac import FLAC
+
+    from releaser.audio import scan_directory
+    from releaser.browse import Mount, MountedSource
+    from releaser.uistate import AppState
+
+    root = tmp_path / "eingang" / "rel"
+    encode(root / "mix.flac", "-c:a", "flac", "-metadata", "title=Altes Image",
+           duration="12")
+    (root / "mix.cue").write_text(SHORT_CUE, encoding="utf-8")
+    template = tmp_path / "t.skl"
+    template.write_bytes("#Release            \n#N #Trk            \n"
+                         .encode("cp437"))
+
+    state = AppState(source=MountedSource([Mount("eingang", root.parent)]),
+                     naming=NamingProfile(group="GRP"))
+    state.load_template(template)
+    state.load("eingang/rel")
+    rows = state.preview_names()["rows"]
+    assert [(r["new"], r["locked"]) for r in rows] == [("mix.flac", True)]
+    assert not state.set_file_name(0, "anders")
+
+    done = state.produce()
+    assert done is not None, [m.text for m in state.messages]
+    image = state.root / "mix.flac"
+    assert image.is_file()
+    tags = FLAC(image)
+    assert tags["title"] == ["Altes Image"]           # nicht "Dritter Teil"
+    assert "tracknumber" not in tags
+    assert tags["album"] == ["Das Album"]
+    assert tags["artist"] == ["Der Artist"]
+
+    again = scan_directory(state.root)
+    assert [t.title for t in again.release.tracks] == [
+        "Erster Teil", "Zweiter Teil", "Dritter Teil"]
+
+
+@needs_ffmpeg
+def test_cue_image_tag_plan_lists_each_change_once(tmp_path):
+    from releaser.audio import scan_directory
+    from releaser.tagwriter import TagProfile, plan_tags
+
+    root = tmp_path / "rel"
+    encode(root / "mix.flac", "-c:a", "flac", duration="12")
+    (root / "mix.cue").write_text(SHORT_CUE, encoding="utf-8")
+    plan = plan_tags(scan_directory(root).release, TagProfile())
+    fields = [c.field for c in plan.changes]
+    assert len(fields) == len(set(fields))
+    assert "title" not in fields and "tracknumber" not in fields
+
+
 # ============================================================== Dupe-Pruefung
 
 
@@ -775,3 +831,15 @@ def test_web_start_names_the_settings_file(tmp_path, monkeypatch, capsys):
     assert cli.main(["web", "--mounts", mounts]) == 0
     assert "Speichern abgeschaltet" in capsys.readouterr().err
     assert passed["settings_file"] is None
+
+
+@needs_ffmpeg
+def test_cue_with_a_windows_path_is_applied(tmp_path):
+    from releaser.audio import scan_directory
+
+    root = tmp_path / "rel"
+    encode(root / "mix.flac", "-c:a", "flac", duration="12")
+    (root / "mix.cue").write_text(
+        SHORT_CUE.replace('FILE "mix.flac"', 'FILE "C:\\Rips\\mix.flac"'),
+        encoding="utf-8")
+    assert scan_directory(root).release.total_tracks == 3

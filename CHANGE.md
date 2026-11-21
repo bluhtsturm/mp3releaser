@@ -1,3 +1,158 @@
+# Änderungen – 0.27.0: Ausgabeordner, Blockgrafik der NFO, „OK“ im Ergebnisfenster
+
+Stand: 21.11.2026 · Version 0.26.0 → **0.27.0**
+
+Rückmeldung aus der Erprobung der Container-Fassung mit einem Atmos-Album:
+In der erzeugten .nfo fehlten alle Zeichen der Blockgrafik. Nach „Release
+erstellen“ blieb das Ergebnisfenster mit nur einem Knopf „Abbrechen“ stehen.
+Und gewünscht: ein Ausgabeordner, in den das fertige Release geschoben wird.
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 880 | 915 |
+| Ergebnis hier (ohne GTK/WebKitGTK, Python 3.12) | – | 884 grün, 31 übersprungen |
+| Prüfungen im echten Browser (`tools/webcheck.py`) | 20 | 23 |
+| `pyflakes` | sauber | sauber |
+
+Gegen 0.26.0 laufen gelassen, schlagen die neuen Tests und ein angepasster
+fehl. Die Zwischenstände dieser Arbeit trugen kurz die Nummer 0.26.1; die
+wurde nie getaggt und geht in 0.27.0 auf.
+
+## 1. Ursache
+
+`to_codepage` (`releaser/text.py`) kodierte den fertigen Text nach CP437 und
+fiel bei einem `UnicodeEncodeError` für den **ganzen** Text auf `to_ascii`
+zurück. `to_ascii` behält nur 7-Bit-Zeichen – damit verschwanden Rahmen,
+Schattierungen und Umlaute der Vorlage, sobald irgendwo in den Tags ein
+einziges nicht abbildbares Zeichen stand – schon ein typografischer
+Apostroph `’`, ein Halbgeviertstrich `–`, `™`, `東` oder ein Emoji.
+
+## 2. Änderung
+
+* Die Rückfallebene greift jetzt je Zeichen: Was CP437 kennt, bleibt
+  unverändert; nur das einzelne Zeichen wird umgeschrieben (`’` → `'`,
+  `™` → `TM`, ohne Entsprechung `?`).
+* Vorab NFC-Normalisierung: Ein zerlegtes `a` + Trema (macOS-Dateinamen)
+  wird zu `ä`, das CP437 kennt – zeichenweise behandelt wäre sonst nur `a`
+  übrig geblieben.
+* Betrifft .nfo, .sfv und .m3u gleichermaßen (alle schreiben über
+  `to_codepage`), Desktop, Kommandozeile und Weboberfläche.
+
+## 3. Ergebnisfenster mit „OK“ statt „Abbrechen“
+
+Die Weboberfläche hat einen Dialog für zwei Zwecke: Pläne („Umbenennen“,
+„Tags schreiben“, „Zurücknehmen“) mit „Abbrechen“ und „Ausführen“, und
+Meldungen („Release erstellt“, „Release/Vorlage geprüft“, „Als Standard
+gespeichert“). Bei Meldungen wurde nur „Ausführen“ ausgeblendet – übrig
+blieb „Abbrechen“, als liefe noch etwas.
+
+* Zwei Funktionen statt fünf Kopien: `showInfo` (ein Knopf „OK“,
+  hervorgehoben und vorausgewählt, Enter schließt) und `showConfirm`
+  („Abbrechen“ und „Ausführen“).
+* Der Desktop war nicht betroffen – dort hat die Meldung schon immer
+  „Schließen“.
+* Im Browser nachgeprüft (Chromium): Plan zeigt „Abbrechen“/„Ausführen“,
+  das Ergebnis von „Release erstellen“ nur „OK“, Enter schließt es,
+  „Zurücknehmen“ zeigt danach wieder beide Knöpfe; keine JavaScript-Fehler.
+
+## 4. Ausgabeordner
+
+„Release erstellen“ schiebt das fertige Release zum Schluss in einen
+Ausgabeordner, sofern einer eingestellt ist. Neues Modul
+`releaser/output.py`.
+
+* **Einstellung:** `[build] output_dir` – ein Schlüssel für Kommandozeile,
+  Desktop und Weboberfläche, immer der echte Pfad. Die Weboberfläche zeigt
+  ihn als Pfad der Auswahl (`ausgang`) und nimmt beides an; so versteht die
+  Kommandozeile im selben Container die gespeicherte Datei auch.
+* **Oberflächen:** Reiter „Namen“. Desktop: Feld und „Wählen …“
+  (Ordnerauswahl). Web: Feld mit den beschreibbaren Einhängepunkten als
+  Vorschlag und „Ordner links“ für den gerade gezeigten Ordner. „Als
+  Standard“ speichert ihn mit.
+* **Kommandozeile:** `release --output-dir ORDNER`, ohne Angabe aus der
+  Konfiguration; `--output-dir ""` schaltet ab. `build` verschiebt nur mit
+  ausdrücklichem `--output-dir` – wer bloß die .nfo neu erzeugt, will
+  nichts verschoben haben.
+* **Vorher geprüft:** Ausgabeordner vorhanden, beschreibbar eingehängt,
+  nicht im Release selbst, und dort noch kein Ordner mit dem Namen, den das
+  Release *nach* dem Umbenennen trägt. Sonst ändert sich nichts – keine
+  Tags, keine Umbenennung.
+* **Über Laufwerksgrenzen:** Im Container sind Eingang und Ausgang zwei
+  Volumes; `rename` scheitert dort mit `EXDEV`. Dann wird kopiert und das
+  Original erst nach vollständiger Kopie gelöscht; scheitert die Kopie,
+  wird der Rest im Ziel entfernt. Nie wird etwas überschrieben.
+* **Rückgängig:** eigener Protokolleintrag (`kind = "move"`); `↶` holt das
+  Release zurück, auch über Laufwerksgrenzen. Ältere Fassungen lesen den
+  Eintrag als Umbenennung – die Rücknahme funktioniert dort ebenso.
+* **Auswahl links:** zeigt nach dem Verschieben den Eingang ohne das
+  Release.
+* **Container:** `docker-compose.yml` hängt `data/ausgang` beschreibbar unter
+  `/data/ausgang` ein (Dienst und `cli`).
+* Im Browser nachgeprüft (Chromium): Ausgabeordner „ausgang“ gesetzt,
+  „Release erstellen“ – Release liegt im Ausgang, Eingang leer,
+  Ergebnisfenster nennt „Verschoben nach: ausgang/…“, `↶` bietet „1
+  Verschiebung(en) in den Ausgabeordner“ an und holt es zurück; keine
+  JavaScript-Fehler.
+
+## 5. Durchsicht des kompletten Codes
+
+Vor der Veröffentlichung alle Module noch einmal durchgegangen. Jeder Fund
+hat einen Test, der gegen den Stand davor fehlschlägt.
+
+| Fund | Folge | Behebung |
+|---|---|---|
+| CUE-Image: alle Tracks zeigen auf eine Datei; `plan_tags` schrieb je Track | Image bekam Titel und Nummer des *letzten* Tracks, jede Änderung stand mehrfach im Plan | nur Albumfelder, je Datei einmal (`tagwriter.IMAGE_EXEMPT`) |
+| CUE-Image wurde nach dem ersten Track umbenannt | `FILE` im CUE zeigte ins Leere, beim nächsten Einlesen „CUE wird ignoriert“ | Image behält seinen Namen; Vorschau zeigt es gesperrt (Web schreibgeschützt, Desktop nicht editierbar) |
+| `FILE "C:\Rips\mix.flac"` | unter Linux kein Treffer, CUE ignoriert | Dateiname per `PureWindowsPath` |
+| MP3 ohne ID3, roher EC-3-Stream: `title = path.stem` | Titel „01 - Intro“ statt „Intro“, Herkunft „Tag“ statt „Dateiname“ | Titel leer lassen, der Scanner leitet ihn ab |
+| Katalognummer als SFV-/M3U-Name ungefiltert | `ABC/001` → Abbruch beim Erzeugen | wie das Gruppenkürzel bereinigt (`clean_group`) |
+| Meldungen mit echten Pfaden („Ziel existiert bereits“, Rücknahme, Systemfehler, Ausgabeordner) | Wirtspfade im Browser – entgegen „nie ein Pfad des Wirtsystems“ | Middleware `MaskPaths` schickt jede JSON-Antwort durch `MountedSource.mask()` |
+| Auswahl links nach dem Umbenennen | alter Ordnername, Klick ins Leere | `AppState._refresh_listing` nach Umbenennen und Verschieben |
+| Desktop: `entry.has_focus()` an drei Stellen | bei `Gtk.Entry` immer falsch (Fokus liegt am inneren Textfeld) | vorhandener Helfer `_widget_has_focus` |
+
+Durchgesehen ohne Befund: SKL-Parser und Renderer, Regelkette und
+Umbenennungsplan samt Rollback, SFV/M3U, Prüfsummen und Tag-Grenzen,
+Tag-Schreiber, Rückgängig, Konfiguration, Dateiauswahl samt
+Ausbruchsprüfung, Audio-Leser, Kommandozeile, Geführter Modus, Packaging.
+
+## 6. Neue und geänderte Tests
+
+* `tests/test_output.py` (neu, 9): Verschieben, Pfade im Modell,
+  simulierter Dateisystemwechsel (`EXDEV`) hin und zurück, abgebrochene
+  Kopie hinterlässt nichts, Ziel belegt, Name nach dem Umbenennen,
+  Ausgabeordner im Release, fehlender Ordner, schon dort
+* `tests/test_uistate.py` (6): Ablauf mit Rücknahme in drei Schritten,
+  belegtes Ziel ändert nichts, ohne Ausgabeordner bleibt alles, nur
+  beschreibbare eingehängte Ordner, lokaler Pfad, „lag schon dort“
+* `tests/test_web.py` (4): Verschieben per API, unzulässige Ordner,
+  „Ordner links“, Speichern als echter Pfad ohne ihn an den Browser zu geben
+* `tests/test_api.py` (4): `release` mit Konfiguration, `build` ignoriert
+  sie, belegtes Ziel, fehlender Ordner
+* `tools/webcheck.py`: zweiter Einhängepunkt `ausgang`, Schritt
+  „Ausgabeordner“, Ergebnis prüft „Verschoben nach“
+* Durchsicht: `test_extras.py` (CUE-Image durch „Release erstellen“, Plan
+  je Datei einmal, Windows-Pfad im CUE), `test_audio.py` (MP3 ohne Tags),
+  `test_sfv_m3u.py` (Katalognummer), `test_web.py` (keine Wirtspfade in
+  Meldungen, `mask`), `test_uistate.py` (Auswahl nach dem Umbenennen)
+* `tests/test_skl.py`:
+  `test_one_unmappable_character_keeps_the_block_graphics`,
+  `test_standard_template_keeps_its_frame_with_an_unmappable_tag` (die
+  mitgelieferte `standard.skl` mit einem Tag wie aus der Erprobung),
+  `test_decomposed_umlaut_stays_an_umlaut`
+* `tests/test_web.py`: neu `test_result_dialog_offers_ok_instead_of_cancel`;
+  `test_plan_dialog_shows_the_apply_button_again` prüft jetzt `showConfirm`
+* `tools/webcheck.py` (WebKitGTK): Das Ergebnisfenster hat „OK“, ist
+  vorausgewählt und schließt; ein Plan hat weiterhin „Abbrechen“
+
+## 7. Dokumentation
+
+README, README.en.md (Abschnitte „Ausgabeordner“, „Rückgängig machen“,
+„Als Standard speichern“, „Aus der sechzehnten Erprobung“, Modulbaum,
+Testzahl, Versionsbeispiel), EINRICHTUNG.md (Ordner `data/ausgang`,
+Testzahl), `config/mp3releaser/README.md`, GITHUB.md.
+
+---
+
 # Änderungen – 0.26.0: Container – Schreibweise, Tab, eigene Einstellungsdatei
 
 Stand: 01.11.2026 · Version 0.25.2 → **0.26.0**

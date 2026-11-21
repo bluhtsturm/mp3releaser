@@ -198,7 +198,14 @@ def build_options_from_config(config=None) -> "BuildOptions":
         m3u_windows_paths=bool(section.get("m3u_windows_paths", False)),
         release_date_format=str(section.get("release_date_format",
                                             RELEASE_DATE_FORMAT)),
+        output_dir=output_dir_setting(section.get("output_dir")),
     )
+
+
+def output_dir_setting(value) -> Optional[Path]:
+    """``[build] output_dir`` als Pfad; leer heisst: kein Ausgabeordner."""
+    text = str(value or "").strip()
+    return Path(text).expanduser() if text else None
 
 
 #: Name der mitgelieferten Standardvorlage
@@ -286,6 +293,9 @@ class BuildOptions:
     #: leeres Releasedatum beim Einlesen mit dem heutigen Datum fuellen -
     #: in diesem Format; leer = nicht vorbelegen
     release_date_format: str = RELEASE_DATE_FORMAT
+    #: das fertige Release zum Schluss hierher schieben - siehe
+    #: :mod:`releaser.output`; None = es bleibt, wo es ist
+    output_dir: Optional[Path] = None
 
 
 @dataclass
@@ -500,6 +510,7 @@ def process(directory: str | Path, options: BuildOptions,
     outcome = BuildOutcome(root=root, warnings=list(scanned.warnings))
     naming = naming or naming_from_config()
 
+    future = root.name
     if do_rename:
         # Erst pruefen, dann anfassen: Frueher waren die Tags schon
         # geschrieben, wenn das Umbenennen danach an einer Kollision
@@ -508,6 +519,17 @@ def process(directory: str | Path, options: BuildOptions,
         if not preview.is_safe:
             outcome.warnings += preview.warnings
             outcome.collisions = list(preview.collisions)
+            return outcome
+        future = next((op.dst.name for op in preview.changes
+                       if op.kind == "root"), root.name)
+
+    if options.output_dir is not None:
+        # Ebenso das Verschieben am Ende - unter dem kuenftigen Namen
+        from .output import check_move
+
+        problems = check_move(root, options.output_dir, future)
+        if problems:
+            outcome.collisions = problems
             return outcome
 
     if do_tag:
@@ -529,6 +551,16 @@ def process(directory: str | Path, options: BuildOptions,
     outcome.created = built.created
     outcome.removed = built.removed
     outcome.warnings += built.warnings
+
+    if options.output_dir is not None:
+        from .output import move_release
+
+        old_root = outcome.root
+        outcome.root, _entry = move_release(release, old_root,
+                                            options.output_dir)
+        outcome.created = [outcome.root / path.relative_to(old_root)
+                           if path.is_relative_to(old_root) else path
+                           for path in outcome.created]
     return outcome
 
 
