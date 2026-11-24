@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.27.6:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.28.0:
 
 ```bash
-chmod +x mp3releaser-0.27.6-x86_64.AppImage
-./mp3releaser-0.27.6-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.27.6-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.28.0-x86_64.AppImage
+./mp3releaser-0.28.0-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.28.0-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 936 Tests
+python3 -m pytest tests -q          # 958 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -613,6 +613,37 @@ Genre, Kommentar) – vorher landeten Titel und Nummer des *letzten* Tracks
 darin. Ein `FILE` mit Windows-Pfad (`C:\Rips\mix.flac`) wird erkannt.
 Seit 0.27.4 liefert `REM DATE` das Jahr, wenn das Image keines trägt – sonst
 fehlte es im Verzeichnisnamen und in der `.nfo`.
+
+## Sampler und Split-Releases
+
+Bei einem Sampler (VA) oder einem Split stehen die Artists je Track für
+sich – in den Tags, in den Dateinamen und in der Trackliste der `.nfo`.
+**Das Artist-Feld ist der Schalter:**
+
+| Artist-Feld | Art | Verzeichnis | Albumartist-Tag | Dateien | Trackliste |
+|---|---|---|---|---|---|
+| `VA` | Sampler | `VA-Sampler-2026-GRP` | Various Artists | `01-artist_eins-erster_song.mp3` | `01. Artist Eins - Erster Song` |
+| `Artist 1 / Artist 2 / Artist 3` | Split | `Artist_1__Artist_2__Artist_3-…` | Artist 1 / Artist 2 / Artist 3 | `01-artist_1-song.mp3` | `01. Artist 1 - Song` |
+| alles andere | normal | `Band-Album-…` | Band | `01-band-titel.mp3` | `01. Titel` |
+
+Beim Einlesen wird das Feld vorbelegt:
+
+1. Albumartist „Various Artists“/„VA“, oder der Ordner beginnt schon mit
+   `VA-` → `VA`.
+2. Nur ein Artist → normal.
+3. Jeder Track-Artist enthält den des Releases („Band feat. Gast“) → normal;
+   der Gast bleibt im Tag, die Trackliste zeigt den Titel.
+4. Zwei Artists, oder drei bis vier in zusammenhängenden Blöcken mit
+   mehreren Tracks je Artist → Split, `A / B / C`. Ein Albumartist wie
+   „A & B“ wird dabei in diese Schreibweise gebracht.
+5. Ein anderer Albumartist (etwa der DJ eines Mixes) bleibt stehen; die
+   Tracks behalten ihre Artists.
+6. Sonst → `VA`.
+
+Wer anders entscheidet, ändert einfach den Artist. Der Trenner ` / ` braucht
+die Leerzeichen – `AC/DC` bleibt ein Artist. Bis 0.27.6 gingen die Artists
+je Track verloren, sobald ein Albumartist gesetzt war, und „Release
+erstellen“ schrieb dann den Albumartist in jeden Track.
 
 ## Dupe-Prüfung
 
@@ -1422,7 +1453,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-936 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+958 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1888,6 +1919,11 @@ gegen den alten Stand fehlschlägt:
   Begleitdateien waren da schon erledigt. Jetzt prüft „Release erstellen“
   die echten Schreibrechte (Ausgang, Release-Ordner, Dateien) vorher, und
   schon das Eintragen des Ausgabeordners sagt, was fehlt.
+* **Sampler und Split** (0.28.0): Bei einem Sampler mit Albumartist „Various
+  Artists“ gingen die Artists je Track verloren, und „Release erstellen“
+  schrieb „Various Artists“ in jeden Track. Jetzt bleiben sie, und das
+  Artist-Feld schaltet zwischen VA, Split (`A / B / C` → `A__B__C`) und
+  normal (siehe [Sampler und Split-Releases](#sampler-und-split-releases)).
 
 ### Was offen ist
 

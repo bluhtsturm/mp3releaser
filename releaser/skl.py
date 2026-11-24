@@ -209,8 +209,9 @@ class TrackBlock(Block):
             for track in disc.tracks:
                 # Vor dem Umbrechen anpassen - sonst rechnete der Umbruch mit
                 # "™" und die Zeile wurde mit "TM" zu lang
-                title = fit_codepage(compose_track_title(track, ctx.settings),
-                                     ctx.settings.codepage)
+                title = fit_codepage(
+                    compose_track_title(track, ctx.settings, release),
+                    ctx.settings.codepage)
                 if (ctx.settings.wrap_tracklist and self.cont is not None
                         and main_w and cont_w > 0):
                     # Erste Zeile so breit wie das Hauptfeld, der Rest so

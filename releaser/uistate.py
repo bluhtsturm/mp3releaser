@@ -696,8 +696,9 @@ class AppState:
         for track in self.release.tracks:
             from .text import fit_codepage
 
-            title = fit_codepage(compose_track_title(track, Settings()),
-                                 self.build_options.codepage)
+            title = fit_codepage(
+                compose_track_title(track, Settings(), self.release),
+                self.build_options.codepage)
             if len(title) > width:
                 cut.append(title)
         return cut
