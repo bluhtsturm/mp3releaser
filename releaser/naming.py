@@ -68,7 +68,31 @@ def format_marker(release: Release) -> str:
     return FORMAT_MARKERS.get((release.audio_format or "").upper(), "")
 
 
+#: Platzhalter fuer den Trenner eines Split-Releases ("A / B" -> "A__B"),
+#: siehe ``NamingProfile.render_name``. Nur Buchstaben und Ziffern - jede
+#: Regel der Kette laesst ihn unveraendert.
+_SPLIT_MARK = "qx7splitmark7xq"
+_SPLIT_IN = re.compile(r"\s+/\s+")
+_SPLIT_OUT = re.compile(r"[ _.\-]*" + _SPLIT_MARK + r"[ _.\-]*", re.IGNORECASE)
+
+
+def _name_artist(c: "NameContext") -> str:
+    """``#Artist`` in Namen: bei mehreren Artists der des Tracks.
+
+    So heisst ein Track eines Samplers ``01-artist_eins-titel`` statt
+    ``01-va-artist_eins-titel``. Ohne Track (Verzeichnis, Begleitdateien)
+    der des Releases - bei einem Split mit Platzhalter fuer den Trenner.
+    """
+    track = c.track
+    if track is not None and track.artist and c.release.multi_artist:
+        value = track.artist
+    else:
+        value = c.release.artist
+    return _SPLIT_IN.sub(f" {_SPLIT_MARK} ", value or "")
+
+
 EXTRA_RESOLVERS: dict[str, Callable[["NameContext"], str]] = {
+    "#Artist": _name_artist,
     "#Cd": lambda c: str(c.disc.number) if c.disc else "",
     "#Cd2": lambda c: f"{c.disc.number:02d}" if c.disc else "",
     "#Grp": lambda c: c.group,
@@ -139,9 +163,15 @@ class Pattern:
     def render(self, ctx: NameContext) -> str:
         out: list[str] = []
         tag_ctx = ctx.as_tag_context()
+        # Steht #Artist schon im Muster, traegt #Trk nur den Titel - sonst
+        # stuende der Artist eines Samplers doppelt im Dateinamen
+        plain_title = (ctx.track is not None and "#Artist" in self.tags()
+                       and ctx.release.multi_artist)
         for is_tag, text in self._parts:
             if not is_tag:
                 out.append(text)
+            elif text == "#Trk" and plain_title:
+                out.append(ctx.track.title)
             elif text in EXTRA_RESOLVERS:
                 out.append(EXTRA_RESOLVERS[text](ctx) or "")
             else:
@@ -306,7 +336,12 @@ class NamingProfile:
             value = fn(value, self.space_char) if name == "spaces" else fn(value)
         if charcase is None:
             charcase = self.charcase.get(scope, CharCase.UNCHANGED)
-        return charcase.apply(value)
+        # Jeder Artist eines Splits fuer sich: "Wörter Groß" hielt das "A" in
+        # "Artist A / Artist B" sonst fuer das Fuellwort "a" - es stand durch
+        # den Trenner nicht mehr am Ende.
+        parts = re.split(f"({_SPLIT_MARK})", value, flags=re.IGNORECASE)
+        return "".join(part if part.lower() == _SPLIT_MARK
+                       else charcase.apply(part) for part in parts)
 
     def render_name(self, pattern: "Pattern", ctx: "NameContext",
                     scope: Scope) -> str:
@@ -324,15 +359,30 @@ class NamingProfile:
         selbst. Fehlt sie, verschwindet ihr Trenner wie bei jedem leeren Tag.
         """
         group = clean_group(ctx.group, self.space_char)
+        literal = not pattern.tags()
         if scope is not Scope.DIRECTORY or not group:
-            return self.sanitize(pattern.render(ctx), scope)
+            raw = pattern.render(ctx)
+            if literal:
+                raw = self._mark_split(raw)
+            return self._unmark_split(self.sanitize(raw, scope))
         raw = pattern.render(dc_replace(ctx, group=_GROUP_MARK))
-        if not pattern.tags():
+        if literal:
             # Ein von Hand gesetzter Name ist ein Muster ohne Tags - die
             # Gruppe darin ist das letzte Wort, das ihr entspricht.
-            raw = _mark_group(raw, group)
+            raw = self._mark_split(_mark_group(raw, group))
         value = self.sanitize(raw, scope)
-        return _GROUP_MARK_RE.sub(lambda _match: group, value)
+        return self._unmark_split(
+            _GROUP_MARK_RE.sub(lambda _match: group, value))
+
+    def _mark_split(self, raw: str) -> str:
+        """Ein von Hand gesetzter Name: "A / B" und "A__B" bleiben ein Split
+        - die Regelkette fasste "__" sonst zu "_" zusammen."""
+        raw = raw.replace(self.space_char * 2, f" {_SPLIT_MARK} ")
+        return _SPLIT_IN.sub(f" {_SPLIT_MARK} ", raw)
+
+    def _unmark_split(self, value: str) -> str:
+        """Split-Trenner nach der Regelkette: "Artist_1__Artist_2"."""
+        return _SPLIT_OUT.sub(lambda _match: self.space_char * 2, value)
 
 
 #: Platzhalter fuer das Gruppenkuerzel, siehe ``NamingProfile.render_name``

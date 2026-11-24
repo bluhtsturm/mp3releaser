@@ -201,7 +201,8 @@ def test_tag_writing_puts_va_artist_in_the_artist_field(tmp_path):
 
     info = read_file(path)
     assert info.artist == "Erster Act"
-    assert info.album_artist == "VA"
+    # "VA" steht im Verzeichnisnamen, im Tag der Name, den Abspieler erwarten
+    assert info.album_artist == "Various Artists"
     assert info.title == "Titel"
 
 

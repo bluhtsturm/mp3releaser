@@ -63,6 +63,25 @@ class Disc:
         return Path(root)
 
 
+#: So heißt ein Sampler im Artist-Feld - verglichen ohne Groß/Klein
+VA_NAMES: frozenset[str] = frozenset({
+    "va", "v.a.", "v/a", "various", "various artist", "various artists"})
+
+#: Trenner der Artists eines Split-Releases im Artist-Feld: "A / B / C".
+#: Mit Leerzeichen, damit "AC/DC" ein Artist bleibt.
+SPLIT_SEPARATOR = " / "
+
+
+def is_various(name: str) -> bool:
+    """Meint dieser Artist einen Sampler ("VA", "Various Artists")?"""
+    return (name or "").strip().lower() in VA_NAMES
+
+
+def is_split(name: str) -> bool:
+    """Ist das ein Split-Release im Sinne des Artist-Felds ("A / B")?"""
+    return SPLIT_SEPARATOR in (name or "")
+
+
 @dataclass
 class Release:
     artist: str = ""
@@ -141,6 +160,21 @@ class Release:
     @property
     def size_mb(self) -> float:
         return self.size_bytes / (1024 * 1024)
+
+    @property
+    def multi_artist(self) -> bool:
+        """Stehen die Artists je Track für sich - VA, Split, DJ-Mix?
+
+        Dann zeigt die Trackliste "Artist - Titel", Dateinamen tragen den
+        Artist des Tracks, und beim Taggen bleibt er erhalten. Ein Album mit
+        Gastauftritten ("Band feat. X") ist keins: Dort enthält jeder
+        Track-Artist den des Releases.
+        """
+        if is_various(self.artist) or is_split(self.artist):
+            return True
+        base = (self.artist or "").strip().lower()
+        return any(t.artist and base not in t.artist.lower()
+                   for t in self.tracks)
 
     @property
     def release_name(self) -> str:

@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.27.6 as an example:
+is `SHA256SUMS` with the checksum. Using 0.28.0 as an example:
 
 ```bash
-chmod +x mp3releaser-0.27.6-x86_64.AppImage
-./mp3releaser-0.27.6-x86_64.AppImage              # graphical interface
-./mp3releaser-0.27.6-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.28.0-x86_64.AppImage
+./mp3releaser-0.28.0-x86_64.AppImage              # graphical interface
+./mp3releaser-0.28.0-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 936 tests
+python3 -m pytest tests -q          # 958 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -615,6 +615,37 @@ number of the *last* track ended up in it. A `FILE` with a Windows path
 (`C:\Rips\mix.flac`) is recognised. Since 0.27.4 `REM DATE` provides the year
 when the image carries none — before, it was missing from the folder name and
 the `.nfo`.
+
+## Compilations and split releases
+
+On a compilation (VA) or a split, the artists stand on their own per track —
+in the tags, in the file names and in the `.nfo` track list. **The Artist
+field is the switch:**
+
+| Artist field | Kind | Folder | Album artist tag | Files | Track list |
+|---|---|---|---|---|---|
+| `VA` | compilation | `VA-Sampler-2026-GRP` | Various Artists | `01-artist_eins-erster_song.mp3` | `01. Artist Eins - Erster Song` |
+| `Artist 1 / Artist 2 / Artist 3` | split | `Artist_1__Artist_2__Artist_3-…` | Artist 1 / Artist 2 / Artist 3 | `01-artist_1-song.mp3` | `01. Artist 1 - Song` |
+| anything else | normal | `Band-Album-…` | Band | `01-band-titel.mp3` | `01. Titel` |
+
+When loading, the field is pre-filled:
+
+1. Album artist "Various Artists"/"VA", or the folder already starts with
+   `VA-` → `VA`.
+2. Only one artist → normal.
+3. Every track artist contains the release's ("Band feat. Guest") → normal;
+   the guest stays in the tag, the track list shows the title.
+4. Two artists, or three to four in contiguous blocks with several tracks per
+   artist → split, `A / B / C`. An album artist like "A & B" is brought into
+   that spelling.
+5. Another album artist (say the DJ of a mix) stays; the tracks keep their
+   artists.
+6. Otherwise → `VA`.
+
+To decide differently, just change the artist. The separator ` / ` needs the
+spaces — `AC/DC` stays one artist. Up to 0.27.6 the per-track artists were
+lost as soon as an album artist was set, and "Release erstellen" then wrote
+the album artist into every track.
 
 ## Dupe check
 
@@ -1425,7 +1456,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 936 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 958 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1876,6 +1907,11 @@ that fails against the old state:
   erstellen" checks the actual write permissions (output, release folder,
   files) beforehand, and entering the output folder already says what is
   missing.
+* **Compilations and splits** (0.28.0): on a compilation with album artist
+  "Various Artists" the per-track artists were lost, and "Release erstellen"
+  wrote "Various Artists" into every track. Now they stay, and the Artist
+  field switches between VA, split (`A / B / C` → `A__B__C`) and normal (see
+  [Compilations and split releases](#compilations-and-split-releases)).
 
 ### What is open
 

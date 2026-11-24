@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from .audio import AudioError, AudioInfo, read_file
-from .model import Disc, Release, Track
+from .model import Disc, Release, Track, is_various
 from .text import CharCase
 
 #: Normalisierte Feldnamen. Jeder Writer bildet sie auf sein Format ab.
@@ -141,7 +141,10 @@ def desired_tags(release: Release, disc: Disc, track: Track,
     values = {
         "title": track.title,
         "artist": track.artist or release.artist,
-        "albumartist": release.artist,
+        # Ein Sampler heisst im Artist-Feld "VA" (so steht es im
+        # Verzeichnisnamen), im Tag aber so, wie Abspieler ihn erwarten
+        "albumartist": ("Various Artists" if is_various(release.artist)
+                        else release.artist),
         "album": album,
         "date": str(release.year or disc.year or ""),
         "genre": release.genre,

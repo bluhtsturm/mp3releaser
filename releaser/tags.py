@@ -111,7 +111,8 @@ def _album_with_addition(ctx: Context) -> str:
     return f"{r.album} {r.album_addition}".strip() if r.album_addition else r.album
 
 
-def compose_track_title(track: Optional[Track], settings: Settings) -> str:
+def compose_track_title(track: Optional[Track], settings: Settings,
+                        release: Optional[Release] = None) -> str:
     """Anzeigetitel eines Tracks - bei Samplern mit vorangestelltem Artist.
 
     Das Modell haelt Titel und Artist getrennt; zusammengesetzt wird erst zur
@@ -123,7 +124,10 @@ def compose_track_title(track: Optional[Track], settings: Settings) -> str:
     """
     if track is None:
         return ""
-    if track.artist:
+    # Nur wenn die Artists je Track fuer sich stehen (VA, Split, DJ-Mix). Bei
+    # einem Album mit Gaesten bleibt "Band feat. X" im Tag, die Trackliste
+    # zeigt den Titel wie gewohnt.
+    if track.artist and (release is None or release.multi_artist):
         return f"{track.artist}{settings.track_separator}{track.title}"
     return track.title
 
@@ -131,7 +135,7 @@ def compose_track_title(track: Optional[Track], settings: Settings) -> str:
 def _track_title(ctx: Context) -> str:
     if ctx.track_text is not None:
         return ctx.track_text
-    return compose_track_title(ctx.track, ctx.settings)
+    return compose_track_title(ctx.track, ctx.settings, ctx.release)
 
 
 # ------------------------------------------------------------------- Registry

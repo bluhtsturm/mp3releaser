@@ -1,3 +1,67 @@
+# Änderungen – 0.28.0: Sampler und Split-Releases
+
+Stand: 24.11.2026 · Version 0.27.6 → **0.28.0**
+
+Wunsch aus der Erprobung: Bei Various-Artists- und Split-Releases müssen die
+Artists und ihre Titel für sich stehen, auch in der `.nfo`. Vorgaben:
+VA-Verzeichnis `VA-Album-…`; ein Split wird im Artist-Feld als
+„Artist 1 / Artist 2 / Artist 3“ eingetragen und erscheint im Verzeichnis als
+`Artist_1__Artist_2__Artist_3`.
+
+## 1. Was vorher passierte
+
+| Fall | 0.27.6 |
+|---|---|
+| VA ohne Albumartist-Tag | Artists je Track blieben, Dateien aber `01-va-artist_eins-erster_song.mp3` |
+| VA mit Albumartist „Various Artists“ (so taggen fast alle Shops) | **Artists je Track verloren; NFO ohne Artists; Dateien `01-various_artists-…`; „Release erstellen“ schrieb „Various Artists“ in jeden Track** |
+| Split mit Albumartist „A & B“ | ebenso: „A & B“ in jedem Track |
+
+Ursache: Der Scanner warf die Artists je Track weg, sobald ein Albumartist
+gesetzt war; der Tag-Schreiber nahm dann den des Releases.
+
+## 2. Änderung
+
+* **Artists je Track bleiben** immer, wenn sie vom Release abweichen.
+* **Das Artist-Feld ist der Schalter:** `VA` → Sampler, `A / B / C` →
+  Split, sonst normal (`Release.multi_artist`). Kein zusätzliches
+  Bedienelement – wer umschalten will, ändert den Artist. Hinweis im Feld:
+  „VA für Sampler, „A / B / C“ für Split“.
+* **Vorbelegung beim Einlesen** (`scan._release_artist`): Albumartist
+  „Various Artists“/„VA“ oder Ordner `VA-…` → VA; ein Artist → normal;
+  „Band feat. Gast“ → normales Album; zwei Artists, oder drei bis vier in
+  Blöcken mit mehreren Tracks je Artist → Split; ein anderer Albumartist
+  (DJ-Mix) bleibt; sonst VA.
+* **Verzeichnis:** „ / “ im Artist wird zu `__`, jeder Artist eines Splits
+  bekommt die Schreibweise für sich („Artist_A__Artist_B“, nicht
+  „Artist_a__…“). Ein von Hand eingetragener Name behält sein `__`.
+* **Dateien:** `#Artist` ist bei mehreren Artists der des Tracks, `#Trk`
+  dann ohne vorangestellten Artist – `01-artist_eins-erster_song.mp3`.
+* **Tags:** `artist` je Track, `albumartist` „Various Artists“ bei VA,
+  sonst der Artist des Releases.
+* **NFO:** Kopf mit „VA“ bzw. „Artist 1 / Artist 2 / Artist 3“, Trackliste
+  „Artist - Titel“ – nur bei mehreren Artists; ein Album mit Gast zeigt den
+  Titel wie gewohnt.
+
+## 3. Tests
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 936 | 958 |
+| Ergebnis hier (Python 3.13, ohne GTK) | 904 grün, 32 übersprungen | 926 grün, 32 übersprungen |
+| Desktop-Tests mit echtem GTK 4.14 (Python 3.12) | 53 grün | 53 grün |
+| `pyflakes` | sauber | sauber |
+
+* `tests/test_various.py` (neu, 22): Erkennungsregeln, VA mit Albumartist
+  (Tags, Namen, NFO), VA ohne Albumartist, Split, Album mit Gast,
+  Artist-Feld als Schalter in allen Schreibweisen, von Hand gesetzter Name.
+* Geändert: Albumartist-Tag eines Samplers ist „Various Artists“
+  (`test_api`); zwei Artists mit je einem Track sind jetzt eine
+  Split-Single, der Herkunfts-Test nimmt deshalb drei (`test_fields`).
+* Gegenprobe: 0.27.6 schrieb bei einem VA-Release mit Albumartist dreimal
+  „Various Artists“ in die Artist-Tags.
+
+---
+
 # Änderungen – 0.27.6: Schreibrechte werden vorher geprüft
 
 Stand: 21.11.2026 · Version 0.27.5 → **0.27.6**

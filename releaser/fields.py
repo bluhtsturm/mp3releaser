@@ -69,7 +69,8 @@ class FieldSpec:
 
 
 FIELDS: tuple[FieldSpec, ...] = (
-    FieldSpec("artist", "Artist", "Artist"),
+    FieldSpec("artist", "Artist", "Artist",
+              hint="VA für Sampler, „A / B / C“ für Split"),
     FieldSpec("album", "Album", "Album"),
     FieldSpec("album_addition", "Albumzusatz", "Albwthadd"),
     FieldSpec("year", "Jahr", "Year", kind="number"),

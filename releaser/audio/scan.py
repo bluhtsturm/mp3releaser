@@ -239,18 +239,69 @@ def _cue_basename(name: str) -> str:
     return PureWindowsPath(name).name
 
 
+#: Ein Ordnername, der schon einen Sampler ankuendigt: "VA-…", "Various_…"
+_VA_DIRNAME = re.compile(r"^(?:va|v\.a\.|various)(?:[\s_.\-]|$)", re.IGNORECASE)
+
+
+def _release_artist(artists: list[str], album_artist: str,
+                    dirname: str = "") -> tuple[str, str]:
+    """Der Artist des Releases und welche Art es ist: normal, VA oder Split.
+
+    ``artists`` sind die Artists der Tracks in Dateireihenfolge. Die Regeln,
+    in dieser Reihenfolge:
+
+    1. Albumartist "Various Artists", "VA" ... oder ein Ordnername, der mit
+       "VA-" beginnt, bei mehr als einem Artist -> Sampler, Artist "VA"
+    2. nur ein Artist -> normales Release
+    3. jeder Track-Artist enthaelt den des Releases ("Band feat. X") ->
+       normales Album mit Gaesten
+    4. zwei Artists, oder drei bis vier in zusammenhaengenden Bloecken mit
+       mehr als einem Track je Artist - und ein gesetzter Albumartist nennt
+       sie alle -> Split, Artist "A / B / C". Ein kleiner Sampler mit drei
+       Tracks von drei Artists ist kein Split.
+    5. ein anderer Albumartist ist gesetzt (etwa der DJ eines Mixes) -> er
+       bleibt, die Tracks behalten ihre Artists
+    6. sonst -> Sampler
+    """
+    from ..model import SPLIT_SEPARATOR, is_various
+
+    distinct = list(dict.fromkeys(artists))
+    if album_artist and is_various(album_artist):
+        return "VA", "va"
+    if len(distinct) > 1 and _VA_DIRNAME.match(dirname):
+        return "VA", "va"
+    if len(distinct) <= 1:
+        return album_artist or (distinct[0] if distinct else ""), "normal"
+    base = album_artist or _majority(artists) or ""
+    if base and all(base.lower() in a.lower() for a in distinct):
+        return base, "normal"
+    blocks = 1 + sum(1 for a, b in zip(artists, artists[1:]) if a != b)
+    split_shape = len(distinct) == 2 or (len(distinct) <= 4
+                                         and blocks == len(distinct)
+                                         and len(artists) > len(distinct))
+    named = not album_artist or all(a.lower() in album_artist.lower()
+                                    for a in distinct)
+    if split_shape and named:
+        return SPLIT_SEPARATOR.join(distinct), "split"
+    if album_artist:
+        return album_artist, "normal"
+    return "VA", "va"
+
+
 def _build_release(root: Path, infos: list[AudioInfo], warnings: list[str],
                    origins: Optional[OriginMap] = None) -> Release:
     origins = origins if origins is not None else OriginMap()
     artists = [i.artist for i in infos if i.artist]
-    album_artist = _majority(i.album_artist for i in infos)
-    main_artist = album_artist or _majority(artists) or ""
-    various = len({a for a in artists}) > 1 and not album_artist
-    if various:
-        main_artist = "VA"
+    album_artist = _majority(i.album_artist for i in infos) or ""
+    main_artist, kind = _release_artist(artists, album_artist, root.name)
+    if kind == "va":
         origins.set("artist", Origin.DERIVED)
-        warnings.append("verschiedene Artists je Track - Artist auf 'VA' gesetzt, "
-                        "Einzelartists bleiben am Track")
+        warnings.append("Sampler erkannt - Artist auf 'VA' gesetzt, die "
+                        "Artists bleiben je Track")
+    elif kind == "split":
+        origins.set("artist", Origin.DERIVED)
+        warnings.append(f"Split erkannt - Artist auf '{main_artist}' gesetzt, "
+                        "die Artists bleiben je Track")
     elif main_artist:
         origins.set("artist", Origin.TAG)
 
@@ -287,7 +338,12 @@ def _build_release(root: Path, infos: list[AudioInfo], warnings: list[str],
             tracks.append(Track(
                 no=no or position,
                 title=title,
-                artist=info.artist if various and info.artist else "",
+                # Der eigene Artist des Tracks bleibt, sobald er vom Release
+                # abweicht. Frueher ging er verloren, wenn ein Albumartist
+                # gesetzt war ("Various Artists") - und beim Taggen schrieb
+                # das Programm dann den Albumartist in jeden Track.
+                artist=(info.artist if info.artist and info.artist != main_artist
+                        else ""),
                 seconds=info.duration,
                 disc=number,
                 path=str(info.path),

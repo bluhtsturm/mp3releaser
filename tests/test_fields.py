@@ -156,10 +156,11 @@ def test_various_artists_are_marked_as_derived(tmp_path):
     from releaser.audio import scan_directory
 
     root = tmp_path / "rel"
-    for no, artist in ((1, "Erster Act"), (2, "Zweiter Act")):
+    # drei Artists mit je einem Track - zwei waeren eine Split-Single
+    for no, artist in ((1, "Erster Act"), (2, "Zweiter Act"), (3, "Dritter Act")):
         encode(root / f"0{no}-x.mp3", "-c:a", "libmp3lame",
                "-metadata", f"title=Titel {no}", "-metadata", f"artist={artist}",
-               "-metadata", "album=Sampler", "-metadata", f"track={no}/2")
+               "-metadata", "album=Sampler", "-metadata", f"track={no}/3")
 
     result = scan_directory(root)
     assert result.release.artist == "VA"
