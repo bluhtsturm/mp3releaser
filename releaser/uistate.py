@@ -629,6 +629,10 @@ class AppState:
             self._changed()
             return False
 
+        # Vorher feststellen, solange die Pfade noch stimmen: Betrifft die
+        # Ruecknahme das eingelesene Release?
+        place = undo.release_place(entry)
+        follows = self._loaded_at(place[1]) if place else False
         try:
             done = undo.undo(entry, force=force)
         except undo.UndoError as exc:
@@ -641,23 +645,80 @@ class AppState:
 
         if entry.timestamp in self.own_entries:
             self.own_entries.remove(entry.timestamp)
-        self.say(f"{len(done)} {entry.kind.label} zurückgenommen.")
+        message = f"{len(done)} {entry.kind.label} zurückgenommen."
 
         if entry.kind is undo.Kind.TAGS:
             # Die Dateien liegen noch da, nur ihre Tags sind andere - neu
             # einlesen, damit die Felder den Stand der Dateien zeigen.
             if self.current_path:
                 self.reload()
-            else:
-                self._changed()
+            # Danach, wie bei den anderen Ruecknahmen: Als letzte Meldung
+            # steht, was der Knopf getan hat, nicht "N Track(s) eingelesen".
+            self.say(message)
+            self._changed()
             return True
 
-        # Nach einer Umbenennung zeigt der Pfad ins Leere - zurueck zur Wurzel.
-        self.release = None
-        self.root = None
-        self.current_path = None
-        self.show_roots()
+        where = self._follow_undo(place, follows)
+        # Erst jetzt: Das Neueinlesen meldet sich auch, und als letzte
+        # Meldung soll stehen, was der Knopf getan hat.
+        self.say(message[:-1] + f" – liegt jetzt wieder unter {where}."
+                 if where else message)
+        self._changed()
         return True
+
+    def _loaded_at(self, path: Path) -> bool:
+        """Liegt das eingelesene Release unter ``path`` (oder ist es das)?"""
+        if self.release is None or self.root is None:
+            return False
+        try:
+            root, path = Path(self.root).resolve(), Path(path).resolve()
+        except OSError:
+            return False
+        return root == path or path in root.parents or root in path.parents
+
+    def _follow_undo(self, place: Optional[tuple[Path, Path]],
+                     follows: bool) -> Optional[str]:
+        """Zeigt nach einer Ruecknahme den Ordner, in dem das Release liegt.
+
+        Frueher ging es nach jedem Umbenennen oder Verschieben zur Wurzel:
+        Wer ein fertiges Release aus dem Ausgabeordner zurueckholte, musste
+        sich danach erst wieder in den Eingang klicken. Jetzt bleibt die
+        Liste dort, wo das Release wieder liegt, mit ihm ausgewaehlt - und
+        war es eingelesen, ist es das danach wieder, am alten Platz. So
+        laesst sich ein Lauf Schritt fuer Schritt zuruecknehmen
+        (Verschieben, Umbenennen, Tags), ohne dass man es aus den Augen
+        verliert.
+
+        Rueckgabe: wo das Release jetzt liegt, wie die Auswahl es nennt -
+        ``None``, wenn es dort nicht zu sehen ist.
+        """
+        if follows or (self.root is not None and not Path(self.root).is_dir()):
+            self._unload()
+        if place is None:
+            if self.release is None:
+                self.current_path = None
+                self.show_roots()
+            else:
+                self._refresh_listing()
+            return None
+        restored = place[0]
+        try:
+            virtual = self.source.to_virtual(restored)
+            parent = self.source.to_virtual(restored.parent)
+        except AccessError:
+            # Liegt ausserhalb des Sichtbaren (anderer Einhaengepunkt)
+            parent = virtual = None
+        if follows and virtual is not None and restored.is_dir():
+            self.load(virtual)
+        if parent is None:
+            if self.release is None:
+                self.current_path = None
+                self.show_roots()
+            return None
+        self.navigate(parent)
+        if any(e.path == virtual for e in self.entries):
+            self.selected_path = virtual
+        return virtual
 
     # ----------------------------------------------------------- NFO-Vorschau
 

@@ -502,3 +502,37 @@ def test_a_damaged_entry_does_not_hide_the_others(tmp_path):
         {"timestamp": 2, "release": "gut", "moves": [["a", "b"]]},
     ]), encoding="utf-8")
     assert [e.release for e in undo.load(path)] == ["gut"]
+
+
+# ================================================ Wo das Release danach liegt
+
+
+def test_release_place_after_a_move(tmp_path):
+    entry = undo.record_move(tmp_path / "eingang" / "Rel", tmp_path / "ausgang" / "Rel",
+                             "Rel", path=tmp_path / "j.json")
+    assert undo.release_place(entry) == (tmp_path / "eingang" / "Rel",
+                                         tmp_path / "ausgang" / "Rel")
+
+
+def test_release_place_after_renaming_the_folder(tmp_path):
+    old, new = tmp_path / "Artist - Album", tmp_path / "Artist-Album-GRP"
+    entry = undo.record([(old / "01 a.mp3", old / "01-a.mp3"),
+                         (old / "CD1", old / "cd1"),
+                         (old, new)], "Artist-Album-GRP", path=tmp_path / "j.json")
+    assert undo.release_place(entry) == (old, new)
+
+
+def test_release_place_when_only_files_were_renamed(tmp_path):
+    root = tmp_path / "Artist-Album-GRP"
+    entry = undo.record([(root / "CD1" / "01 a.mp3", root / "CD1" / "01-a.mp3")],
+                        "Artist-Album-GRP", path=tmp_path / "j.json")
+    assert undo.release_place(entry) == (root, root)
+
+
+def test_release_place_is_unknown_for_tags_and_strangers(tmp_path):
+    tags = undo.record_tags({tmp_path / "a.mp3": {"artist": "x"}}, "Rel",
+                            path=tmp_path / "j.json")
+    assert undo.release_place(tags) is None
+    stranger = undo.record([(tmp_path / "a" / "x", tmp_path / "a" / "y")],
+                           "Ganz-Anders", path=tmp_path / "j.json")
+    assert undo.release_place(stranger) is None

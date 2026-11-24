@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 960 tests
+python3 -m pytest tests -q          # 968 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -1119,7 +1119,8 @@ releaser release /path/to/release --output-dir ~/Music/Done
 * **Only `release`.** `build` only moves with an explicit `--output-dir` —
   someone just regenerating the `.nfo` does not want their release moved.
 * Undo with `↶` like everything else: first the move, then the rename, then
-  the tags.
+  the tags. The list stays in the input folder, at the release (see
+  [Undo](#undo)).
 
 The module can be **imported without GTK**. `is_available()` says whether the
 library is present; `requirements_hint()` names the package and a way that
@@ -1282,6 +1283,20 @@ every file would be "no longer present".
 **Moving into the output folder** is logged as well, as its own entry
 ("1 Verschiebung(en) in den Ausgabeordner"). Undoing it brings the release
 back to where it was — across drives by copying, like on the way there.
+
+**Where you end up.** Up to 0.28.1 the list jumped to the roots after every
+undo of a rename or move — the old path pointed nowhere, after all. Anyone
+bringing a finished release back from the output folder first had to click
+their way back into the input folder, and again for the move, the rename and
+the tags. Since 0.28.2 the list (web and desktop) stays where the release lies
+again, with it selected. If it was loaded, it is loaded again afterwards, at
+its old place — a run can be undone step by step without losing sight of it.
+The message says where ("1 Verschiebung(en) in den Ausgabeordner
+zurückgenommen – liegt jetzt wieder unter eingang/…"). `undo.release_place`
+works the place out from the log: for a move it is written there directly,
+for a rename it is the move whose target carries the new folder name. If it
+lies outside what is visible (in the container: no mount), the list goes to
+the roots as before.
 
 ## NFO preview
 
@@ -1460,7 +1475,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 960 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 968 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1916,6 +1931,11 @@ that fails against the old state:
   wrote "Various Artists" into every track. Now they stay, and the Artist
   field switches between VA, split (`A / B / C` → `A__B__C`) and normal (see
   [Compilations and split releases](#compilations-and-split-releases)).
+* **Container and AppImage tried with 0.28.1**: all formats, compilation,
+  splits with two and three artists (also entered by hand), collision,
+  missing write permissions — all fine. Found: after undo the list jumped to
+  the roots instead of staying in the input folder where the release lay
+  again. 0.28.2 stays there (see [Undo](#undo)).
 
 ### What is open
 

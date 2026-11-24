@@ -1,3 +1,67 @@
+# Änderungen – 0.28.2: Nach dem Zurücknehmen bleibt die Liste im Eingang
+
+Stand: 24.11.2026 · Version 0.28.1 → **0.28.2**
+
+0.28.1 im Container und als AppImage durchgespielt: alle Formate (MP3, FLAC
+mit zwei CDs, CUE-Image, E-AC-3 im M4A und roh, Ogg, Opus), Sampler, Split
+mit zwei und drei Artists – automatisch erkannt und im Desktop von Hand als
+„Krach Eins / Krach Zwei“ eingetragen –, Kollision im Ausgabeordner,
+Ausgabeordner ohne Schreibrecht. Alles in Ordnung, Begleitdateien der Splits
+mit `__`. Ein Wunsch daraus:
+
+| | 0.28.1 | 0.28.2 |
+|---|---|---|
+| Zurücknehmen von Verschieben oder Umbenennen | Liste springt zur Wurzel, Release ist nicht mehr eingelesen | Liste bleibt im Ordner, in dem das Release wieder liegt, mit ihm markiert; war es eingelesen, ist es das wieder |
+| Meldung | „1 Verschiebung(en) in den Ausgabeordner zurückgenommen.“ | „… zurückgenommen – liegt jetzt wieder unter eingang/Krach_Eins__Krach_Zwei-Krach_EP-2026-GRP.“ |
+
+Ein fertiges Release lässt sich damit Schritt für Schritt zurücknehmen –
+Verschieben, Umbenennung, Tags –, ohne sich nach jedem Schritt wieder in den
+Eingang zu klicken.
+
+## Änderung
+
+* `undo.release_place(entry)`: wo der Releaseordner nach der Rücknahme liegt
+  und wo jetzt. Beim Verschieben steht das im Eintrag; beim Umbenennen ist es
+  die Bewegung, deren Ziel den neuen Ordnernamen trägt, sonst (nur Dateien
+  umbenannt) der Ordner dieses Namens über den Dateien.
+* `AppState.undo_last` folgt dem Release dorthin (Web und Desktop). Betrifft
+  die Rücknahme ein anderes Release als das eingelesene, bleibt das
+  eingelesene samt Eingaben. Liegt der Ort außerhalb des Sichtbaren (im
+  Container: kein Einhängepunkt), geht es wie bisher zur Wurzel.
+* Nach jeder Rücknahme steht als letzte Meldung, was der Knopf getan hat.
+  Bei Tags stand dort bisher „N Track(s) eingelesen“ vom Neueinlesen.
+* Desktop: Die Liste markiert die Zeile, die der Zustand als ausgewählt
+  führt – auch, wenn sie nicht neu gezeichnet wird. Vorher zeigte sie eine
+  so gesetzte Auswahl gar nicht, und beim Neuzeichnen ging die Auswahl
+  verloren.
+
+## Tests
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 960 | 968 |
+| Desktop-Tests mit echtem GTK 4.14 (Python 3.12) | 53 grün | 54 grün |
+| Browser-Prüfung in WebKitGTK (`tools/webcheck.py`) | 24 von 24 | 25 von 25 |
+| `pyflakes` | sauber | sauber |
+
+* `tests/test_undo.py`: `release_place` nach Verschieben, nach Umbenennen des
+  Ordners, wenn nur Dateien umbenannt wurden, bei Tags und fremden Einträgen.
+* `tests/test_uistate.py`: Rücknahme einer Umbenennung bleibt im Eingang und
+  liest neu ein; ein ganzer Lauf (Verschieben, Umbenennung, Tags) Schritt
+  für Schritt; Rücknahme ohne eingelesenes Release; Rücknahme eines anderen
+  Releases lässt das eingelesene samt Eingabe; Ort außerhalb der
+  Einhängepunkte → Wurzel.
+* `tests/test_web.py`: über HTTP bleibt das Release eingelesen und markiert.
+* `tests/test_gtkui.py`: Im echten Fenster steht die Liste nach dem
+  Zurücknehmen im Eingang, das Release markiert.
+* `tools/webcheck.py`: neuer Schritt „Zurücknehmen bleibt im Eingang“ im
+  Browser, nach „Release erstellen“.
+
+Gegen 0.28.1 laufen gelassen, schlagen die neuen Prüfungen fehl (Zustand,
+HTTP, GTK-Liste, Browser).
+
+---
+
 # Änderungen – 0.28.1: Begleitdateien eines Splits mit doppeltem Trenner
 
 Stand: 24.11.2026 · Version 0.28.0 → **0.28.1**

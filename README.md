@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 960 Tests
+python3 -m pytest tests -q          # 968 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -1113,7 +1113,8 @@ releaser release /pfad/zur/release --output-dir ~/Musik/Fertig
   `--output-dir` — wer bloß die `.nfo` neu erzeugt, will sein Release nicht
   verschoben bekommen.
 * Zurückgenommen wird mit `↶` wie alles andere: erst das Verschieben, dann
-  die Umbenennung, dann die Tags.
+  die Umbenennung, dann die Tags. Die Auswahl bleibt dabei im Eingang, beim
+  Release (siehe [Rückgängig machen](#rückgängig-machen)).
 
 Das Modul lässt sich **ohne GTK importieren**. `is_available()` sagt, ob die
 Bibliothek da ist, `requirements_hint()` nennt das Paket und einen Weg, der
@@ -1279,6 +1280,21 @@ mehr vorhanden".
 eigener Eintrag („1 Verschiebung(en) in den Ausgabeordner“). Die Rücknahme
 holt das Release an seinen alten Platz zurück — über Laufwerksgrenzen per
 Kopie, wie auf dem Hinweg.
+
+**Wo man danach steht.** Bis 0.28.1 sprang die Auswahl nach jeder Rücknahme
+einer Umbenennung oder Verschiebung zur Wurzel — der alte Pfad zeigte ja ins
+Leere. Wer ein fertiges Release aus dem Ausgabeordner zurückholte, musste sich
+danach erst wieder in den Eingang klicken, und das bei Verschieben,
+Umbenennung und Tags jedes Mal. Seit 0.28.2 bleibt die Liste (Web und
+Desktop) dort, wo das Release wieder liegt, mit ihm markiert. War es
+eingelesen, ist es das danach wieder, am alten Platz — so lässt sich ein Lauf
+Schritt für Schritt zurücknehmen, ohne es aus den Augen zu verlieren. Die
+Meldung sagt, wo: „1 Verschiebung(en) in den Ausgabeordner zurückgenommen –
+liegt jetzt wieder unter eingang/…“. Den Ort rechnet `undo.release_place`
+aus dem Protokoll nach: Beim Verschieben steht er direkt darin, beim
+Umbenennen ist es die Bewegung, deren Ziel den neuen Ordnernamen trägt.
+Liegt er außerhalb des Sichtbaren (im Container: kein Einhängepunkt), geht es
+wie bisher zur Wurzel.
 
 ## NFO-Vorschau
 
@@ -1457,7 +1473,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-960 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+968 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1928,6 +1944,11 @@ gegen den alten Stand fehlschlägt:
   schrieb „Various Artists“ in jeden Track. Jetzt bleiben sie, und das
   Artist-Feld schaltet zwischen VA, Split (`A / B / C` → `A__B__C`) und
   normal (siehe [Sampler und Split-Releases](#sampler-und-split-releases)).
+* **Container und AppImage mit 0.28.1 durchgespielt**: alle Formate, Sampler,
+  Splits mit zwei und drei Artists (auch von Hand eingetragen), Kollision,
+  fehlende Schreibrechte – alles in Ordnung. Gefunden: Nach dem Zurücknehmen
+  sprang die Liste zur Wurzel, statt im Eingang zu bleiben, wo das Release
+  wieder lag. 0.28.2 bleibt dort (siehe [Rückgängig machen](#rückgängig-machen)).
 
 ### Was offen ist
 
