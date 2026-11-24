@@ -15,12 +15,12 @@ Weboberfläche im Container.
 
 Das fertige AppImage gibt es unter
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) – eine Datei, ohne Installation, ohne Python.
-Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.28.0:
+Daneben liegt `SHA256SUMS` mit der Prüfsumme. Am Beispiel von 0.28.1:
 
 ```bash
-chmod +x mp3releaser-0.28.0-x86_64.AppImage
-./mp3releaser-0.28.0-x86_64.AppImage              # grafische Oberfläche
-./mp3releaser-0.28.0-x86_64.AppImage --help       # Kommandozeile
+chmod +x mp3releaser-0.28.1-x86_64.AppImage
+./mp3releaser-0.28.1-x86_64.AppImage              # grafische Oberfläche
+./mp3releaser-0.28.1-x86_64.AppImage --help       # Kommandozeile
 sha256sum -c SHA256SUMS                           # Prüfsumme kontrollieren
 ```
 
@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 958 Tests
+python3 -m pytest tests -q          # 960 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -639,6 +639,10 @@ Beim Einlesen wird das Feld vorbelegt:
 5. Ein anderer Albumartist (etwa der DJ eines Mixes) bleibt stehen; die
    Tracks behalten ihre Artists.
 6. Sonst → `VA`.
+
+Die Begleitdateien eines Splits tragen denselben doppelten Trenner:
+`00-artist_1__artist_2-….nfo`, ebenso `.sfv`, `.m3u` und Cover (seit 0.28.1;
+in 0.28.0 hießen sie noch `00-artist_1_artist_2-…`).
 
 Wer anders entscheidet, ändert einfach den Artist. Der Trenner ` / ` braucht
 die Leerzeichen – `AC/DC` bleibt ein Artist. Bis 0.27.6 gingen die Artists
@@ -1453,7 +1457,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-958 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+960 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
