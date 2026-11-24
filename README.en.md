@@ -20,12 +20,12 @@ interface in a container.
 
 The ready-made AppImage is available under
 [**Releases**](https://github.com/bluhtsturm/mp3releaser/releases/latest) — a single file, no installation, no Python. Next to it
-is `SHA256SUMS` with the checksum. Using 0.28.0 as an example:
+is `SHA256SUMS` with the checksum. Using 0.28.1 as an example:
 
 ```bash
-chmod +x mp3releaser-0.28.0-x86_64.AppImage
-./mp3releaser-0.28.0-x86_64.AppImage              # graphical interface
-./mp3releaser-0.28.0-x86_64.AppImage --help       # command line
+chmod +x mp3releaser-0.28.1-x86_64.AppImage
+./mp3releaser-0.28.1-x86_64.AppImage              # graphical interface
+./mp3releaser-0.28.1-x86_64.AppImage --help       # command line
 sha256sum -c SHA256SUMS                           # verify the checksum
 ```
 
@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 958 tests
+python3 -m pytest tests -q          # 960 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -641,6 +641,10 @@ When loading, the field is pre-filled:
 5. Another album artist (say the DJ of a mix) stays; the tracks keep their
    artists.
 6. Otherwise → `VA`.
+
+The companion files of a split carry the same double separator:
+`00-artist_1__artist_2-….nfo`, likewise `.sfv`, `.m3u` and cover (since
+0.28.1; in 0.28.0 they were still `00-artist_1_artist_2-…`).
 
 To decide differently, just change the artist. The separator ` / ` needs the
 spaces — `AC/DC` stays one artist. Up to 0.27.6 the per-track artists were
@@ -1456,7 +1460,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 958 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 960 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |

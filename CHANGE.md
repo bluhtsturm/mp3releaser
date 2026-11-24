@@ -1,3 +1,41 @@
+# Änderungen – 0.28.1: Begleitdateien eines Splits mit doppeltem Trenner
+
+Stand: 24.11.2026 · Version 0.28.0 → **0.28.1**
+
+Den Ausgabeordner mit 0.28.0 im Container durchgespielt – der volle Ablauf
+(MP3 mit Cover, zwei CDs, CUE, Sonderzeichen, Kollision, Rücknahme,
+Neustart) und neu Sampler und Split, Eingang auf ext4, Ausgang auf tmpfs.
+
+| Fall | Ergebnis |
+|---|---|
+| Sampler, Albumartist „Various Artists“ | Artist-Feld „VA“, Ordner `VA-Sampler-2026`, Dateien `01-artist_eins-erster_song.mp3`, Tags je Track erhalten (Albumartist „Various Artists“), NFO „Artist Eins - Erster Song“ |
+| Split, Albumartist „Artist A & Artist B“ | Artist-Feld „Artist A / Artist B“, Ordner `Artist_A__Artist_B-Split_EP-2026`, Dateien und Tags je Track richtig – **aber Begleitdateien `00-artist_a_artist_b-…` mit einfachem Unterstrich** |
+| übriger Ablauf | wie bei 0.27.6, alles in Ordnung |
+
+## Ursache und Änderung
+
+Die Begleitdateien leiten ihren Namen vom fertigen Verzeichnisnamen ab
+(`#Fullrelease`). Die Regelkette fasste das `__` darin zu `_` zusammen. Ein
+Cover dagegen entsteht aus dem Muster und behielt `__` – die Namen in einem
+Split-Release waren uneinheitlich. Jetzt übersteht der doppelte Trenner die
+Regelkette auch auf diesem Weg (`NamingProfile._mark_split`): `.nfo`, `.sfv`,
+`.m3u` und Cover heißen `00-artist_a__artist_b-…`. Im neu gebauten Container
+nachgeprüft, SFV 4 ok.
+
+## Tests
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 958 | 960 |
+| Desktop-Tests mit echtem GTK 4.14 (Python 3.12) | 53 grün | 53 grün |
+| `pyflakes` | sauber | sauber |
+
+* `tests/test_various.py`: Begleitdateien und Cover eines Splits mit `__`;
+  Einlesen, Umbenennen und Erzeugen eines Splits von Anfang bis Ende.
+  Gegen 0.28.0 laufen gelassen, schlagen beide fehl.
+
+---
+
 # Änderungen – 0.28.0: Sampler und Split-Releases
 
 Stand: 24.11.2026 · Version 0.27.6 → **0.28.0**

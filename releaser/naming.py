@@ -361,24 +361,29 @@ class NamingProfile:
         group = clean_group(ctx.group, self.space_char)
         literal = not pattern.tags()
         if scope is not Scope.DIRECTORY or not group:
-            raw = pattern.render(ctx)
-            if literal:
-                raw = self._mark_split(raw)
+            raw = self._mark_split(pattern.render(ctx), literal)
             return self._unmark_split(self.sanitize(raw, scope))
         raw = pattern.render(dc_replace(ctx, group=_GROUP_MARK))
         if literal:
             # Ein von Hand gesetzter Name ist ein Muster ohne Tags - die
             # Gruppe darin ist das letzte Wort, das ihr entspricht.
-            raw = self._mark_split(_mark_group(raw, group))
+            raw = _mark_group(raw, group)
+        raw = self._mark_split(raw, literal)
         value = self.sanitize(raw, scope)
         return self._unmark_split(
             _GROUP_MARK_RE.sub(lambda _match: group, value))
 
-    def _mark_split(self, raw: str) -> str:
-        """Ein von Hand gesetzter Name: "A / B" und "A__B" bleiben ein Split
-        - die Regelkette fasste "__" sonst zu "_" zusammen."""
+    def _mark_split(self, raw: str, literal: bool) -> str:
+        """Der doppelte Trenner eines Splits ("A__B") uebersteht die
+        Regelkette - die fasste "__" sonst zu "_" zusammen.
+
+        Er kommt auch ueber ``#Fullrelease`` herein, den fertigen
+        Verzeichnisnamen: Die Begleitdateien eines Splits hiessen sonst
+        ``00-artist_a_artist_b-…``, das Cover aber ``00-artist_a__artist_b-…``.
+        Ein von Hand gesetzter Name darf den Split auch als "A / B" nennen.
+        """
         raw = raw.replace(self.space_char * 2, f" {_SPLIT_MARK} ")
-        return _SPLIT_IN.sub(f" {_SPLIT_MARK} ", raw)
+        return _SPLIT_IN.sub(f" {_SPLIT_MARK} ", raw) if literal else raw
 
     def _unmark_split(self, value: str) -> str:
         """Split-Trenner nach der Regelkette: "Artist_1__Artist_2"."""

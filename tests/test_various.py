@@ -230,3 +230,40 @@ def test_multi_artist_follows_the_artist_field():
     guest = Release(artist="Band", discs=[Disc(1, tracks=[
         Track(1, "Eins", 1.0, artist="Band feat. Gast")])])
     assert not guest.multi_artist
+
+
+def test_split_companions_keep_the_double_separator():
+    """Aus dem Test im Container: Die Begleitdateien eines Splits leiten sich
+    vom fertigen Verzeichnisnamen ab (#Fullrelease) - die Regelkette machte
+    aus "__" dabei "_". Die .nfo hiess "00-artist_a_artist_b-…", ein Cover
+    aber "00-artist_a__artist_b-…"."""
+    from releaser.naming import companion_name, future_companion_stem
+
+    profile = preset()
+    release = Release(artist="Artist A / Artist B", album="Split EP", year=2026)
+    release.dirname = release_dirname(release, profile)
+    assert release.dirname == "Artist_A__Artist_B-Split_EP-2026-GRP"
+    stem = "artist_a__artist_b-split_ep-2026-grp"
+    assert companion_name(release, ".nfo", profile) == f"00-{stem}.nfo"
+    assert companion_name(release, ".sfv", profile) == f"00-{stem}.sfv"
+    assert future_companion_stem(release, profile) == stem
+
+
+@needs_ffmpeg
+def test_split_release_end_to_end_names(tmp_path):
+    """Einlesen, Umbenennen und Begleitdateien eines Splits - alle Namen mit
+    demselben doppelten Trenner."""
+    from releaser.service import BuildOptions, process
+
+    root = release_dir(tmp_path, "rel", "Artist A & Artist B", [
+        ("Artist A", "Song A1"), ("Artist B", "Song B1")])
+    template = tmp_path / "t.skl"
+    template.write_bytes("#Artist                    \n#N #Trk              \n"
+                         .encode("cp437"))
+    outcome = process(root, BuildOptions(template=template), naming=preset(),
+                      tags=TagProfile(), do_tag=True, do_rename=True)
+    assert outcome.root.name == "Artist_A__Artist_B-Sampler-2026-GRP"
+    assert sorted(p.name for p in outcome.created) == [
+        "00-artist_a__artist_b-sampler-2026-grp.m3u",
+        "00-artist_a__artist_b-sampler-2026-grp.nfo",
+        "00-artist_a__artist_b-sampler-2026-grp.sfv"]
