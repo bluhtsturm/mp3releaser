@@ -8,6 +8,7 @@ wirklich nur die eingehängten Ordner zeigt und keine Wirtspfade herausgibt.
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 import pytest
@@ -1065,3 +1066,61 @@ def test_a_rejected_value_does_not_stay_in_its_field():
     for field in ("p-dir", "p-file", "p-group", "p-dirname", "p-case-dir",
                   "p-case-file", "p-output"):
         assert f'"{field}": names =>' in page, field
+
+
+# ======================= Anfragen einer Sitzung nacheinander (Fund der Durchsicht)
+
+
+def _overlap_probe(monkeypatch):
+    """Ersetzt "Release erstellen" durch einen Lauf, der Überschneidungen zählt."""
+    import threading
+
+    from releaser.uistate import AppState
+
+    seen = {"now": 0, "most": 0}
+    lock = threading.Lock()
+
+    def slow_produce(self):
+        with lock:
+            seen["now"] += 1
+            seen["most"] = max(seen["most"], seen["now"])
+        time.sleep(0.3)
+        with lock:
+            seen["now"] -= 1
+        return ["fertig"]
+
+    monkeypatch.setattr(AppState, "produce", slow_produce)
+    return seen
+
+
+def _at_once(*calls) -> None:
+    import threading
+
+    threads = [threading.Thread(target=call) for call in calls]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+
+
+def test_one_session_runs_one_request_at_a_time(client, monkeypatch):
+    """Ein Doppelklick auf „Release erstellen“ startete zwei Läufe zugleich."""
+    seen = _overlap_probe(monkeypatch)
+    client.get("/api/state")                       # Sitzung anlegen
+    produce = lambda: client.post("/api/produce", json={})  # noqa: E731
+    _at_once(produce, produce)
+    assert seen["most"] == 1
+
+
+def test_different_sessions_still_run_side_by_side(tree, monkeypatch):
+    from releaser.service import naming_from_config
+
+    seen = _overlap_probe(monkeypatch)
+    app = create_app(MountedSource([Mount("eingang", tree / "eingang")]),
+                     naming=naming_from_config(group="GRP"))
+    anna, bernd = TestClient(app), TestClient(app)
+    anna.get("/api/state")
+    bernd.get("/api/state")
+    _at_once(lambda: anna.post("/api/produce", json={}),
+             lambda: bernd.post("/api/produce", json={}))
+    assert seen["most"] == 2

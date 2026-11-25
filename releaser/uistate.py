@@ -615,12 +615,12 @@ class AppState:
         Umbenennung oder Tags - und zeigt danach, wo das Release liegt."""
         from . import undo
 
-        if self._refuse_if_readonly("Zurücknehmen"):
-            return False
         entry = self.undo_candidate()
         if entry is None:
             self.say("Nichts rückgängig zu machen.", Level.WARNING)
             self._changed()
+            return False
+        if self._refuse_undo(entry):
             return False
 
         problems = undo.check(entry)
@@ -684,6 +684,33 @@ class AppState:
                  if where else message)
         self._changed()
         return True
+
+    def _refuse_undo(self, entry) -> bool:
+        """Liegt, was die Rücknahme anfasst, nur lesend eingehängt?
+
+        Entscheidend sind die Ordner im Protokolleintrag. Früher war es der
+        Ordner, den die Liste gerade zeigte: Ein Blick ins nur lesend
+        eingehängte Archiv genügte, und ↶ verweigerte die Rücknahme eines
+        Releases im Eingang.
+        """
+        from .browse import MountedSource
+
+        if not isinstance(self.source, MountedSource):
+            return False
+        paths = ([p for move in entry.moves for p in move]
+                 + list(entry.tags) + list(entry.created))
+        for raw in paths:
+            try:
+                virtual = self.source.to_virtual(Path(raw))
+            except AccessError:
+                continue
+            if not self.source.is_writable(virtual):
+                mount = virtual.split("/", 1)[0]
+                self.say(f"Zurücknehmen nicht möglich: {mount} ist nur lesend "
+                         "eingehängt.", Level.ERROR)
+                self._changed()
+                return True
+        return False
 
     def _loaded_at(self, path: Path) -> bool:
         """Liegt das eingelesene Release unter ``path`` (oder ist es das)?"""

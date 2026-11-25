@@ -1072,6 +1072,42 @@ def test_created_files_belong_to_the_session(release_dir, template_file):
     assert other.undo_entries() == []
 
 
+@needs_ffmpeg
+def test_undo_is_not_blocked_by_a_look_into_a_read_only_mount(release_dir,
+                                                              tmp_path):
+    """Früher entschied der Ordner, den die Liste zeigte, über ↶."""
+    archive = tmp_path / "archiv"
+    (archive / "Alt").mkdir(parents=True)
+    source = MountedSource([Mount("eingang", release_dir.parent),
+                            Mount("archiv", archive, False)])
+    state = AppState(source=source, naming=NamingProfile(group="GRP"))
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.preview_rename()
+    assert state.apply_rename() is True
+
+    fresh = AppState(source=source)
+    fresh.navigate("archiv")                       # nur hineingeschaut
+    assert fresh.undo_last() is True, fresh.last_message.text
+    assert release_dir.is_dir()
+
+
+@needs_ffmpeg
+def test_undo_inside_a_read_only_mount_is_refused(release_dir):
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.preview_rename()
+    assert state.apply_rename() is True
+    renamed = sorted(p.name for p in release_dir.parent.iterdir())
+
+    # Inzwischen nur lesend eingehaengt: ↶ fasst nichts an und sagt warum
+    locked = AppState(source=MountedSource(
+        [Mount("eingang", release_dir.parent, False)]))
+    assert locked.undo_last() is False
+    assert locked.last_message.text == ("Zurücknehmen nicht möglich: eingang "
+                                        "ist nur lesend eingehängt.")
+    assert sorted(p.name for p in release_dir.parent.iterdir()) == renamed
+
+
 def test_undo_without_a_journal(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     state = AppState()

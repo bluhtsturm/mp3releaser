@@ -1058,11 +1058,18 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 "00-" if check.get_active() else "", include_all=True)
 
         @guarded
+        @guarded
         def _on_output(self, entry) -> None:
             value = entry.get_text().strip()
             if value != (self.state.output_path or ""):
                 self.state.set_output(value)
+                # Was übernommen wurde, nicht was getippt war: Nach Enter
+                # bleibt der Cursor im Feld, und ein abgelehnter Ordner
+                # stand weiter da - beim Verlassen des Felds kam dieselbe
+                # Fehlermeldung dann ein zweites Mal.
+                entry.set_text(self.state.output_path or "")
 
+        @guarded
         def _on_choose_output(self, *_args) -> None:
             def chosen(path):
                 if path:

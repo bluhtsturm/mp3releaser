@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 980 Tests
+python3 -m pytest tests -q          # 993 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -916,6 +916,14 @@ derselbe Zustand im Arbeitsspeicher des eigenen Rechners. Ein Test hält fest,
 dass zwei Clients ihre Eingaben nicht sehen. Die Sitzungsverwaltung ist
 threadsicher, weil FastAPI die Endpunkte in einem Thread-Pool ausführt.
 
+Seit 0.28.4 laufen auch **die Anfragen einer Sitzung nacheinander**
+(`OneAtATime`, eine Middleware). Vorher startete ein Doppelklick auf
+„Release erstellen“ zwei Läufe zugleich auf demselben Release: Der zweite
+schrieb Tags, während der erste schon umbenannte. Verschiedene Sitzungen
+laufen weiter nebeneinander. Das Undo-Protokoll, das alle Sitzungen teilen,
+wird unter einer Sperre geändert und erst neben dem alten geschrieben, dann
+an dessen Platz gerückt — ein Abbruch beim Schreiben lässt das alte stehen.
+
 **Die Dateiauswahl ist beschränkt.** Es gibt hier ausschließlich
 `MountedSource`. Sichtbar ist, was jemand vorher in die Compose-Datei
 geschrieben hat — der Nutzer der Oberfläche entscheidet das nicht. Die Seite
@@ -1495,7 +1503,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-980 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+993 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1976,6 +1984,15 @@ gegen den alten Stand fehlschlägt:
   erzeugten `.nfo`, `.sfv` und `.m3u` noch im Ordner – mit dem Namen des
   fertigen Releases und Verweisen auf Dateien, die es nicht mehr gab. 0.28.3
   entfernt sie mit (siehe [Rückgängig machen](#rückgängig-machen)).
+* **Code-Durchsicht nach 0.28.3** – fünf Funde, alle in 0.28.4 behoben:
+  Der doppelte Split-Trenner traf seit 0.28.1 auch gewöhnliche Releases, wenn
+  das Ersatzzeichen „-“ oder „.“ war (`band-das-album--2026-GRP`,
+  `warten...mp3`). `↶` verweigerte die Rücknahme, sobald die Liste einen nur
+  lesend eingehängten Ordner zeigte – entscheidend ist jetzt, was die
+  Rücknahme anfasst. Im Web liefen zwei Anfragen einer Sitzung gleichzeitig
+  (Doppelklick auf „Release erstellen“). Das gemeinsame Undo-Protokoll wurde
+  ohne Sperre und nicht am Stück geschrieben. Im Desktop blieb ein
+  abgelehnter Ausgabeordner im Feld stehen, und die Meldung kam zweimal.
 
 ### Was offen ist
 

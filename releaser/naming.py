@@ -32,7 +32,7 @@ from enum import Enum
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
-from .model import Disc, Release, Track
+from .model import Disc, Release, Track, is_split
 from .tags import LITERALS, LITERAL_ORDER, Context, Settings
 from .text import CharCase, to_ascii
 
@@ -361,19 +361,20 @@ class NamingProfile:
         group = clean_group(ctx.group, self.space_char)
         literal = not pattern.tags()
         if scope is not Scope.DIRECTORY or not group:
-            raw = self._mark_split(pattern.render(ctx), literal)
+            raw = self._mark_split(pattern.render(ctx), pattern, ctx)
             return self._unmark_split(self.sanitize(raw, scope))
         raw = pattern.render(dc_replace(ctx, group=_GROUP_MARK))
         if literal:
             # Ein von Hand gesetzter Name ist ein Muster ohne Tags - die
             # Gruppe darin ist das letzte Wort, das ihr entspricht.
             raw = _mark_group(raw, group)
-        raw = self._mark_split(raw, literal)
+        raw = self._mark_split(raw, pattern, ctx)
         value = self.sanitize(raw, scope)
         return self._unmark_split(
             _GROUP_MARK_RE.sub(lambda _match: group, value))
 
-    def _mark_split(self, raw: str, literal: bool) -> str:
+    def _mark_split(self, raw: str, pattern: "Pattern",
+                    ctx: "NameContext") -> str:
         """Der doppelte Trenner eines Splits ("A__B") uebersteht die
         Regelkette - die fasste "__" sonst zu "_" zusammen.
 
@@ -381,8 +382,19 @@ class NamingProfile:
         Verzeichnisnamen: Die Begleitdateien eines Splits hiessen sonst
         ``00-artist_a_artist_b-…``, das Cover aber ``00-artist_a__artist_b-…``.
         Ein von Hand gesetzter Name darf den Split auch als "A / B" nennen.
+
+        In einem Muster gilt ein doppeltes Ersatzzeichen nur dann als
+        Trenner, wenn das Release ein Split ist und das Muster
+        ``#Fullrelease`` enthaelt - nur dort kommt es aus einem fertigen
+        Namen. Bis 0.28.3 galt es immer: Mit "-" als Ersatzzeichen hiess ein
+        gewoehnliches Release ``band-das-album--2026-GRP`` (zwei leere
+        Felder), mit "." wurde aus "Warten..." ``warten...mp3``. Ein von Hand
+        gesetzter Name bleibt, wie er eingetippt wurde.
         """
-        raw = raw.replace(self.space_char * 2, f" {_SPLIT_MARK} ")
+        literal = not pattern.tags()
+        if literal or (is_split(ctx.release.artist)
+                       and "#Fullrelease" in pattern.tags()):
+            raw = raw.replace(self.space_char * 2, f" {_SPLIT_MARK} ")
         return _SPLIT_IN.sub(f" {_SPLIT_MARK} ", raw) if literal else raw
 
     def _unmark_split(self, value: str) -> str:

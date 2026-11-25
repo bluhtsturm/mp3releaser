@@ -29,6 +29,7 @@ import secrets
 import threading
 import time
 from dataclasses import dataclass, field, replace
+from http.cookies import CookieError, SimpleCookie
 from pathlib import Path
 from typing import Optional
 
@@ -37,6 +38,7 @@ try:
     # annotations`` sind Typangaben Zeichenketten, und FastAPI loest sie
     # gegen die Modulebene auf. Lokale Importe waeren dort unsichtbar - die
     # Endpunkte wuerden dann Query-Parameter statt Response und Cookie sehen.
+    import anyio                       # kommt mit FastAPI (Starlette)
     from fastapi import Body, Cookie, FastAPI, HTTPException, Response
     from fastapi.responses import FileResponse, JSONResponse
 
@@ -110,6 +112,64 @@ class MaskPaths:
             await send({"type": "http.response.body", "body": body})
 
         await self.app(scope, receive, masked)
+
+
+class OneAtATime:
+    """ASGI-Middleware: die Anfragen einer Sitzung nacheinander.
+
+    FastAPI fuehrt synchrone Endpunkte in einem Thread-Pool aus - zwei
+    Anfragen derselben Sitzung liefen gleichzeitig auf demselben Zustand.
+    Ein Doppelklick auf "Release erstellen" startete so zwei Laeufe: Der
+    zweite schrieb Tags, waehrend der erste schon umbenannte, scheiterte an
+    "No such file" und meldete "bis dahin: noch nichts geaendert". Ebenso
+    lief der Abgleich bei der Rueckkehr in den Tab mitten in einen Lauf.
+
+    Verschiedene Sitzungen bleiben parallel; ohne Sitzungs-Cookie (die
+    allererste Anfrage) gibt es nichts zu ordnen. Gewartet wird in einem
+    Hilfsthread, nicht in der Ereignisschleife - die bedient derweil die
+    anderen Sitzungen. Eine Sperre der Ereignisschleife (asyncio.Lock)
+    taugte nicht: Sie haengt an *einer* Schleife, und der Testclient
+    startet je Anfrage eine eigene.
+    """
+
+    def __init__(self, app):
+        self.app = app
+        #: Sitzung -> [Sperre, wie viele Anfragen sie gerade halten/wollen]
+        self.locks: dict[str, list] = {}
+        self._book = threading.Lock()
+
+    async def __call__(self, scope, receive, send):
+        key = _session_cookie(scope) if scope["type"] == "http" else None
+        if not key:
+            await self.app(scope, receive, send)
+            return
+        with self._book:
+            slot = self.locks.setdefault(key, [threading.Lock(), 0])
+            slot[1] += 1
+        try:
+            await anyio.to_thread.run_sync(slot[0].acquire)
+            try:
+                await self.app(scope, receive, send)
+            finally:
+                slot[0].release()
+        finally:
+            with self._book:
+                slot[1] -= 1
+                if slot[1] == 0:
+                    self.locks.pop(key, None)
+
+
+def _session_cookie(scope) -> Optional[str]:
+    for name, value in scope.get("headers", []):
+        if name == b"cookie":
+            jar = SimpleCookie()
+            try:
+                jar.load(value.decode("latin-1"))
+            except CookieError:
+                return None
+            morsel = jar.get(COOKIE)
+            return morsel.value if morsel is not None else None
+    return None
 
 
 @dataclass
@@ -444,6 +504,9 @@ def create_app(source: Optional[MountedSource] = None,
     # Nie ein Pfad des Wirtsystems nach aussen - auch nicht in Meldungen,
     # die tief unten mit echten Pfaden entstehen (siehe MaskPaths)
     app.add_middleware(MaskPaths, mask=resolved.mask)
+    # Zuletzt hinzugefuegt, also zuaeusserst: Die Sperre umfasst die ganze
+    # Anfrage, das Maskieren der Antwort eingeschlossen
+    app.add_middleware(OneAtATime)
 
     def session(response: Response, key: Optional[str]) -> AppState:
         key, state = store.get(key)

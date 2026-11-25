@@ -24,7 +24,8 @@ from releaser.audio.scan import _release_artist  # noqa: E402
 from releaser.config import Config  # noqa: E402
 from releaser.model import Disc, Release, Track  # noqa: E402
 from releaser.naming import (  # noqa: E402
-    NamingProfile, Pattern, Scope, plan_rename, release_dirname)
+    NamingProfile, Pattern, Scope, companion_name, plan_rename,
+    release_dirname)
 from releaser.service import naming_from_config  # noqa: E402
 from releaser.skl import Template  # noqa: E402
 from releaser.tagwriter import TagProfile, plan_tags  # noqa: E402
@@ -267,3 +268,55 @@ def test_split_release_end_to_end_names(tmp_path):
         "00-artist_a__artist_b-sampler-2026-grp.m3u",
         "00-artist_a__artist_b-sampler-2026-grp.nfo",
         "00-artist_a__artist_b-sampler-2026-grp.sfv"]
+
+
+# =================== Doppelter Trenner nur bei Splits (Fund der Durchsicht)
+
+
+def spaced(space: str) -> NamingProfile:
+    profile = preset()
+    profile.space_char = space
+    return profile
+
+
+def plain_release(titles: list[str], artist: str = "Band",
+                  track_artists: tuple = ()) -> Release:
+    tracks = [Track(no, title, 1.0, path=f"/x/rohdaten/0{no}.mp3",
+                    artist=track_artists[no - 1] if track_artists else "")
+              for no, title in enumerate(titles, start=1)]
+    return Release(artist=artist, album="Das Album", year=2026,
+                   discs=[Disc(1, tracks=tracks)])
+
+
+@pytest.mark.parametrize("space,directory,files", [
+    ("-", "Band-Das-Album-2026-GRP",
+     ["01-band-warten.mp3", "02-band-ende-teil-2.mp3", "03-band-a_b.mp3"]),
+    (".", "Band-Das.Album-2026-GRP",
+     ["01-band-warten.mp3", "02-band-ende-teil.2.mp3", "03-band-a_b.mp3"]),
+    ("_", "Band-Das_Album-2026-GRP",
+     ["01-band-warten.mp3", "02-band-ende-teil_2.mp3", "03-band-a_b.mp3"]),
+])
+def test_normal_release_has_no_double_separator(space, directory, files):
+    """Seit 0.28.1 galt jedes doppelte Ersatzzeichen als Split-Trenner: Mit
+    "-" hiess ein Ordner mit zwei leeren Feldern ``…-album--2026-GRP``, mit
+    "." wurde aus "Warten..." ``warten...mp3``."""
+    release = plain_release(["Warten...", "Ende -- Teil 2", "A__B"])
+    plan = plan_rename(release, Path("/x/rohdaten"), spaced(space))
+    assert next(op.dst.name for op in plan.ops if op.kind == "root") == directory
+    assert [op.dst.name for op in plan.ops if op.kind == "file"] == files
+    release.dirname = directory
+    assert companion_name(release, ".nfo", spaced(space)) == \
+        f"00-{directory.lower()}.nfo"
+
+
+@pytest.mark.parametrize("space", ["-", ".", "_"])
+def test_split_keeps_its_double_separator_with_any_spacer(space):
+    release = plain_release(["Lied", "Song"], artist="Artist A / Artist B",
+                            track_artists=("Artist A", "Artist B"))
+    plan = plan_rename(release, Path("/x/rohdaten"), spaced(space))
+    directory = next(op.dst.name for op in plan.ops if op.kind == "root")
+    pair = space * 2
+    assert directory.startswith(f"Artist{space}A{pair}Artist{space}B-")
+    release.dirname = directory
+    assert companion_name(release, ".nfo", spaced(space)).startswith(
+        f"00-artist{space}a{pair}artist{space}b-")
