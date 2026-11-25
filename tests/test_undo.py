@@ -575,9 +575,11 @@ def test_undo_removes_created_files_but_keeps_changed_ones(tmp_path):
 
     assert undo.check(entry) == []
     assert undo.changed_files(entry) == [m3u]
-    text = undo.detail(entry)
-    assert "00-rel.m3u   (verändert – bleibt)" in text
-    assert "00-rel.nfo   (gibt es nicht mehr)" in text
+    assert undo.detail(entry).splitlines() == [
+        f"  in {root}:",                           # der Ordner einmal
+        "    00-rel.nfo   (gibt es nicht mehr)",
+        "    CD1/00-rel-cd1.sfv",
+        "    00-rel.m3u   (verändert – bleibt)"]
 
     done = undo.undo(entry)
     assert [path for path, _ in done] == [sfv]
@@ -654,7 +656,9 @@ def test_cli_undo_removes_created_files(tmp_path, capsys):
 
     assert cli.main(["undo"]) == 0                 # nur Vorschau
     out = capsys.readouterr().out
-    assert str(sfv) in out and "(verändert – bleibt)" in out
+    assert f"  in {root}:" in out
+    assert f"    {sfv.name}\n" in out
+    assert f"    {m3u.name}   (verändert – bleibt)" in out
     assert sfv.exists()
 
     assert cli.main(["undo", "--apply"]) == 0

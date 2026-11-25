@@ -238,12 +238,19 @@ def changed_files(entry: Entry) -> list[Path]:
 def detail(entry: Entry) -> str:
     """Was die Ruecknahme genau tut - fuer den Bestaetigungsdialog."""
     if entry.kind is Kind.CREATED:
+        # Der Ordner einmal, darunter die Namen: Volle Pfade liefen im
+        # Dialog aus dem Bild, samt dem Hinweis dahinter.
         changed = set(changed_files(entry))
-        return "\n".join(
-            f"  {file}" + ("   (verändert – bleibt)" if Path(file) in changed
-                           else "   (gibt es nicht mehr)"
-                           if not Path(file).exists() else "")
-            for file in entry.created)
+        place = release_place(entry)
+        root = place[0] if place else None
+        lines = [f"  in {root}:"] if root else []
+        for file in entry.created:
+            path = Path(file)
+            name = path.relative_to(root).as_posix() if root else file
+            note = ("   (verändert – bleibt)" if path in changed
+                    else "   (gibt es nicht mehr)" if not path.exists() else "")
+            lines.append(f"    {name}{note}")
+        return "\n".join(lines)
     if entry.moves:
         return "\n".join(f"  {dst}\n     ->  {src}" for src, dst in entry.moves)
     # Pseudofelder wie "#containers" sind Buchhaltung, kein Tag

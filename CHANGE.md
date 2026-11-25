@@ -27,9 +27,10 @@ vollständigen Zurücknehmen eines Splits (Verschieben, Umbenennung, Tags):
 * Das eingelesene Release bleibt dabei samt Eingaben – `.nfo`, `.sfv` und
   `.m3u` gehören nicht zum Modell. Die Liste bleibt beim Release, die Meldung
   sagt „3 erzeugte Datei(en) entfernt aus eingang/…“.
-* Der Bestätigungsdialog listet die Dateien vorher auf, mit „(verändert –
-  bleibt)“ wo es zutrifft – im Desktop, im Web (bisher nur die Kopfzeile)
-  und bei `releaser undo`.
+* Der Bestätigungsdialog listet die Dateien vorher auf – den Ordner einmal,
+  darunter die Namen, mit „(verändert – bleibt)“ wo es zutrifft –, im
+  Desktop, im Web (bisher nur die Kopfzeile) und bei `releaser undo`. Mit
+  vollen Pfaden lief der Hinweis im Desktop-Dialog aus dem Bild.
 * Der Hinweis nach „Release erstellen“ („Zurücknehmen mit ↶ – erst …“) stand
   dreimal im Code (Web, Desktop, Kommandozeile); jetzt einmal,
   `undo.produce_hint`.
@@ -57,6 +58,19 @@ vollständigen Zurücknehmen eines Splits (Verschieben, Umbenennung, Tags):
 * `tests/test_gtkui.py`: Der Dialog im echten Fenster nennt die Dateien.
 
 Gegen 0.28.2 laufen gelassen, schlagen die 14 neuen und geänderten Tests fehl.
+
+Durchgespielt:
+
+* **Container** (Image aus diesem Stand, Eingang ext4, Ausgang tmpfs): der
+  volle Ablauf wie bei 0.28.2, danach vier `↶` auf den Drei-Artist-Split. Der
+  Web-Dialog nennt die drei Dateien unter `eingang/…` (kein Serverpfad), die
+  Liste bleibt im Eingang. Danach ist „Drei Split“ wie vor „Release
+  erstellen“: dieselben sechs Dateinamen, dieselben Tags.
+* **Desktop** (AppImage aus dem Prüflauf, dann der geänderte Dialog aus dem
+  Quellstand): Split von Hand eingetragen, erstellt, `↶`, dann die `.nfo` von
+  Hand ergänzt, `↶` – Dialog zeigt „(verändert – bleibt)“, `.sfv` und `.m3u`
+  gehen, die `.nfo` bleibt. Nach vier Schritten: die vier MP3 mit altem
+  Namen und die bearbeitete `.nfo`.
 
 ---
 

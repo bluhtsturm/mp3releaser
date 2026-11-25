@@ -235,9 +235,11 @@ def test_produce_undo_removes_the_created_files_too(client, tree, tmp_path,
 
     entries = client.get("/api/undo").json()["entries"]
     assert [e["kind"] for e in entries] == ["tags", "rename", "created"]
-    detail = entries[-1]["detail"]
-    assert "eingang/Der_Artist-Das_Album-2026-GRP/" in detail
-    assert str(tree) not in detail                 # kein Serverpfad
+    detail = entries[-1]["detail"].splitlines()
+    assert detail[0] == "  in eingang/Der_Artist-Das_Album-2026-GRP:"
+    assert sorted(line.strip().rsplit(".", 1)[1] for line in detail[1:]) == \
+        ["m3u", "nfo", "sfv"]
+    assert str(tree) not in entries[-1]["detail"]  # kein Serverpfad
     assert entries[0]["detail"] == ""              # nur der, der dran ist
 
     state = client.post("/api/undo", json={"force": False}).json()
