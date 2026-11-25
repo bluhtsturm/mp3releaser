@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 968 tests
+python3 -m pytest tests -q          # 980 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -83,7 +83,7 @@ releaser/
   config.py       TOML configuration
   checks.py       check templates and finished releases
   provenance.py   where a value came from
-  undo.py         undo renames and tag runs
+  undo.py         undo tags, renames, created files, moves
   output.py       move the finished release into the output folder
   fields.py       field catalogue: usage, width, origin
   browse.py       file browser — local, or restricted to mounted folders
@@ -1072,7 +1072,7 @@ beforehand what will be created. And before anything is touched,
 `AppState.produce` checks that everything can work — a template is loaded,
 the folder is writable, renaming has no collision. Otherwise nothing changes,
 and a window says why. Afterwards a window shows what was done. Undo with
-`↶`: first the rename, then the tags.
+`↶`: first the created files, then the rename, then the tags.
 
 The same exists on the web ("Release erstellen" button, `POST /api/produce`)
 and on the command line as a single input:
@@ -1118,9 +1118,9 @@ releaser release /path/to/release --output-dir ~/Music/Done
   same container understands it too.
 * **Only `release`.** `build` only moves with an explicit `--output-dir` —
   someone just regenerating the `.nfo` does not want their release moved.
-* Undo with `↶` like everything else: first the move, then the rename, then
-  the tags. The list stays in the input folder, at the release (see
-  [Undo](#undo)).
+* Undo with `↶` like everything else: first the move, then the created
+  files, then the rename, then the tags. The list stays in the input folder,
+  at the release (see [Undo](#undo)).
 
 The module can be **imported without GTK**. `is_available()` says whether the
 library is present; `requirements_hint()` names the package and a way that
@@ -1283,6 +1283,25 @@ every file would be "no longer present".
 **Moving into the output folder** is logged as well, as its own entry
 ("1 Verschiebung(en) in den Ausgabeordner"). Undoing it brings the release
 back to where it was — across drives by copying, like on the way there.
+
+**The created files** (`.nfo`, `.sfv`, `.m3u`) are in the log as well since
+0.28.3 ("3 erzeugte Datei(en)"), and `↶` removes them again. Before, they
+stayed behind after an undo: with the name of the finished release, and
+`.sfv` and `.m3u` pointed to file names that no longer existed. A finished
+release with an output folder is now undone in four steps — move, created
+files, rename, tags — and afterwards the input folder looks as before. Two
+safety rules:
+
+* **Only what this run newly created.** An `.nfo` that already existed and
+  was merely rewritten is not logged — undo must not delete it.
+* **Only what still looks the same.** Each file's SHA-256 checksum is in the
+  log. Anyone who touched up an `.nfo` by hand afterwards keeps it; the
+  message names it ("Seit dem Erzeugen verändert, deshalb behalten: …"). Such
+  a file does not block the undo — the rename and tags behind it can still be
+  undone.
+
+The confirmation dialog (web, desktop, `releaser undo`) lists the files
+beforehand, with "(verändert – bleibt)" where it applies.
 
 **Where you end up.** Up to 0.28.1 the list jumped to the roots after every
 undo of a rename or move — the old path pointed nowhere, after all. Anyone
@@ -1475,7 +1494,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 968 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 980 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1936,6 +1955,11 @@ that fails against the old state:
   missing write permissions — all fine. Found: after undo the list jumped to
   the roots instead of staying in the input folder where the release lay
   again. 0.28.2 stays there (see [Undo](#undo)).
+* **Container tried with 0.28.2**: everything fine as before, `↶` stays in
+  the input folder. Found: after a complete undo the created `.nfo`, `.sfv`
+  and `.m3u` were still in the folder — with the name of the finished release
+  and references to files that no longer existed. 0.28.3 removes them too
+  (see [Undo](#undo)).
 
 ### What is open
 

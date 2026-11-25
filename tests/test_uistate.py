@@ -1032,6 +1032,46 @@ def test_undo_outside_the_mounts_falls_back_to_the_roots(tmp_path):
     assert [e.path for e in state.entries] == ["eingang"]
 
 
+@needs_ffmpeg
+def test_undo_of_created_files_keeps_what_was_typed(release_dir, template_file):
+    """Nur „Dateien erzeugen“, dann ↶: Die Dateien gehen, die Eingaben bleiben."""
+    state = state_for(release_dir)
+    state.load_template(template_file)
+    state.navigate("eingang")
+    state.load("eingang/Artist-Album-2026-GRP")
+    created = state.build()
+    assert sorted(p.suffix for p in created) == [".m3u", ".nfo", ".sfv"]
+    nfo = next(p for p in created if p.suffix == ".nfo")
+    nfo.write_bytes(b"von Hand nachgebessert")
+    state.set_field("album", "Noch nicht gespeichert")
+
+    assert state.undo_last() is True
+    assert sorted(p.name for p in release_dir.iterdir()) == \
+        sorted(["01-x.mp3", "02-x.mp3", nfo.name])   # die .nfo bleibt
+    assert state.release.album == "Noch nicht gespeichert"
+    assert state.listed_path == "eingang"
+    texts = [m.text for m in state.messages]
+    assert texts[-1] == ("2 erzeugte Datei(en) entfernt aus "
+                         "eingang/Artist-Album-2026-GRP.")
+    assert texts[-2] == ("Seit dem Erzeugen verändert, deshalb behalten: "
+                         + nfo.name)
+
+
+@needs_ffmpeg
+def test_created_files_belong_to_the_session(release_dir, template_file):
+    """Im Dienst sieht eine Sitzung nur ihre eigenen erzeugten Dateien."""
+    state = state_for(release_dir)
+    state.undo_scope = "session"
+    state.load_template(template_file)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.build()
+    assert [e.kind.value for e in state.undo_entries()] == ["created"]
+
+    other = state_for(release_dir)
+    other.undo_scope = "session"
+    assert other.undo_entries() == []
+
+
 def test_undo_without_a_journal(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     state = AppState()
@@ -1255,9 +1295,9 @@ def test_produce_does_everything_in_one_step(release_dir, template_file):
     # Die .nfo kennt schon die neuen Tags und den neuen Ordner
     nfo = next(p for p in root.iterdir() if p.suffix == ".nfo")
     assert "Neuer Artist" in nfo.read_bytes().decode("cp437")
-    # zwei Einträge zum Zurücknehmen: Tags und Umbenennung
+    # drei Einträge zum Zurücknehmen: Tags, Umbenennung, erzeugte Dateien
     kinds = [entry.kind.value for entry in state.undo_entries()]
-    assert kinds[-2:] == ["tags", "rename"]
+    assert kinds[-3:] == ["tags", "rename", "created"]
 
 
 @needs_ffmpeg
@@ -1345,11 +1385,12 @@ def test_produce_moves_the_release_into_the_output(release_dir, template_file):
     assert list(release_dir.parent.iterdir()) == []
     assert state.entries == []
     kinds = [entry.kind.value for entry in state.undo_entries()]
-    assert kinds[-3:] == ["tags", "rename", "move"]
+    assert kinds[-4:] == ["tags", "rename", "created", "move"]
+    original = sorted(["01-x.mp3", "02-x.mp3"])
 
-    # Zuruecknehmen: erst das Verschieben, dann die Umbenennung. Die
-    # Auswahl bleibt dabei im Eingang, beim Release - frueher sprang sie
-    # nach jedem Schritt zur Wurzel.
+    # Zuruecknehmen: erst das Verschieben, dann die erzeugten Dateien, dann
+    # die Umbenennung. Die Auswahl bleibt dabei im Eingang, beim Release -
+    # frueher sprang sie nach jedem Schritt zur Wurzel.
     assert state.undo_last()
     assert (release_dir.parent / "der_artist-das_album-2026-GRP").is_dir()
     assert state.listed_path == "eingang"
@@ -1359,6 +1400,16 @@ def test_produce_moves_the_release_into_the_output(release_dir, template_file):
     assert state.current_path == "eingang/der_artist-das_album-2026-GRP"
     assert state.release is not None and state.writable
     assert "liegt jetzt wieder unter eingang/der_artist" in state.last_message.text
+
+    # Die erzeugten .nfo, .sfv und .m3u gehen wieder - eingelesen bleibt es
+    renamed = release_dir.parent / "der_artist-das_album-2026-GRP"
+    assert state.undo_last()
+    assert sorted(p.suffix for p in renamed.iterdir()) == [".mp3", ".mp3"]
+    assert state.last_message.text == ("3 erzeugte Datei(en) entfernt aus "
+                                       "eingang/der_artist-das_album-2026-GRP.")
+    assert state.listed_path == "eingang"
+    assert state.selected_path == "eingang/der_artist-das_album-2026-GRP"
+    assert state.release is not None
 
     assert state.undo_last()
     assert release_dir.is_dir()
@@ -1371,6 +1422,9 @@ def test_produce_moves_the_release_into_the_output(release_dir, template_file):
     assert state.undo_last()
     assert state.listed_path == "eingang"
     assert state.release.artist == "Der Artist"
+    # Und der Eingang sieht aus wie vorher - nichts bleibt zurueck
+    assert sorted(p.name for p in release_dir.iterdir()) == original
+    assert state.undo_entries() == []
 
 
 @needs_ffmpeg
@@ -1434,7 +1488,8 @@ def test_release_already_in_the_output_is_not_reported_as_moved(release_dir,
     state.load("eingang/Artist-Album-2026-GRP")
     done = state.produce()
     assert done[-1] == "Ausgabeordner: Release lag schon dort"
-    assert [e.kind.value for e in state.undo_entries()][-1] == "rename"
+    assert [e.kind.value for e in state.undo_entries()][-2:] == \
+        ["rename", "created"]                          # kein Verschieben
 
 
 @needs_ffmpeg

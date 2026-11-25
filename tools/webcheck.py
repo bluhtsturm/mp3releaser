@@ -459,7 +459,8 @@ def build_steps(checker: Checker) -> None:
                                 f"Ein Klick erstellt das Release ({got})"),
                        c.report("Verschoben nach: ausgang/"
                                 in (got.get("text") or "")
-                                and "erst das Verschieben"
+                                and "erst das Verschieben, dann die "
+                                    "erzeugten Dateien"
                                 in (got.get("text") or ""),
                                 "Release liegt im Ausgabeordner"),
                        # Eine Meldung hat nichts abzubrechen: ein Knopf "OK",

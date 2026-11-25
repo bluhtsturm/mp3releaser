@@ -1,10 +1,11 @@
 """Rückgängig machen.
 
-Drei Operationen lassen sich nicht aus den Dateien zurückrechnen: Nach dem
+Vier Operationen lassen sich nicht aus den Dateien zurückrechnen: Nach dem
 Umbenennen weiß niemand mehr, wie es vorher hieß, nach dem Tag-Schreiben
-steht der alte Wert nirgends mehr, und nach dem Verschieben in den
-Ausgabeordner niemand, wo das Release herkam. Alles wird deshalb
-protokolliert.
+steht der alte Wert nirgends mehr, nach dem Verschieben in den
+Ausgabeordner niemand, wo das Release herkam - und welche ``.nfo``,
+``.sfv`` und ``.m3u`` das Programm angelegt hat und welche schon da waren,
+sieht man ihnen auch nicht an. Alles wird deshalb protokolliert.
 
 **Wo.** Nicht im Releaseverzeichnis - das wird ja selbst umbenannt und beim
 nächsten ``--clean`` womöglich aufgeräumt. Stattdessen im Zustandsverzeichnis
@@ -17,6 +18,7 @@ halbes Undo wäre schlimmer als keines.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import time
@@ -45,12 +47,15 @@ class Kind(Enum):
     #: in den Ausgabeordner geschoben - laeuft wie ein Umbenennen, nur ueber
     #: Ordnergrenzen und notfalls Dateisystemgrenzen hinweg
     MOVE = "move"
+    #: .nfo, .sfv und .m3u angelegt - zurueckgenommen heisst: wieder entfernt
+    CREATED = "created"
 
     @property
     def label(self) -> str:
         return {Kind.RENAME: "Umbenennungen",
                 Kind.TAGS: "getaggte Dateien",
-                Kind.MOVE: "Verschiebung(en) in den Ausgabeordner"}[self]
+                Kind.MOVE: "Verschiebung(en) in den Ausgabeordner",
+                Kind.CREATED: "erzeugte Datei(en)"}[self]
 
 
 @dataclass
@@ -64,6 +69,9 @@ class Entry:
     moves: list[tuple[str, str]] = field(default_factory=list)
     #: Datei -> Feld -> vorheriger Wert - beim Taggen
     tags: dict[str, dict[str, str]] = field(default_factory=dict)
+    #: Datei -> SHA-256 des Inhalts beim Anlegen - bei erzeugten Dateien.
+    #: Entfernt wird nur, was noch genau so aussieht.
+    created: dict[str, str] = field(default_factory=dict)
 
     @property
     def when(self) -> str:
@@ -71,13 +79,20 @@ class Entry:
 
     @property
     def count(self) -> int:
-        return len(self.tags) if self.kind is Kind.TAGS else len(self.moves)
+        if self.kind is Kind.TAGS:
+            return len(self.tags)
+        if self.kind is Kind.CREATED:
+            return len(self.created)
+        return len(self.moves)
 
     def as_dict(self) -> dict:
-        return {"timestamp": self.timestamp, "release": self.release,
+        data = {"timestamp": self.timestamp, "release": self.release,
                 "kind": self.kind.value,
                 "moves": [list(move) for move in self.moves],
                 "tags": self.tags}
+        if self.created:
+            data["created"] = self.created
+        return data
 
     @classmethod
     def from_dict(cls, data: dict) -> "Entry":
@@ -88,13 +103,16 @@ class Entry:
         except ValueError:
             kind = Kind.RENAME
         tags = data.get("tags") or {}
+        created = data.get("created") or {}
         return cls(timestamp=float(data.get("timestamp", 0.0)),
                    release=str(data.get("release", "")),
                    kind=kind,
                    moves=[(str(a), str(b)) for a, b in data.get("moves", [])],
                    tags={str(path): {str(k): str(v) for k, v in values.items()}
                          for path, values in tags.items()
-                         if isinstance(values, dict)})
+                         if isinstance(values, dict)},
+                   created={str(path): str(digest)
+                            for path, digest in created.items()})
 
     def describe(self) -> str:
         return f"{self.when}  {self.release}  ({self.count} {self.kind.label})"
@@ -175,6 +193,78 @@ def record_tags(previous: dict, release: str,
                          kind=Kind.TAGS, tags=cleaned), path)
 
 
+def fingerprint(path: Path) -> str:
+    """SHA-256 des Dateiinhalts - woran eine erzeugte Datei erkannt wird."""
+    digest = hashlib.sha256()
+    with open(path, "rb") as handle:
+        for chunk in iter(lambda: handle.read(1 << 16), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def record_created(files: Iterable[Path], release: str,
+                   path: Optional[Path] = None) -> Optional[Entry]:
+    """Haelt die frisch angelegten Begleitdateien fest.
+
+    Nur Dateien, die es vorher *nicht* gab, gehoeren hinein - der Aufrufer
+    sortiert die anderen aus. Eine vorhandene ``.nfo``, die neu geschrieben
+    wurde, darf die Ruecknahme nicht loeschen: Sie war vorher schon da.
+    """
+    created: dict[str, str] = {}
+    for file in files:
+        try:
+            created[str(file)] = fingerprint(Path(file))
+        except OSError:
+            continue
+    if not created:
+        return None
+    return _append(Entry(timestamp=time.time(), release=release,
+                         kind=Kind.CREATED, created=created), path)
+
+
+def changed_files(entry: Entry) -> list[Path]:
+    """Erzeugte Dateien, die seitdem jemand veraendert hat - sie bleiben."""
+    changed: list[Path] = []
+    for file, digest in entry.created.items():
+        target = Path(file)
+        try:
+            if target.is_file() and fingerprint(target) != digest:
+                changed.append(target)
+        except OSError:
+            changed.append(target)
+    return changed
+
+
+def detail(entry: Entry) -> str:
+    """Was die Ruecknahme genau tut - fuer den Bestaetigungsdialog."""
+    if entry.kind is Kind.CREATED:
+        changed = set(changed_files(entry))
+        return "\n".join(
+            f"  {file}" + ("   (verändert – bleibt)" if Path(file) in changed
+                           else "   (gibt es nicht mehr)"
+                           if not Path(file).exists() else "")
+            for file in entry.created)
+    if entry.moves:
+        return "\n".join(f"  {dst}\n     ->  {src}" for src, dst in entry.moves)
+    # Pseudofelder wie "#containers" sind Buchhaltung, kein Tag
+    return "\n".join(
+        f"  {Path(file).name}: "
+        + ", ".join(k for k in values if not k.startswith("#"))
+        for file, values in entry.tags.items())
+
+
+def produce_hint(moved: bool) -> str:
+    """In welcher Reihenfolge ↶ ein fertiges Release zuruecknimmt.
+
+    Steht nach "Release erstellen" in allen Oberflaechen - deshalb hier,
+    an einer Stelle.
+    """
+    steps = ["die erzeugten Dateien", "die Umbenennung", "die Tags"]
+    if moved:
+        steps.insert(0, "das Verschieben")
+    return "erst " + ", dann ".join(steps)
+
+
 def last(path: Optional[Path] = None) -> Optional[Entry]:
     entries = load(path)
     return entries[-1] if entries else None
@@ -209,6 +299,13 @@ def release_place(entry: Entry) -> Optional[tuple[Path, Path]]:
     umbenannt (nur Dateien), ist es der Ordner dieses Namens ueber den
     Dateien.
     """
+    if entry.kind is Kind.CREATED:
+        # Die Dateien liegen im Releaseordner oder einem CD-Ordner darin
+        for file in entry.created:
+            for parent in Path(file).parents:
+                if parent.name == entry.release:
+                    return parent, parent
+        return None
     if entry.kind is Kind.TAGS or not entry.moves:
         return None
     if entry.kind is Kind.MOVE:
@@ -228,6 +325,12 @@ def check(entry: Entry) -> list[str]:
     if entry.kind is Kind.TAGS:
         return [f"nicht mehr vorhanden: {file}"
                 for file in entry.tags if not Path(file).is_file()]
+    if entry.kind is Kind.CREATED:
+        # Nichts haelt die Ruecknahme auf: Was fehlt, ist schon weg, und was
+        # veraendert wurde, bleibt liegen (siehe changed_files). Sonst
+        # blockierte eine von Hand ergaenzte .nfo die Ruecknahme von
+        # Umbenennung und Tags dahinter.
+        return []
 
     problems: list[str] = []
     for index, (src, dst) in enumerate(entry.moves):
@@ -259,6 +362,10 @@ def undo(entry: Entry, path: Optional[Path] = None,
         done = _undo_tags(entry)
         _forget(entry, path)
         return done
+    if entry.kind is Kind.CREATED:
+        done = _remove_created(entry)
+        _forget(entry, path)
+        return done
 
     from .output import move_path
 
@@ -283,6 +390,26 @@ def _forget(entry: Entry, path: Optional[Path]) -> None:
         save(remaining, path)
     except OSError:
         pass
+
+
+def _remove_created(entry: Entry) -> list[tuple[Path, Path]]:
+    """Entfernt die erzeugten Dateien, die noch so aussehen wie angelegt.
+
+    Zurueckgegeben wird (Datei, Datei) je entfernter Datei. Fehlende und
+    veraenderte fehlen in der Liste - der Aufrufer erfaehrt sie ueber
+    :func:`changed_files`, bevor er zuruecknimmt.
+    """
+    done: list[tuple[Path, Path]] = []
+    for file, digest in entry.created.items():
+        target = Path(file)
+        try:
+            if not target.is_file() or fingerprint(target) != digest:
+                continue
+            target.unlink()
+        except OSError:
+            continue
+        done.append((target, target))
+    return done
 
 
 def _undo_tags(entry: Entry) -> list[tuple[Path, Path]]:

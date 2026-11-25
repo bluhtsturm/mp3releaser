@@ -51,7 +51,7 @@ docker compose up                                             # dieselbe im Cont
 ./packaging/build.sh                                          # Bündel + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 968 Tests
+python3 -m pytest tests -q          # 980 Tests
 ```
 
 Abhängigkeit des Kerns: `mutagen`. Der NFO-Teil kommt ohne aus, die
@@ -79,7 +79,7 @@ releaser/
   config.py       TOML-Konfiguration
   checks.py       Vorlagen und fertige Releases pruefen
   provenance.py   woher ein Wert stammt
-  undo.py         Umbenennungen zuruecknehmen
+  undo.py         zuruecknehmen: Tags, Umbenennung, erzeugte Dateien, Verschieben
   output.py       fertiges Release in den Ausgabeordner schieben
   fields.py       Feldkatalog: Verwendung, Breite, Herkunft
   browse.py       Dateiauswahl — lokal oder auf eingehängte Ordner beschränkt
@@ -1064,7 +1064,8 @@ Ein Zwischendialog fehlt mit Absicht: Was entsteht, zeigen die Reiter
 `AppState.produce`, ob alles gehen kann — eine Vorlage ist geladen, der
 Ordner ist beschreibbar, beim Umbenennen gibt es keine Kollision. Sonst ändert
 sich nichts, und ein Fenster sagt, warum. Danach zeigt ein Fenster, was getan
-wurde. Zurückgenommen wird mit `↶`: erst die Umbenennung, dann die Tags.
+wurde. Zurückgenommen wird mit `↶`: erst die erzeugten Dateien, dann die
+Umbenennung, dann die Tags.
 
 Dasselbe gibt es im Web (Knopf „Release erstellen", `POST /api/produce`) und
 auf der Kommandozeile als eine Eingabe:
@@ -1113,8 +1114,9 @@ releaser release /pfad/zur/release --output-dir ~/Musik/Fertig
   `--output-dir` — wer bloß die `.nfo` neu erzeugt, will sein Release nicht
   verschoben bekommen.
 * Zurückgenommen wird mit `↶` wie alles andere: erst das Verschieben, dann
-  die Umbenennung, dann die Tags. Die Auswahl bleibt dabei im Eingang, beim
-  Release (siehe [Rückgängig machen](#rückgängig-machen)).
+  die erzeugten Dateien, dann die Umbenennung, dann die Tags. Die Auswahl
+  bleibt dabei im Eingang, beim Release (siehe
+  [Rückgängig machen](#rückgängig-machen)).
 
 Das Modul lässt sich **ohne GTK importieren**. `is_available()` sagt, ob die
 Bibliothek da ist, `requirements_hint()` nennt das Paket und einen Weg, der
@@ -1280,6 +1282,26 @@ mehr vorhanden".
 eigener Eintrag („1 Verschiebung(en) in den Ausgabeordner“). Die Rücknahme
 holt das Release an seinen alten Platz zurück — über Laufwerksgrenzen per
 Kopie, wie auf dem Hinweg.
+
+**Die erzeugten Dateien** (`.nfo`, `.sfv`, `.m3u`) stehen seit 0.28.3 auch
+im Protokoll („3 erzeugte Datei(en)“), und `↶` entfernt sie wieder. Vorher
+blieben sie nach dem Zurücknehmen liegen: mit dem Namen des fertigen
+Releases, und `.sfv` und `.m3u` verwiesen auf Dateinamen, die es nicht mehr
+gab. Ein fertiges Release mit Ausgabeordner nimmt `↶` damit in vier Schritten
+zurück — Verschieben, erzeugte Dateien, Umbenennung, Tags —, und danach sieht
+der Eingang aus wie vorher. Zwei Vorsichtsregeln:
+
+* **Nur, was dieser Lauf neu angelegt hat.** Eine `.nfo`, die es vorher schon
+  gab und die nur neu geschrieben wurde, kommt nicht ins Protokoll — die
+  Rücknahme darf sie nicht löschen.
+* **Nur, was noch so aussieht.** Zu jeder Datei steht ihre SHA-256-Prüfsumme
+  im Protokoll. Wer eine `.nfo` danach von Hand nachgebessert hat, behält sie;
+  die Meldung nennt sie („Seit dem Erzeugen verändert, deshalb behalten: …“).
+  Eine solche Datei hält die Rücknahme nicht auf — Umbenennung und Tags
+  dahinter lassen sich weiter zurücknehmen.
+
+Der Bestätigungsdialog (Web, Desktop, `releaser undo`) listet die Dateien
+vorher auf, mit „(verändert – bleibt)“, wo es zutrifft.
 
 **Wo man danach steht.** Bis 0.28.1 sprang die Auswahl nach jeder Rücknahme
 einer Umbenennung oder Verschiebung zur Wurzel — der alte Pfad zeigte ja ins
@@ -1473,7 +1495,7 @@ gibt es `--batch` als ausdrückliches Opt-in.
 
 Der Funktionsumfang des Originals ist abgedeckt, dazu vier Oberflächen
 (Kommandozeile, geführter Modus, GTK 4, Web) in drei Auslieferungsformen.
-968 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
+980 Tests, jede Schicht auf ihrer eigenen Ebene geprüft:
 
 | Ebene | wie geprüft |
 |---|---|
@@ -1949,6 +1971,11 @@ gegen den alten Stand fehlschlägt:
   fehlende Schreibrechte – alles in Ordnung. Gefunden: Nach dem Zurücknehmen
   sprang die Liste zur Wurzel, statt im Eingang zu bleiben, wo das Release
   wieder lag. 0.28.2 bleibt dort (siehe [Rückgängig machen](#rückgängig-machen)).
+* **Container mit 0.28.2 durchgespielt**: alles wie zuvor in Ordnung, `↶`
+  bleibt im Eingang. Gefunden: Nach dem vollständigen Zurücknehmen lagen die
+  erzeugten `.nfo`, `.sfv` und `.m3u` noch im Ordner – mit dem Namen des
+  fertigen Releases und Verweisen auf Dateien, die es nicht mehr gab. 0.28.3
+  entfernt sie mit (siehe [Rückgängig machen](#rückgängig-machen)).
 
 ### Was offen ist
 

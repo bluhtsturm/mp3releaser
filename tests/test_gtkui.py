@@ -1473,3 +1473,57 @@ def test_undo_keeps_the_list_where_the_release_is(release_tree):
     assert "LISTE eingang" in result.stdout
     assert "MARKIERT eingang/Artist-Album-2026-GRP" in result.stdout
     assert "GELADEN eingang/Artist-Album-2026-GRP" in result.stdout
+
+
+@needs_gtk
+@needs_ffmpeg
+def test_undo_dialog_lists_the_created_files(release_tree):
+    """Der Bestätigungsdialog nennt die Dateien, die ↶ wieder entfernt."""
+    result = run_in_display(f"""
+        import os, sys; sys.path.insert(0, {str(ROOT)!r})
+        os.environ["XDG_STATE_HOME"] = {str(release_tree / 'state')!r}
+        import gi; gi.require_version("Gtk", "4.0")
+        from gi.repository import Gio, Gtk
+        from releaser.browse import Mount, MountedSource
+        from releaser.frontends.gtkui import ReleaserWindow
+        from releaser.uistate import AppState, Level
+
+        state = AppState(
+            source=MountedSource([Mount("eingang", {str(release_tree / 'eingang')!r})]))
+        app = Gtk.Application(application_id="de.test.undocreated",
+                              flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+        def text_of(widget):
+            if isinstance(widget, Gtk.TextView):
+                buffer = widget.get_buffer()
+                return buffer.get_text(buffer.get_start_iter(),
+                                       buffer.get_end_iter(), False)
+            child, parts = widget.get_first_child(), []
+            while child is not None:
+                parts.append(text_of(child))
+                child = child.get_next_sibling()
+            return "".join(parts)
+
+        def activate(a):
+            window = ReleaserWindow(a, state)
+            state.load_template({str(release_tree / 'vorlage.skl')!r})
+            state.load("eingang/Artist-Album-2026-GRP")
+            state.build()
+            window._on_undo()
+            dialogs = [w for w in Gtk.Window.list_toplevels()
+                       if w.get_title() == "Zurücknehmen"]
+            text = text_of(dialogs[0]) if dialogs else ""
+            print("DIALOG", len(dialogs))
+            print("KOPF", "(3 erzeugte Datei(en))" in text)
+            print("NFO", ".nfo" in text, "SFV", ".sfv" in text)
+            print("FEHLER", [m.text for m in state.messages if m.level is Level.ERROR])
+            a.quit()
+
+        app.connect("activate", activate)
+        raise SystemExit(app.run([]))
+    """)
+    assert result.returncode == 0, result.stderr
+    assert "DIALOG 1" in result.stdout
+    assert "KOPF True" in result.stdout
+    assert "NFO True SFV True" in result.stdout
+    assert "FEHLER []" in result.stdout

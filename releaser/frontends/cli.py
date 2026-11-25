@@ -366,10 +366,10 @@ def cmd_release(args: argparse.Namespace) -> int:
     args.tag = args.rename = True
     code = cmd_build(args)
     if code == 0:
-        steps = ("erst das Verschieben, dann die Umbenennung, dann die Tags"
-                 if args.output_dir else "erst die Umbenennung, dann die Tags")
+        from ..undo import produce_hint
+
         print("Release erstellt. Zuruecknehmen mit: releaser undo --apply "
-              f"({steps})", file=sys.stderr)
+              f"({produce_hint(bool(args.output_dir))})", file=sys.stderr)
     return code
 
 
@@ -565,8 +565,9 @@ def cmd_browse(args: argparse.Namespace) -> int:
 
 
 def cmd_undo(args: argparse.Namespace) -> int:
-    """Nimmt die letzte Umbenennung zurueck."""
-    from ..undo import UndoError, check, journal_path, load, undo
+    """Nimmt den letzten Schritt zurueck."""
+    from ..undo import (Kind, UndoError, changed_files, check, detail,
+                        journal_path, load, undo)
 
     entries = load()
     if args.list:
@@ -583,6 +584,7 @@ def cmd_undo(args: argparse.Namespace) -> int:
 
     entry = entries[-1]
     print(entry.describe())
+    print(detail(entry))
     problems = check(entry)
     for problem in problems:
         print(f"  ! {problem}", file=sys.stderr)
@@ -592,12 +594,18 @@ def cmd_undo(args: argparse.Namespace) -> int:
               "Mit --apply ausfuehren.", file=sys.stderr)
         return 0 if not problems else 1
 
+    # Von Hand veraenderte Begleitdateien bleiben - vorher ermitteln
+    kept = changed_files(entry) if entry.kind is Kind.CREATED else []
     try:
         done = undo(entry, force=args.force)
     except UndoError as exc:
         print(f"Fehler: {exc}", file=sys.stderr)
         return 1
-    print(f"{len(done)} {entry.kind.label} zurueckgenommen.", file=sys.stderr)
+    for path in kept:
+        print(f"  ! seit dem Erzeugen veraendert, bleibt: {path}",
+              file=sys.stderr)
+    verb = "entfernt" if entry.kind is Kind.CREATED else "zurueckgenommen"
+    print(f"{len(done)} {entry.kind.label} {verb}.", file=sys.stderr)
     return 0
 
 

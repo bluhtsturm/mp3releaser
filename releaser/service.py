@@ -315,6 +315,8 @@ class BuildOutcome:
     warnings: list[str] = field(default_factory=list)
     #: Kollisionen aus einem vorgeschalteten Umbenennen
     collisions: list[str] = field(default_factory=list)
+    #: Protokolleintrag der neu angelegten Dateien (``None``: keine neuen)
+    journal: Optional[object] = None
 
     @property
     def ok(self) -> bool:
@@ -449,6 +451,10 @@ def build(release: Release, root: str | Path, options: BuildOptions,
     # jede Oberflaeche.
     naming = naming or naming_from_config()
     outcome = BuildOutcome(root=root)
+    # Was schon da war - vor dem Aufraeumen gemerkt. Ins Protokoll kommt nur,
+    # was dieser Lauf neu anlegt; eine vorhandene .nfo, die er ueberschreibt,
+    # darf eine Ruecknahme nicht loeschen.
+    existed = _files_below(root)
 
     if options.clean:
         from .companions import remove_companions
@@ -491,7 +497,19 @@ def build(release: Release, root: str | Path, options: BuildOptions,
             stem=stem_for(".m3u"), windows_paths=options.m3u_windows_paths)
 
     outcome.warnings += check_filename_lengths(outcome.created)
+
+    from . import undo as undo_journal
+
+    outcome.journal = undo_journal.record_created(
+        [path for path in outcome.created if path not in existed], root.name)
     return outcome
+
+
+def _files_below(root: Path) -> set[Path]:
+    try:
+        return {path for path in root.rglob("*") if path.is_file()}
+    except OSError:
+        return set()
 
 
 def process(directory: str | Path, options: BuildOptions,

@@ -222,6 +222,40 @@ def test_produce_makes_the_release_in_one_request(client, tree):
 
 
 @needs_ffmpeg
+def test_produce_undo_removes_the_created_files_too(client, tree, tmp_path,
+                                                    monkeypatch):
+    """Erst die erzeugten Dateien, dann Umbenennung und Tags - mit Pfaden,
+    wie die Auswahl sie nennt, nicht wie sie auf dem Server liegen."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
+    client.post("/api/template", json={"name": "vorlage.skl"})
+    load_release(client)
+    state = client.post("/api/produce", json={}).json()
+    assert state["undo_hint"] == ("erst die erzeugten Dateien, dann die "
+                                  "Umbenennung, dann die Tags")
+
+    entries = client.get("/api/undo").json()["entries"]
+    assert [e["kind"] for e in entries] == ["tags", "rename", "created"]
+    detail = entries[-1]["detail"]
+    assert "eingang/Der_Artist-Das_Album-2026-GRP/" in detail
+    assert str(tree) not in detail                 # kein Serverpfad
+    assert entries[0]["detail"] == ""              # nur der, der dran ist
+
+    state = client.post("/api/undo", json={"force": False}).json()
+    target = tree / "eingang" / "Der_Artist-Das_Album-2026-GRP"
+    assert sorted(p.suffix for p in target.iterdir()) == [".mp3", ".mp3"]
+    assert state["messages"][-1]["text"] == (
+        "3 erzeugte Datei(en) entfernt aus eingang/Der_Artist-Das_Album-2026-GRP.")
+    assert state["loaded"] is True
+    assert state["selected_path"] == "eingang/Der_Artist-Das_Album-2026-GRP"
+
+    client.post("/api/undo", json={"force": False})
+    client.post("/api/undo", json={"force": False})
+    original = tree / "eingang" / "Artist-Album-2026-GRP"
+    assert sorted(p.name for p in original.iterdir()) == ["01-x.mp3", "02-x.mp3"]
+    assert client.get("/api/undo").json()["entries"] == []
+
+
+@needs_ffmpeg
 def test_produce_reports_why_nothing_happened(client, tree):
     client.post("/api/template", json={"name": "vorlage.skl"})
     load_release(client)

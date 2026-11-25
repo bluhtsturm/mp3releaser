@@ -747,10 +747,7 @@ document.getElementById("produce").onclick = () =>
     showInfo(payload.done ? "Release erstellt" : "Release nicht erstellt",
       payload.done
         ? payload.done.join("\n")
-          + "\n\nZurücknehmen mit ↶ – "
-          + (payload.done.some(line => line.startsWith("Verschoben"))
-             ? "erst das Verschieben, dann die Umbenennung, dann die Tags."
-             : "erst die Umbenennung, dann die Tags.")
+          + "\n\nZurücknehmen mit ↶ – " + (payload.undo_hint || "") + "."
         : (payload.messages || []).filter(m => m.level !== "info")
             .map(m => (m.level === "error" ? "x " : "! ") + m.text).join("\n"));
   });
@@ -786,7 +783,8 @@ document.getElementById("undo").onclick = async () => {
   const last = data.entries[data.entries.length - 1];
   // Zurückgenommen werden Umbenennungen wie auch geschriebene Tags
   showConfirm("Zurücknehmen",
-    `${last.when}  ${last.release}  (${last.count} ${last.label || "Einträge"})`,
+    `${last.when}  ${last.release}  (${last.count} ${last.label || "Einträge"})`
+      + (last.detail ? "\n\n" + last.detail : ""),
     "undo");
 };
 
