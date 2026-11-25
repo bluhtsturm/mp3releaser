@@ -196,6 +196,33 @@ def _forward(path: Path, moves: Iterable[tuple[str, str]]) -> Path:
     return path
 
 
+def release_place(entry: Entry) -> Optional[tuple[Path, Path]]:
+    """Wo der Releaseordner nach der Ruecknahme liegt - und wo jetzt.
+
+    Rueckgabe ``(danach, jetzt)``, ``None`` bei Tag-Laeufen oder wenn sich
+    der Ordner nicht ausmachen laesst. Gebraucht von den Oberflaechen: Sie
+    zeigen nach der Ruecknahme den Ordner, in dem das Release wieder liegt,
+    statt zur Wurzel zu springen.
+
+    Beim Umbenennen traegt der Eintrag den *neuen* Ordnernamen; die
+    Bewegung mit diesem Ziel ist die des Wurzelordners. Wurde er nicht
+    umbenannt (nur Dateien), ist es der Ordner dieses Namens ueber den
+    Dateien.
+    """
+    if entry.kind is Kind.TAGS or not entry.moves:
+        return None
+    if entry.kind is Kind.MOVE:
+        src, dst = entry.moves[-1]
+        return Path(src), Path(dst)
+    for src, dst in entry.moves:
+        if Path(dst).name == entry.release:
+            return Path(src), _forward(Path(src), entry.moves)
+    for parent in Path(entry.moves[0][0]).parents:
+        if parent.name == entry.release:
+            return parent, parent
+    return None
+
+
 def check(entry: Entry) -> list[str]:
     """Was einer Ruecknahme im Weg steht - leere Liste heisst: sie kann laufen."""
     if entry.kind is Kind.TAGS:

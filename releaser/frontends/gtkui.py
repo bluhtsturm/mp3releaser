@@ -874,14 +874,38 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             # Neuzeichnen aus, und das Neuzeichnen wirft die Auswahl weg.
             key = (self.state.current_path,
                    tuple(e.path for e in self.state.entries))
-            if key == self._rendered:
-                return
-            self._rendered = key
+            if key != self._rendered:
+                self._rendered = key
+                # Vor dem Leeren merken: Wegnehmen der ausgewaehlten Zeile
+                # meldet "nichts ausgewaehlt" und loeschte die Auswahl im
+                # Zustand.
+                selected = self.state.selected_path
+                while (row := self.listbox.get_first_child()) is not None:
+                    self.listbox.remove(row)
+                for entry in self.state.entries:
+                    self.listbox.append(self._entry_row(entry))
+                if any(e.path == selected for e in self.state.entries):
+                    self.state.selected_path = selected
+            self._show_selection()
 
-            while (row := self.listbox.get_first_child()) is not None:
-                self.listbox.remove(row)
-            for entry in self.state.entries:
-                self.listbox.append(self._entry_row(entry))
+        def _show_selection(self) -> None:
+            """Markiert die Zeile, die der Zustand als ausgewählt führt.
+
+            Etwa nach dem Zurücknehmen: Das Release, das wieder im Eingang
+            liegt, steht dort markiert - "Einlesen" ist ein Klick.
+            """
+            wanted = self.state.selected_path
+            row = self.listbox.get_selected_row()
+            if wanted is None or getattr(row, "entry", None) is not None \
+                    and row.entry.path == wanted:
+                return
+            child = self.listbox.get_first_child()
+            while child is not None:
+                entry = getattr(child, "entry", None)
+                if entry is not None and entry.path == wanted:
+                    self.listbox.select_row(child)
+                    return
+                child = child.get_next_sibling()
 
         def _entry_row(self, entry: Entry) -> Gtk.Widget:
             row = Gtk.ListBoxRow()

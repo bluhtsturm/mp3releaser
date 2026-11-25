@@ -969,9 +969,67 @@ def test_undo_from_the_state(release_dir, tmp_path, monkeypatch):
 
     assert state.undo_last() is True
     assert release_dir.is_dir()
-    # Der alte Pfad zeigt ins Leere - die Auswahl steht wieder auf der Wurzel
-    assert state.release is None
-    assert state.current_path is None
+    # Der neue Name ist weg - die Auswahl folgt dem Release an seinen alten
+    # Namen, statt zur Wurzel zu springen, und es ist wieder eingelesen.
+    assert state.listed_path == "eingang"
+    assert state.selected_path == "eingang/Artist-Album-2026-GRP"
+    assert state.current_path == "eingang/Artist-Album-2026-GRP"
+    assert state.root == release_dir
+    assert state.release is not None
+    assert state.last_message.text == (
+        "3 Umbenennungen zurückgenommen – liegt jetzt wieder unter "
+        "eingang/Artist-Album-2026-GRP.")
+
+
+@needs_ffmpeg
+def test_undo_without_a_loaded_release_shows_where_it_went(release_dir):
+    """Ein frisch gestartetes Programm nimmt einen alten Lauf zurück."""
+    first = state_for(release_dir)
+    first.load("eingang/Artist-Album-2026-GRP")
+    first.preview_rename()
+    assert first.apply_rename() is True
+
+    state = state_for(release_dir)                   # nichts eingelesen
+    assert state.undo_last() is True
+    assert release_dir.is_dir()
+    assert state.release is None                     # nicht von selbst geladen
+    assert state.listed_path == state.current_path == "eingang"
+    assert state.selected_path == "eingang/Artist-Album-2026-GRP"
+
+
+@needs_ffmpeg
+def test_undo_of_another_release_keeps_the_loaded_one(release_dir, tmp_path):
+    other = release_dir.parent / "Anderes-Release"
+    other.mkdir()
+    (other / "01-alt.mp3").write_bytes((release_dir / "01-x.mp3").read_bytes())
+    from releaser import undo
+    undo.record([(other / "01-alt.mp3", other / "01-neu.mp3")], "Anderes-Release")
+    (other / "01-alt.mp3").rename(other / "01-neu.mp3")
+
+    state = state_for(release_dir)
+    state.load("eingang/Artist-Album-2026-GRP")
+    state.set_field("album", "Von Hand")             # darf nicht verloren gehen
+    assert state.undo_last() is True
+    assert (other / "01-alt.mp3").is_file()
+    assert state.current_path == "eingang/Artist-Album-2026-GRP"
+    assert state.release.album == "Von Hand"
+    assert state.selected_path == "eingang/Anderes-Release"
+
+
+def test_undo_outside_the_mounts_falls_back_to_the_roots(tmp_path):
+    from releaser import undo
+    inside = tmp_path / "eingang"
+    inside.mkdir()
+    (tmp_path / "fremd" / "Release-Neu").mkdir(parents=True)
+    undo.record([(tmp_path / "fremd" / "Release-Alt",
+                  tmp_path / "fremd" / "Release-Neu")], "Release-Neu")
+
+    state = AppState(source=MountedSource([Mount("eingang", inside)]))
+    state.navigate("eingang")
+    assert state.undo_last() is True
+    assert (tmp_path / "fremd" / "Release-Alt").is_dir()
+    assert state.listed_path is None                 # die Wurzeln
+    assert [e.path for e in state.entries] == ["eingang"]
 
 
 def test_undo_without_a_journal(tmp_path, monkeypatch):
@@ -996,9 +1054,8 @@ def test_tag_undo_reloads_instead_of_discarding(release_dir):
     assert state.undo_last() is True
     assert state.release is not None                 # nicht verworfen
     assert state.release.artist == "Der Artist"      # Stand der Dateien
-    # Das Neueinlesen meldet sich danach auch noch - gesucht wird im Verlauf
-    assert any("getaggte Dateien zurückgenommen" in m.text
-               for m in state.messages)
+    # Als letzte Meldung, was der Knopf getan hat - nicht das Neueinlesen
+    assert state.last_message.text.endswith("getaggte Dateien zurückgenommen.")
 
 
 @needs_ffmpeg
@@ -1290,11 +1347,30 @@ def test_produce_moves_the_release_into_the_output(release_dir, template_file):
     kinds = [entry.kind.value for entry in state.undo_entries()]
     assert kinds[-3:] == ["tags", "rename", "move"]
 
-    # Zuruecknehmen: erst das Verschieben, dann die Umbenennung
+    # Zuruecknehmen: erst das Verschieben, dann die Umbenennung. Die
+    # Auswahl bleibt dabei im Eingang, beim Release - frueher sprang sie
+    # nach jedem Schritt zur Wurzel.
     assert state.undo_last()
     assert (release_dir.parent / "der_artist-das_album-2026-GRP").is_dir()
+    assert state.listed_path == "eingang"
+    assert [e.path for e in state.entries] == \
+        ["eingang/der_artist-das_album-2026-GRP"]
+    assert state.selected_path == "eingang/der_artist-das_album-2026-GRP"
+    assert state.current_path == "eingang/der_artist-das_album-2026-GRP"
+    assert state.release is not None and state.writable
+    assert "liegt jetzt wieder unter eingang/der_artist" in state.last_message.text
+
     assert state.undo_last()
     assert release_dir.is_dir()
+    assert state.listed_path == "eingang"
+    assert state.selected_path == state.current_path == \
+        "eingang/Artist-Album-2026-GRP"
+    assert state.root == release_dir
+
+    # Zuletzt die Tags: eingelesen bleibt es, mit den alten Werten
+    assert state.undo_last()
+    assert state.listed_path == "eingang"
+    assert state.release.artist == "Der Artist"
 
 
 @needs_ffmpeg

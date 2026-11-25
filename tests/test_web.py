@@ -731,7 +731,10 @@ def test_undo_over_http(client, tree, tmp_path, monkeypatch):
     state = client.post("/api/undo", json={"force": False}).json()
     assert (tree / "eingang" / "Artist-Album-2026-GRP").is_dir()
     assert not renamed.exists()
-    assert state["loaded"] is False          # Pfad zeigt ins Leere
+    # Die Auswahl folgt dem Release an seinen alten Namen - eingelesen
+    assert state["loaded"] is True
+    assert state["listed_path"] == "eingang"
+    assert state["selected_path"] == "eingang/Artist-Album-2026-GRP"
 
 
 # ============================= Rückgängig gehört der eigenen Sitzung

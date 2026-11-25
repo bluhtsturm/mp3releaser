@@ -1428,3 +1428,48 @@ def test_desktop_shows_version_labels_and_no_stale_companions(release_tree):
             in result.stdout)
     assert "LOADED True" in result.stdout
     assert "UNLOADED ''" in result.stdout
+
+
+@needs_gtk
+@needs_ffmpeg
+def test_undo_keeps_the_list_where_the_release_is(release_tree):
+    """Nach dem Zurücknehmen sprang die Liste zur Wurzel - jetzt bleibt sie."""
+    result = run_in_display(f"""
+        import os, sys; sys.path.insert(0, {str(ROOT)!r})
+        os.environ["XDG_STATE_HOME"] = {str(release_tree / 'state')!r}
+        import gi; gi.require_version("Gtk", "4.0")
+        from gi.repository import Gio, Gtk
+        from releaser.browse import Mount, MountedSource
+        from releaser.frontends.gtkui import ReleaserWindow
+        from releaser.naming import NamingProfile
+        from releaser.uistate import AppState
+
+        state = AppState(
+            source=MountedSource([Mount("eingang", {str(release_tree / 'eingang')!r})]),
+            naming=NamingProfile(group="GRP", file_pattern="#N-#Trk"))
+        app = Gtk.Application(application_id="de.test.undo",
+                              flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+        def activate(a):
+            window = ReleaserWindow(a, state)
+            state.navigate("eingang")
+            state.load("eingang/Artist-Album-2026-GRP")
+            state.set_field("album", "Neu")
+            state.preview_rename()
+            state.apply_rename()
+            print("NACH_UMBENENNEN", state.current_path)
+            state.undo_last()
+            row = window.listbox.get_selected_row()
+            print("LISTE", window.path_label.get_text())
+            print("MARKIERT", row.entry.path if row is not None else None)
+            print("GELADEN", state.current_path)
+            a.quit()
+
+        app.connect("activate", activate)
+        raise SystemExit(app.run([]))
+    """)
+    assert result.returncode == 0, result.stderr
+    assert "NACH_UMBENENNEN eingang/der_artist-neu-2026-GRP" in result.stdout
+    assert "LISTE eingang" in result.stdout
+    assert "MARKIERT eingang/Artist-Album-2026-GRP" in result.stdout
+    assert "GELADEN eingang/Artist-Album-2026-GRP" in result.stdout

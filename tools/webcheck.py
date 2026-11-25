@@ -471,6 +471,33 @@ def build_steps(checker: Checker) -> None:
                                 "Ergebnisfenster schließt mit „OK“"),
                        c.next())))
 
+    def step_undo():
+        # Das Verschieben zuruecknehmen: Die Liste bleibt im Eingang, das
+        # Release steht dort markiert und ist wieder eingelesen. Frueher
+        # sprang sie zur Wurzel.
+        def apply(_):
+            c.js("document.getElementById('planApply').click(); 'ok'",
+                 lambda _: None)
+            c.wait("JSON.stringify(document.getElementById('messages')"
+                   ".textContent.includes('liegt jetzt wieder unter'))",
+                   lambda _: c.js("""
+                       const sel = document.querySelector('.entry.selected');
+                       JSON.stringify({
+                         crumbs: document.getElementById('crumbs').textContent,
+                         selected: sel ? sel.textContent : null,
+                         status: document.getElementById('status').textContent})
+                       """, lambda got: (
+                           c.report(got.get("crumbs") == "eingang"
+                                    and bool(got.get("selected"))
+                                    and "Tracks" in (got.get("status") or ""),
+                                    f"Zurücknehmen bleibt im Eingang ({got})"),
+                           c.next())))
+
+        c.js("document.getElementById('undo').click(); 'ok'", lambda _: None)
+        c.wait("JSON.stringify(document.getElementById('plan').open && "
+               "document.getElementById('planTitle').textContent"
+               " === 'Zurücknehmen')", apply)
+
     def step_root_button():
         # "⌂ Wurzel" fuehrt aus jedem Ordner direkt zur obersten Ebene;
         # die Kopfzeile nennt die laufende Fassung
@@ -497,7 +524,7 @@ def build_steps(checker: Checker) -> None:
                step_cancel_changes_nothing, step_file_name_by_hand,
                step_letter_case, step_save_settings,
                step_nfo_tab, step_status, step_output, step_produce,
-               step_root_button]
+               step_undo, step_root_button]
 
 
 def main() -> int:
