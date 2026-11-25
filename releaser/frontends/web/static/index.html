@@ -740,9 +740,16 @@ document.getElementById("rename").onclick = () =>
 // Ein Klick, das fertige Release: Tags, Umbenennen, Begleitdateien. Kein
 // Zwischendialog - was entsteht, zeigen die Reiter "Namen" und "NFO" vorher,
 // und alles Riskante prueft der Server, bevor er etwas anfasst.
-document.getElementById("produce").onclick = () =>
-  call("/api/produce", {}).then(payload => {
-    if (!payload) return;
+// Ein Doppelklick schickte zwei Läufe los - der Dienst arbeitet sie zwar
+// nacheinander ab, der zweite meldete dann aber ein zweites Mal "Release
+// erstellt". Solange einer läuft, zählt kein weiterer Klick.
+let producing = false;
+document.getElementById("produce").onclick = () => {
+  if (producing) return;
+  producing = true;
+  document.getElementById("produce").disabled = true;
+  call("/api/produce", {}).finally(() => { producing = false; }).then(payload => {
+    if (!payload) { if (current) render(current); return; }
     render(payload);
     showInfo(payload.done ? "Release erstellt" : "Release nicht erstellt",
       payload.done
@@ -750,7 +757,8 @@ document.getElementById("produce").onclick = () =>
           + "\n\nZurücknehmen mit ↶ – " + (payload.undo_hint || "") + "."
         : (payload.messages || []).filter(m => m.level !== "info")
             .map(m => (m.level === "error" ? "x " : "! ") + m.text).join("\n"));
-  });
+  }).catch(() => { if (current) render(current); });   // Knopf wieder frei
+};
 function showSteps(open) {
   document.getElementById("stepsMenu").classList.toggle("hidden", !open);
   document.getElementById("stepsToggle").setAttribute("aria-expanded", String(open));

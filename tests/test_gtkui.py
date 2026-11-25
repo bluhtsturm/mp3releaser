@@ -1527,3 +1527,43 @@ def test_undo_dialog_lists_the_created_files(release_tree):
     assert "KOPF True" in result.stdout
     assert "NFO True SFV True" in result.stdout
     assert "FEHLER []" in result.stdout
+
+
+@needs_gtk
+@needs_ffmpeg
+def test_rejected_output_folder_is_reported_once(release_tree):
+    """Enter und danach Feld verlassen: eine Meldung, im Feld der alte Wert."""
+    result = run_in_display(f"""
+        import sys; sys.path.insert(0, {str(ROOT)!r})
+        import gi; gi.require_version("Gtk", "4.0")
+        from gi.repository import Gio, Gtk
+        from releaser.browse import Mount, MountedSource
+        from releaser.frontends.gtkui import ReleaserWindow
+        from releaser.uistate import AppState, Level
+
+        state = AppState(
+            source=MountedSource([Mount("eingang", {str(release_tree / 'eingang')!r})]))
+        app = Gtk.Application(application_id="de.test.outputonce",
+                              flags=Gio.ApplicationFlags.FLAGS_NONE)
+
+        def activate(a):
+            window = ReleaserWindow(a, state)
+            entry = window.output_entry
+            window.present()
+            entry.grab_focus()                      # nach Enter steht der
+            print("FOKUS", window._widget_has_focus(entry))   # Cursor im Feld
+            entry.set_text("gibtsnicht")
+            window._on_output(entry)                # Enter
+            window._on_output(entry)                # Feld verlassen
+            errors = [m.text for m in state.messages if m.level is Level.ERROR]
+            print("FEHLER", len(errors))
+            print("FELD", repr(entry.get_text()))
+            a.quit()
+
+        app.connect("activate", activate)
+        raise SystemExit(app.run([]))
+    """)
+    assert result.returncode == 0, result.stderr
+    assert "FOKUS True" in result.stdout
+    assert "FEHLER 1" in result.stdout
+    assert "FELD ''" in result.stdout

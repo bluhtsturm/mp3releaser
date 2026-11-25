@@ -55,7 +55,7 @@ docker compose up                                             # the same, in a c
 ./packaging/build.sh                                          # bundle + AppImage
 python3 -m releaser metrics --compare cli.json appimage.json container.json
 
-python3 -m pytest tests -q          # 980 tests
+python3 -m pytest tests -q          # 993 tests
 ```
 
 The core depends on `mutagen` only. The NFO part works without it; the user
@@ -921,6 +921,14 @@ your own computer. One test pins down that two clients do not see each other's
 input. The session store is thread-safe, because FastAPI runs the endpoints in
 a thread pool.
 
+Since 0.28.4 **the requests of one session run one after another** as well
+(`OneAtATime`, a middleware). Before, a double click on "Release erstellen"
+started two runs on the same release at once: the second wrote tags while the
+first was already renaming. Different sessions still run side by side. The
+undo log, shared by all sessions, is changed under a lock and written next to
+the old one first, then moved into its place — an aborted write leaves the old
+one intact.
+
 **The file browser is restricted.** There is only `MountedSource` here. What
 is visible is what someone put into the Compose file beforehand — the user of
 the interface does not decide that. The page says so too, in a banner above
@@ -1494,7 +1502,7 @@ explicit opt-in.
 ## Status
 
 The feature set of the original is covered, plus four interfaces (command
-line, guided mode, GTK 4, web) in three delivery forms. 980 tests, each layer
+line, guided mode, GTK 4, web) in three delivery forms. 993 tests, each layer
 checked at its own level:
 
 | Level | How it is tested |
@@ -1960,6 +1968,14 @@ that fails against the old state:
   and `.m3u` were still in the folder — with the name of the finished release
   and references to files that no longer existed. 0.28.3 removes them too
   (see [Undo](#undo)).
+* **Code review after 0.28.3** — five findings, all fixed in 0.28.4: since
+  0.28.1 the doubled split separator also hit ordinary releases when the space
+  character was "-" or "." (`band-das-album--2026-GRP`, `warten...mp3`). `↶`
+  refused to undo as soon as the list showed a read-only mount — what counts
+  now is what the undo touches. In the web, two requests of one session ran at
+  the same time (double click on "Release erstellen"). The shared undo log was
+  written without a lock and not in one piece. On the desktop, a rejected
+  output folder stayed in the field and the message came twice.
 
 ### What is open
 

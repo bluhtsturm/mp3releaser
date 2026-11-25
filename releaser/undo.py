@@ -21,6 +21,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import threading
 import time
 from dataclasses import dataclass, field
 from enum import Enum
@@ -30,6 +31,12 @@ from typing import Iterable, Optional
 #: Mehr als das wird nicht aufgehoben - alte Eintraege verfallen.
 MAX_ENTRIES = 50
 JOURNAL_NAME = "undo.json"
+
+#: Lesen, aendern, schreiben - immer am Stueck. Der Webdienst bedient
+#: mehrere Sitzungen in Threads; zwei, die gleichzeitig ein Release
+#: erstellten, lasen dasselbe Protokoll und schrieben es nacheinander
+#: zurueck - die Eintraege der ersten waren dann weg.
+_LOCK = threading.RLock()
 
 
 class UndoError(Exception):
@@ -141,20 +148,33 @@ def load(path: Optional[Path] = None) -> list[Entry]:
 
 
 def save(entries: Iterable[Entry], path: Optional[Path] = None) -> Path:
+    """Schreibt das Protokoll - erst daneben, dann an seinen Platz.
+
+    Bricht das Schreiben ab (Absturz, voller Datentraeger), bleibt das alte
+    Protokoll stehen. Vorher lag dann eine halbe Datei da, ``load`` las sie
+    als leer, und nichts liess sich mehr zuruecknehmen.
+    """
     target = path or journal_path()
     target.parent.mkdir(parents=True, exist_ok=True)
     kept = list(entries)[-MAX_ENTRIES:]
-    target.write_text(json.dumps([e.as_dict() for e in kept], indent=1),
-                      encoding="utf-8")
+    temporary = target.with_name(f".{target.name}.{os.getpid()}."
+                                 f"{threading.get_ident()}.tmp")
+    try:
+        temporary.write_text(json.dumps([e.as_dict() for e in kept], indent=1),
+                             encoding="utf-8")
+        os.replace(temporary, target)
+    finally:
+        temporary.unlink(missing_ok=True)
     return target
 
 
 def _append(entry: Entry, path: Optional[Path]) -> Entry:
-    try:
-        save(load(path) + [entry], path)
-    except OSError:
-        # Ein nicht schreibbares Protokoll darf die Arbeit nicht stoppen
-        pass
+    with _LOCK:
+        try:
+            save(load(path) + [entry], path)
+        except OSError:
+            # Ein nicht schreibbares Protokoll darf die Arbeit nicht stoppen
+            pass
     return entry
 
 
@@ -392,11 +412,12 @@ def undo(entry: Entry, path: Optional[Path] = None,
 
 
 def _forget(entry: Entry, path: Optional[Path]) -> None:
-    remaining = [e for e in load(path) if e.timestamp != entry.timestamp]
-    try:
-        save(remaining, path)
-    except OSError:
-        pass
+    with _LOCK:
+        remaining = [e for e in load(path) if e.timestamp != entry.timestamp]
+        try:
+            save(remaining, path)
+        except OSError:
+            pass
 
 
 def _remove_created(entry: Entry) -> list[tuple[Path, Path]]:

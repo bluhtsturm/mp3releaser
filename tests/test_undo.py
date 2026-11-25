@@ -666,3 +666,47 @@ def test_cli_undo_removes_created_files(tmp_path, capsys):
     assert "1 erzeugte Datei(en) entfernt." in err
     assert f"bleibt: {m3u}" in err
     assert not sfv.exists() and m3u.exists()
+
+
+# ==================================== Protokoll: Sperre und sicheres Schreiben
+
+
+def test_parallel_writers_lose_no_entries(monkeypatch):
+    """Der Webdienst schreibt aus mehreren Threads ins selbe Protokoll."""
+    import threading
+
+    real_load = undo.load
+
+    def slow_load(path=None):
+        entries = real_load(path)
+        time.sleep(0.01)                # Lesen und Schreiben weit auseinander
+        return entries
+
+    monkeypatch.setattr(undo, "load", slow_load)
+    threads = [threading.Thread(target=undo.record,
+                                args=([(Path(f"/a{i}"), Path(f"/b{i}"))], f"R{i}"))
+               for i in range(12)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join()
+    # Nur das Lesen zuruecksetzen - monkeypatch.undo() naehme auch das
+    # eigene Protokollverzeichnis dieses Tests mit
+    monkeypatch.setattr(undo, "load", real_load)
+    assert sorted(e.release for e in undo.load()) == sorted(f"R{i}" for i in range(12))
+
+
+def test_a_failed_write_keeps_the_old_journal(monkeypatch):
+    """Bricht das Schreiben ab, bleibt das alte Protokoll - keine halbe Datei."""
+    undo.record([(Path("/a"), Path("/b"))], "Vorher")
+    real_write = Path.write_text
+
+    def crash(self, data, *args, **kwargs):
+        real_write(self, data[: len(data) // 2], *args, **kwargs)
+        raise OSError(28, "Kein Platz mehr auf dem Geraet")
+
+    monkeypatch.setattr(Path, "write_text", crash)
+    undo.record([(Path("/c"), Path("/d"))], "Danach")   # scheitert leise
+    monkeypatch.setattr(Path, "write_text", real_write)
+    assert [e.release for e in undo.load()] == ["Vorher"]
+    assert [p.name for p in undo.journal_path().parent.iterdir()] == ["undo.json"]

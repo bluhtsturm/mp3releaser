@@ -1,3 +1,57 @@
+# Änderungen – 0.28.4: Funde aus der Code-Durchsicht
+
+Stand: 25.11.2026 · Version 0.28.3 → **0.28.4**
+
+Den Code noch einmal durchgesehen, mit Schwerpunkt auf dem, was seit der
+letzten vollen Durchsicht (0.27.0) neu ist: Ausgabeordner, Rücknahme
+(Verschieben, erzeugte Dateien, Liste danach), Sampler und Split, Web und
+Desktop. Fünf Funde, jeder erst nachgestellt, dann behoben:
+
+| Fund | Folge vorher | Änderung |
+|---|---|---|
+| **Doppelter Split-Trenner traf gewöhnliche Releases** (seit 0.28.1) | Mit „-“ als Ersatzzeichen hieß ein Ordner mit zwei leeren Feldern `band-das-album--2026-GRP`, ein Titel „Ende -- Teil 2“ `ende--teil-2`; mit „.“ wurde aus „Warten...“ `warten...mp3`; mit „_“ blieb „A__B“ doppelt | Im Muster gilt ein doppeltes Ersatzzeichen nur bei einem Split als Trenner, und nur, wo es über `#Fullrelease` aus dem fertigen Ordnernamen kommt. Von Hand gesetzte Namen bleiben, wie getippt. Namen gewöhnlicher Releases wieder wie in 0.28.0 |
+| **`↶` hing am falschen Ordner** | Ein Blick in den nur lesend eingehängten `archiv` genügte, und `↶` verweigerte die Rücknahme eines Releases im Eingang | Entscheidend sind die Ordner im Protokolleintrag. Liegt einer davon nur lesend eingehängt, sagt die Meldung, welcher |
+| **Web: zwei Anfragen einer Sitzung zugleich** | Ein Doppelklick auf „Release erstellen“ startete zwei Läufe: Der zweite schrieb Tags, während der erste umbenannte, scheiterte an „No such file“ und meldete „bis dahin: noch nichts geändert“. Ebenso lief der Abgleich bei der Rückkehr in den Tab mitten in einen Lauf | Middleware `OneAtATime`: Anfragen einer Sitzung nacheinander, verschiedene Sitzungen weiter nebeneinander. Gewartet wird in einem Hilfsthread, die Ereignisschleife bleibt frei. Die Seite sperrt den Knopf außerdem, solange ein Lauf unterwegs ist |
+| **Undo-Protokoll ohne Sperre, nicht am Stück geschrieben** | Zwei Sitzungen, die gleichzeitig ein Release erstellten, lasen dasselbe Protokoll und schrieben es nacheinander zurück – die Einträge der ersten waren weg. Ein Abbruch beim Schreiben hinterließ eine halbe Datei, die als leer galt: nichts mehr zurückzunehmen | Lesen-Ändern-Schreiben unter einer Sperre; geschrieben wird neben das alte Protokoll, dann an dessen Platz gerückt |
+| **Desktop: abgelehnter Ausgabeordner blieb im Feld** | Nach Enter stand der abgelehnte Wert weiter da; beim Verlassen des Felds kam dieselbe Fehlermeldung ein zweites Mal | Das Feld zeigt danach, was übernommen wurde. Beide Handler fangen Ausnahmen wie die übrigen ab (`@guarded`) |
+
+Nachgestellt:
+
+* Doppelklick: zwei gleichzeitige `POST /api/produce` und ein `GET
+  /api/state` gegen einen echten Server. Vorher scheiterte der zweite Lauf
+  mittendrin; jetzt läuft er nach dem ersten und hat nichts mehr zu tun – das
+  Protokoll enthält genau die vier Einträge des ersten.
+* Trenner: dieselben drei Releases mit „-“, „.“ und „_“ gegen 0.28.0 – die
+  Namen sind wieder gleich, Splits behalten `--`, `..` und `__`.
+
+## Tests
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 980 | 993 |
+| Desktop-Tests mit echtem GTK 4.14 (Python 3.12) | 55 grün | 56 grün |
+| `pyflakes` | sauber | sauber |
+
+* `tests/test_various.py`: gewöhnliches Release mit „-“, „.“ und „_“ ohne
+  doppelte Trenner; Split mit jedem der drei behält ihn, auch in den
+  Begleitdateien.
+* `tests/test_undo.py`: zwölf Threads schreiben gleichzeitig – kein Eintrag
+  geht verloren; ein mitten im Schreiben abgebrochener Lauf lässt das alte
+  Protokoll stehen, ohne Reste.
+* `tests/test_uistate.py`: `↶` nach einem Blick ins Archiv; `↶` in einem nur
+  lesend eingehängten Ordner wird abgelehnt, mit Meldung, ohne etwas
+  anzufassen.
+* `tests/test_web.py`: zwei gleichzeitige Läufe einer Sitzung überschneiden
+  sich nicht; zwei Sitzungen laufen weiter nebeneinander.
+* `tests/test_gtkui.py`: abgelehnter Ausgabeordner – eine Meldung, das Feld
+  zeigt wieder den übernommenen Wert.
+
+Gegen 0.28.3 laufen gelassen, schlagen die neuen Tests fehl – bis auf die
+zwei, die festhalten, was gleich bleiben soll (Splits behalten ihren Trenner,
+zwei Sitzungen laufen nebeneinander).
+
+---
+
 # Änderungen – 0.28.3: Zurücknehmen entfernt auch die erzeugten Dateien
 
 Stand: 25.11.2026 · Version 0.28.2 → **0.28.3**
