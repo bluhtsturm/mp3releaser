@@ -1089,16 +1089,10 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
                 self.state.say("Nichts rückgängig zu machen.", Level.WARNING)
                 self.refresh()
                 return
-            if entry.moves:
-                detail = "\n".join(f"  {dst}\n     ->  {src}"
-                                   for src, dst in entry.moves)
-            else:
-                # Pseudofelder wie "#containers" sind Buchhaltung, kein Tag
-                detail = "\n".join(
-                    f"  {Path(file).name}: "
-                    + ", ".join(k for k in values if not k.startswith("#"))
-                    for file, values in entry.tags.items())
-            _confirm(self, "Zurücknehmen", entry.describe() + "\n\n" + detail,
+            from ..undo import detail
+
+            _confirm(self, "Zurücknehmen",
+                     entry.describe() + "\n\n" + detail(entry),
                      lambda: self.state.undo_last())
 
         @guarded
@@ -1183,12 +1177,11 @@ if GTK_AVAILABLE:  # pragma: no cover - braucht eine Grafikumgebung
             before = len(self.state.messages)
             done = self.state.produce()
             if done is not None:
+                from ..undo import produce_hint
+
                 moved = any(line.startswith("Verschoben") for line in done)
                 _inform(self, "Release erstellt", "\n".join(done) + "\n\n"
-                        "Zurücknehmen mit ↶ - "
-                        + ("erst das Verschieben, dann die Umbenennung, dann "
-                           "die Tags." if moved else
-                           "erst die Umbenennung, dann die Tags."))
+                        "Zurücknehmen mit ↶ - " + produce_hint(moved) + ".")
                 return
             reasons = [f"{LEVEL_PREFIX[m.level]}{m.text}"
                        for m in self.state.messages[before:]

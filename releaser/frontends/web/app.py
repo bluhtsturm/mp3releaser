@@ -53,6 +53,7 @@ from ...runtime import as_dict as metrics_dict, collect as collect_metrics
 from ...service import BuildOptions
 from ...tagwriter import TagProfile, format_plan as format_tag_plan
 from ...uistate import AppState, Level
+from ...undo import detail as undo_detail, produce_hint
 
 STATIC = Path(__file__).parent / "static"
 COOKIE = "releaser_session"
@@ -623,11 +624,16 @@ def create_app(source: Optional[MountedSource] = None,
     def undo_list(response: Response,
                   releaser_session: Optional[str] = Cookie(default=None)):
         state = session(response, releaser_session)
+        entries = state.undo_entries()
+        last = entries[-1] if entries else None
         return JSONResponse(
             {"entries": [{"when": e.when, "release": e.release,
                           "count": e.count, "kind": e.kind.value,
-                          "label": e.kind.label}
-                         for e in state.undo_entries()]},
+                          "label": e.kind.label,
+                          # Einzelheiten nur fuer den Eintrag, der dran ist -
+                          # bei erzeugten Dateien wird dafuer jede gelesen
+                          "detail": undo_detail(e) if e is last else ""}
+                         for e in entries]},
             headers=dict(response.headers))
 
     @app.post("/api/undo")
@@ -744,6 +750,11 @@ def create_app(source: Optional[MountedSource] = None,
         done = state.produce()
         payload = state_json(state)
         payload["done"] = done
+        if done is not None:
+            # Der Text steht an einer Stelle (undo.produce_hint) - die Seite
+            # setzte ihn frueher selbst zusammen, und er lief auseinander.
+            payload["undo_hint"] = produce_hint(
+                any(line.startswith("Verschoben") for line in done))
         state.clear_messages()
         return JSONResponse(payload, headers=dict(response.headers))
 

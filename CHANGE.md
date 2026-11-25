@@ -1,3 +1,79 @@
+# Änderungen – 0.28.3: Zurücknehmen entfernt auch die erzeugten Dateien
+
+Stand: 25.11.2026 · Version 0.28.2 → **0.28.3**
+
+0.28.2 im Container durchgespielt: alle Formate, Sampler, Splits, Kollision,
+Neustart – in Ordnung, und `↶` bleibt im Eingang. Gefunden beim
+vollständigen Zurücknehmen eines Splits (Verschieben, Umbenennung, Tags):
+
+| | 0.28.2 | 0.28.3 |
+|---|---|---|
+| nach dem letzten `↶` im Ordner | 6 MP3 mit altem Namen und alten Tags **und** `00-band_eins__band_zwei__band_drei-drei_split-2026.nfo/.sfv/.m3u` – `.sfv` und `.m3u` verweisen auf Dateien, die es nicht mehr gibt | nur die 6 MP3, wie vor „Release erstellen“ |
+| Schritte für ein fertiges Release mit Ausgabeordner | Verschieben, Umbenennung, Tags | Verschieben, **erzeugte Dateien**, Umbenennung, Tags |
+
+## Änderung
+
+* Neue Art im Protokoll: `Kind.CREATED` („erzeugte Datei(en)“), je Datei mit
+  SHA-256 des Inhalts. `service.build` trägt sie ein – damit gilt es für
+  „Release erstellen“, „Dateien erzeugen“, `releaser build` und
+  `releaser release` gleich.
+* **Nur, was neu ist:** Dateien, die vor dem Lauf schon da waren und nur neu
+  geschrieben wurden, kommen nicht hinein – die Rücknahme darf sie nicht
+  löschen.
+* **Nur, was noch so aussieht:** Eine seitdem von Hand veränderte Datei bleibt
+  liegen, die Meldung nennt sie. Sie hält die Rücknahme nicht auf, Umbenennung
+  und Tags dahinter lassen sich weiter zurücknehmen. Fehlende Dateien werden
+  übergangen.
+* Das eingelesene Release bleibt dabei samt Eingaben – `.nfo`, `.sfv` und
+  `.m3u` gehören nicht zum Modell. Die Liste bleibt beim Release, die Meldung
+  sagt „3 erzeugte Datei(en) entfernt aus eingang/…“.
+* Der Bestätigungsdialog listet die Dateien vorher auf – den Ordner einmal,
+  darunter die Namen, mit „(verändert – bleibt)“ wo es zutrifft –, im
+  Desktop, im Web (bisher nur die Kopfzeile) und bei `releaser undo`. Mit
+  vollen Pfaden lief der Hinweis im Desktop-Dialog aus dem Bild.
+* Der Hinweis nach „Release erstellen“ („Zurücknehmen mit ↶ – erst …“) stand
+  dreimal im Code (Web, Desktop, Kommandozeile); jetzt einmal,
+  `undo.produce_hint`.
+* Protokolle älterer Fassungen werden weiter gelesen.
+
+## Tests
+
+| | vorher | nachher |
+|---|---|---|
+| Tests | 968 | 980 |
+| Desktop-Tests mit echtem GTK 4.14 (Python 3.12) | 54 grün | 55 grün |
+| Browser-Prüfung in WebKitGTK | 25 von 25 | 25 von 25, Hinweistext mitgeprüft |
+| `pyflakes` | sauber | sauber |
+
+* `tests/test_undo.py`: Eintrag samt Speichern und Laden; leerer Lauf ohne
+  Eintrag; veränderte Datei bleibt, fehlende hält nicht auf; alte Protokolle;
+  Hinweistext; `build` protokolliert nur Neues; `process` protokolliert alle
+  vier Schritte in Reihenfolge, und vier Rücknahmen stellen den Ordner wieder
+  her; `releaser undo` zeigt und entfernt.
+* `tests/test_uistate.py`: nur „Dateien erzeugen“, dann `↶` – Eingaben
+  bleiben, veränderte `.nfo` bleibt mit Meldung; Sitzungstrennung im Dienst;
+  der ganze Lauf mit Ausgabeordner endet mit einem Eingang wie vorher.
+* `tests/test_web.py`: über HTTP, mit Pfaden der Auswahl statt Serverpfaden
+  im Dialog.
+* `tests/test_gtkui.py`: Der Dialog im echten Fenster nennt die Dateien.
+
+Gegen 0.28.2 laufen gelassen, schlagen die 14 neuen und geänderten Tests fehl.
+
+Durchgespielt:
+
+* **Container** (Image aus diesem Stand, Eingang ext4, Ausgang tmpfs): der
+  volle Ablauf wie bei 0.28.2, danach vier `↶` auf den Drei-Artist-Split. Der
+  Web-Dialog nennt die drei Dateien unter `eingang/…` (kein Serverpfad), die
+  Liste bleibt im Eingang. Danach ist „Drei Split“ wie vor „Release
+  erstellen“: dieselben sechs Dateinamen, dieselben Tags.
+* **Desktop** (AppImage aus dem Prüflauf, dann der geänderte Dialog aus dem
+  Quellstand): Split von Hand eingetragen, erstellt, `↶`, dann die `.nfo` von
+  Hand ergänzt, `↶` – Dialog zeigt „(verändert – bleibt)“, `.sfv` und `.m3u`
+  gehen, die `.nfo` bleibt. Nach vier Schritten: die vier MP3 mit altem
+  Namen und die bearbeitete `.nfo`.
+
+---
+
 # Änderungen – 0.28.2: Nach dem Zurücknehmen bleibt die Liste im Eingang
 
 Stand: 24.11.2026 · Version 0.28.1 → **0.28.2**

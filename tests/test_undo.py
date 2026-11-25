@@ -536,3 +536,133 @@ def test_release_place_is_unknown_for_tags_and_strangers(tmp_path):
     stranger = undo.record([(tmp_path / "a" / "x", tmp_path / "a" / "y")],
                            "Ganz-Anders", path=tmp_path / "j.json")
     assert undo.release_place(stranger) is None
+
+
+# ========================================== Erzeugte Dateien (.nfo, .sfv, .m3u)
+
+
+def created_files(tmp_path: Path) -> tuple[Path, list[Path]]:
+    root = tmp_path / "Rel-GRP"
+    (root / "CD1").mkdir(parents=True)
+    files = [root / "00-rel.nfo", root / "CD1" / "00-rel-cd1.sfv",
+             root / "00-rel.m3u"]
+    for file in files:
+        file.write_text("Inhalt von " + file.name)
+    return root, files
+
+
+def test_created_files_are_recorded_with_their_content(tmp_path):
+    root, files = created_files(tmp_path)
+    entry = undo.record_created(files, "Rel-GRP")
+    assert entry.kind is undo.Kind.CREATED
+    assert entry.count == 3
+    assert "(3 erzeugte Datei(en))" in entry.describe()
+    # uebersteht Speichern und Laden
+    assert undo.load()[-1].created == entry.created
+    assert undo.release_place(entry) == (root, root)
+
+
+def test_nothing_created_means_no_entry(tmp_path):
+    assert undo.record_created([], "Rel-GRP") is None
+    assert undo.load() == []
+
+
+def test_undo_removes_created_files_but_keeps_changed_ones(tmp_path):
+    root, (nfo, sfv, m3u) = created_files(tmp_path)
+    entry = undo.record_created([nfo, sfv, m3u], "Rel-GRP")
+    m3u.write_text("von Hand ergaenzt")
+    nfo.unlink()                                   # schon weg - kein Hindernis
+
+    assert undo.check(entry) == []
+    assert undo.changed_files(entry) == [m3u]
+    assert undo.detail(entry).splitlines() == [
+        f"  in {root}:",                           # der Ordner einmal
+        "    00-rel.nfo   (gibt es nicht mehr)",
+        "    CD1/00-rel-cd1.sfv",
+        "    00-rel.m3u   (verändert – bleibt)"]
+
+    done = undo.undo(entry)
+    assert [path for path, _ in done] == [sfv]
+    assert not sfv.exists()
+    assert m3u.read_text() == "von Hand ergaenzt"  # bleibt liegen
+    assert (root / "CD1").is_dir()                 # Ordner bleiben
+    assert undo.load() == []
+
+
+def test_old_journals_without_created_files_still_load(tmp_path):
+    undo.save([Entry(timestamp=1.0, release="Alt", kind=undo.Kind.RENAME,
+                     moves=[("/a", "/b")])])
+    raw = undo.journal_path().read_text(encoding="utf-8")
+    assert "created" not in raw                    # alte Form bleibt alte Form
+    assert undo.load()[0].created == {}
+
+
+def test_produce_hint_names_every_step():
+    assert undo.produce_hint(True) == ("erst das Verschieben, dann die "
+                                       "erzeugten Dateien, dann die "
+                                       "Umbenennung, dann die Tags")
+    assert undo.produce_hint(False).startswith("erst die erzeugten Dateien")
+
+
+@needs_ffmpeg
+def test_build_records_only_files_it_created(tmp_path):
+    root = make_release(tmp_path)
+    release = service.scan(root).release
+    options = service.BuildOptions(nfo=False)
+    first = service.build(release, root, options, NamingProfile(group="GRP"))
+    assert first.journal is not None
+    assert sorted(Path(f).suffix for f in first.journal.created) == \
+        [".m3u", ".sfv"]
+
+    # Ein zweiter Lauf schreibt dieselben Dateien neu - sie waren schon da,
+    # also kein Eintrag: Die Ruecknahme duerfte sie nicht loeschen.
+    second = service.build(release, root, options, NamingProfile(group="GRP"))
+    assert second.created and second.journal is None
+    assert [e.kind for e in undo.load()] == [undo.Kind.CREATED]
+
+
+@needs_ffmpeg
+def test_process_journals_every_step_in_order(tmp_path):
+    root = make_release(tmp_path)
+    out = tmp_path / "ausgang"
+    out.mkdir()
+    options = service.BuildOptions(nfo=False, output_dir=out)
+    outcome = service.process(root, options, NamingProfile(group="GRP"),
+                              do_tag=True, do_rename=True)
+    assert outcome.ok
+    assert [e.kind for e in undo.load()] == [
+        undo.Kind.TAGS, undo.Kind.RENAME, undo.Kind.CREATED, undo.Kind.MOVE]
+
+    # Alles zurueck, in umgekehrter Reihenfolge: danach wie vorher
+    before = sorted(["01-x.flac", "02-x.flac"])
+    for _ in range(4):
+        undo.undo(undo.last())
+    assert sorted(p.name for p in root.iterdir()) == before
+    assert list(out.iterdir()) == []
+
+
+@needs_ffmpeg
+def test_cli_undo_removes_created_files(tmp_path, capsys):
+    from releaser.frontends import cli
+
+    root = make_release(tmp_path)
+    release = service.scan(root).release
+    built = service.build(release, root, service.BuildOptions(nfo=False),
+                          NamingProfile(group="GRP"))
+    sfv = next(p for p in built.created if p.suffix == ".sfv")
+    m3u = next(p for p in built.created if p.suffix == ".m3u")
+    m3u.write_text("von Hand")
+    capsys.readouterr()
+
+    assert cli.main(["undo"]) == 0                 # nur Vorschau
+    out = capsys.readouterr().out
+    assert f"  in {root}:" in out
+    assert f"    {sfv.name}\n" in out
+    assert f"    {m3u.name}   (verändert – bleibt)" in out
+    assert sfv.exists()
+
+    assert cli.main(["undo", "--apply"]) == 0
+    err = capsys.readouterr().err
+    assert "1 erzeugte Datei(en) entfernt." in err
+    assert f"bleibt: {m3u}" in err
+    assert not sfv.exists() and m3u.exists()

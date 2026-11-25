@@ -611,7 +611,8 @@ class AppState:
         return entries[-1] if entries else None
 
     def undo_last(self, force: bool = False) -> bool:
-        """Nimmt die letzte Umbenennung zurück und liest neu ein."""
+        """Nimmt den letzten Schritt zurück: Verschieben, erzeugte Dateien,
+        Umbenennung oder Tags - und zeigt danach, wo das Release liegt."""
         from . import undo
 
         if self._refuse_if_readonly("Zurücknehmen"):
@@ -633,6 +634,10 @@ class AppState:
         # Ruecknahme das eingelesene Release?
         place = undo.release_place(entry)
         follows = self._loaded_at(place[1]) if place else False
+        # Von Hand veraenderte .nfo & Co. bleiben liegen - vorher ermitteln,
+        # danach laesst es sich nicht mehr unterscheiden.
+        kept = (undo.changed_files(entry)
+                if entry.kind is undo.Kind.CREATED else [])
         try:
             done = undo.undo(entry, force=force)
         except undo.UndoError as exc:
@@ -655,6 +660,20 @@ class AppState:
             # Danach, wie bei den anderen Ruecknahmen: Als letzte Meldung
             # steht, was der Knopf getan hat, nicht "N Track(s) eingelesen".
             self.say(message)
+            self._changed()
+            return True
+
+        if entry.kind is undo.Kind.CREATED:
+            # Das eingelesene Release bleibt, wie es ist: .nfo, .sfv und
+            # .m3u gehoeren nicht zum Modell, neu einlesen hiesse nur,
+            # Eingaben zu verlieren.
+            where = self._follow_undo(place, False)
+            if kept:
+                self.say("Seit dem Erzeugen verändert, deshalb behalten: "
+                         + ", ".join(path.name for path in kept),
+                         Level.WARNING)
+            self.say(f"{len(done)} erzeugte Datei(en) entfernt"
+                     + (f" aus {where}." if where else "."))
             self._changed()
             return True
 
@@ -1117,6 +1136,9 @@ class AppState:
             self.say(warning, Level.WARNING)
         for path in outcome.removed:
             self.say(f"{path.name} entfernt")
+        # Wie beim Umbenennen: Im Dienst darf diese Sitzung nur ihre eigenen
+        # Eintraege zuruecknehmen
+        self._remember(outcome.journal)
         self.say(f"{len(outcome.created)} Datei(en) erzeugt")
         self._changed()
         return outcome.created
